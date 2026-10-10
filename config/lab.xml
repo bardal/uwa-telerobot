@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- VirtualLab: simulated robot + cameras -->
+<config>
+  <robot>
+    <controlport>30562</controlport>
+    <positionport>30563</positionport>
+  </robot>
+  <!-- the camera server's MOM login (see users.ini) -->
+  <MOM>
+    <url>moms://camera:camera-local:camera@localhost:4444/</url>
+  </MOM>
+  <!-- uncomment to also keep every photo as a JPEG
+  <images><directory>images</directory></images>
+  -->
+</config>

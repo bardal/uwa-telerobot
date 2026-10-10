@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!-- MOM server configuration; paths are relative to the working directory (run/) -->
+<config>
+  <usermanager>
+    <file>../config/users.ini</file>
+  </usermanager>
+</config>

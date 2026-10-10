@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>UWA Telerobot</title></head>
+<body>
+<h1>UWA Telerobot</h1>
+<p>The control applet opens in its own window. Log in as <code>guest</code> with any nickname,
+press <b>Control Robot</b>, then type a path script such as <code>x200,y150,z40;g1</code>
+and press <b>Send command</b>. See <a href="help.html">help</a>.</p>
+<applet code="au.edu.uwa.mech.applets.TA200001.class" archive="telerobot.jar" width="1" height="1">
+<param name="MOMURL" value="moms://localhost:4444/">
+<param name="LogURL" value="http://localhost:18080/log">
+<param name="archiveURL" value="http://localhost:18080/log">
+<param name="fontsize" value="11">
+<param name="imageheight" value="300">
+<param name="imagewidth" value="400">
+<param name="logouturl" value="http://localhost:18080/">
+</applet>
+</body>
+</html>

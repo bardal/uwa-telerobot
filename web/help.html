@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>UWA Telerobot help</title></head>
+<body>
+<h1>Driving the robot</h1>
+<p>Commands are GBH path scripts. A script is a list of waypoints separated by <code>;</code>;
+each waypoint sets one or more axes separated by <code>,</code>:</p>
+<table border="1" cellpadding="3">
+<tr><td><code>x</code> <code>y</code> <code>z</code></td><td>gripper position in mm (table corner is the origin, z up; z must be at least 5)</td></tr>
+<tr><td><code>s</code></td><td>spin in degrees (-90 points the gripper along +x)</td></tr>
+<tr><td><code>t</code></td><td>tilt in degrees, or <code>tf</code> / <code>tv</code> / <code>tb</code> for -45 / 0 / 45</td></tr>
+<tr><td><code>g0</code> / <code>g1</code></td><td>open / close the gripper (also <code>o</code> / <code>c</code>)</td></tr>
+<tr><td><code>r</code></td><td>before an axis: relative to the current position, e.g. <code>rz-20</code></td></tr>
+</table>
+<p>Example: pick up the red block and stack it on the blue one:</p>
+<pre>x120,y150,z60;z15;g1;z80;x330,y120;z45;g0;z90</pre>
+<p>The camera images carry their calibration, so the 3D stick cursor drawn over
+them can be dragged to choose a position: drag the top marker to change height,
+the bottom marker or the plumb line to move across the table, and the needles to
+change spin and tilt.</p>
+</body>
+</html>
