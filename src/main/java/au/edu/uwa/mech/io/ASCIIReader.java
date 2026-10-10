@@ -80,12 +80,17 @@ public class ASCIIReader extends FilterReader
   /** Booleans are written as integers: 1 is true, anything else false. */
   public boolean readBool() throws IOException { return readInt() == 1; }
 
-  private static double parse(String w) throws IOException
+  /**
+   * A word that is not a number throws NumberFormatException, not
+   * IOException: callers such as the robot Client try to read every message
+   * as a pose and quietly ignore the ones that are not.
+   */
+  private static double parse(String w)
   {
     try {
       return Double.parseDouble(w);
     } catch (NumberFormatException e) {
-      throw new IOException("expected a number but got '" + w + "'");
+      throw new NumberFormatException("expected a number but got '" + w + "'");
     }
   }
 }

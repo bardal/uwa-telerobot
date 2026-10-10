@@ -44,6 +44,14 @@ public class ProtocolParsingTest
     assertTrue(s.moving());
   }
 
+  /** Non-numbers raise NumberFormatException, which the robot Client deliberately ignores. */
+  @Test(expected = NumberFormatException.class)
+  public void replyIsNotAPosition() throws Exception
+  {
+    String reply = "1 0 \"Move completed\"";
+    new RobotState().readDeg(new ASCIIReader(new CharArrayReader(reply.toCharArray())));
+  }
+
   @Test
   public void userDatabase() throws Exception
   {
