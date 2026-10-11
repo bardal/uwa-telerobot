@@ -57,7 +57,7 @@ public class AppletWalkthrough
     String user = args.length > 1 ? args[1] : "team";
     String pin = args.length > 2 ? args[2] : "1234";
     String nick = args.length > 3 ? args[3] : "walk" + (System.currentTimeMillis() / 1000 % 100000);
-    String script = args.length > 4 ? args[4] : "x120,y150,z60;z15;g1;z80;x330,y120;z45;g0;z90";
+    String script = args.length > 4 ? args[4] : "x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90";
     params.put("MOMURL", "moms://localhost:4444/");
     params.put("LogURL", "http://localhost:18080/log");
     params.put("fontsize", "11");

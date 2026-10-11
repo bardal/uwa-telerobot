@@ -13,7 +13,10 @@ each waypoint sets one or more axes separated by <code>,</code>:</p>
 <tr><td><code>r</code></td><td>before an axis: relative to the current position, e.g. <code>rz-20</code></td></tr>
 </table>
 <p>Example: pick up the red block and stack it on the blue one:</p>
-<pre>x120,y150,z60;z15;g1;z80;x330,y120;z45;g0;z90</pre>
+<pre>x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90</pre>
+<p>The first waypoint opens the gripper, which must be open to grip. The
+gripper only grips with the tilt within &plusmn;20&deg;. Blocks stay where they are
+left until the lab is restarted.</p>
 <p>The camera images carry their calibration, so the 3D stick cursor drawn over
 them can be dragged to choose a position: drag the top marker to change height,
 the bottom marker or the plumb line to move across the table, and the needles to

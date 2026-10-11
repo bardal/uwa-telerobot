@@ -32,14 +32,22 @@ The control applet opens in its own window:
    drag the yellow 3D cursor over a camera image and choose
    **Robot ▸ Comand from cursor**.
 
+The camera images are augmented with overlays drawn from each camera's
+calibration: the yellow stick cursor, the blue path of commanded moves, the x/y/z axes,
+the cursor's coordinates in red, and shared workspace points. The **Images**
+menu turns them on and off, and **Workspace** has measuring tools.
+
 Commands are path scripts: waypoints separated by `;`, each setting axes
 `x y z` (mm), `s` (spin), `t` (tilt) and `g0`/`g1` (open/close the gripper).
 [web/help.html](web/help.html) has the details. To stack the red block on the
 blue one:
 
 ```
-x120,y150,z60;z15;g1;z80;x330,y120;z45;g0;z90
+x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90
 ```
+
+The first waypoint sets spin and tilt and opens the gripper, because a closed
+gripper can't grip and the gripper only grips with the tilt within ±20°. Blocks stay where they are left until the stack is restarted.
 
 Logs go to `run/`. User accounts are in [config/users.ini](config/users.ini).
 The `team` account (PIN `1234`) can take control from guests; change the PINs

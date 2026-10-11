@@ -203,9 +203,10 @@ public class Renderer
         + (caption == null ? "" : "  " + caption);
     int tw = g.getFontMetrics().stringWidth(text);
     g.setColor(new Color(0, 0, 0, 140));
-    g.fillRect(0, 0, tw + 8, 16);
+    int h = img.getHeight();   // bottom-left: the applet draws its own text at the top
+    g.fillRect(0, h - 16, tw + 8, 16);
     g.setColor(Color.white);
-    g.drawString(text, 4, 12);
+    g.drawString(text, 4, h - 4);
     g.dispose();
   }
 

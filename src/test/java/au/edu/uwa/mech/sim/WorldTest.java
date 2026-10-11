@@ -22,8 +22,10 @@ public class WorldTest
     VirtualRobotServer robot = new VirtualRobotServer(w);
     VirtualRobotServer.SPEED_MM_PER_S = 5000;   // keep the test quick
     VirtualRobotServer.GRIPPER_SECONDS = 0.05;
+    // start where a cursor move left the arm, tilted and with the gripper closed
+    robot.execute("gbh move x186,y313,s-19,t-24,z387,gclosed");
     // the help page's example: red block onto the blue one
-    String reply = robot.execute("gbh move x120,y150,z60;z15;g1;z80;x330,y120;z45;g0;z90");
+    String reply = robot.execute("gbh move x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90");
     assertEquals("1 0 \"Move completed\"", reply);
     Block red = find(w, "red"), blue = find(w, "blue");
     assertEquals(330, red.getX(), 1e-6);
