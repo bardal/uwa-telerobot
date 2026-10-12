@@ -93,6 +93,18 @@ public class AppletWalkthrough
     waitFor(gui, "we are the controller", () -> labelText(gui, "Controller").contains(nick), 15000);
     step(gui, "03-in-control");
 
+    System.out.println("UAT canvas " + showingCanvas(gui).getSize() + " scale " + showingCanvas(gui).getDisplayScale());
+    // enlarge the window: the camera image and its overlays scale up to fill it
+    EventQueue.invokeAndWait(() -> { gui.setSize(1280, 900); gui.validate(); });
+    waitFor(gui, "camera image scaled up with the window", () -> {
+      CalibratedCanvas c = showingCanvas(gui);
+      c.repaint();
+      return c.getDisplayScale() > 1.5;
+    }, 10000);
+    Thread.sleep(1500);
+    System.out.println("UAT canvas " + showingCanvas(gui).getSize() + " scale " + showingCanvas(gui).getDisplayScale());
+    step(gui, "03b-enlarged");
+
     // drag the stick cursor: base marker across the table, then the peak marker down
     CalibratedCanvas cc = showingCanvas(gui);
     Camera cam = new Camera(cc.getCalibrationMatrix().getArray(), new Point(0, 0), 1);

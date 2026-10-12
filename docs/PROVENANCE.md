@@ -25,7 +25,12 @@ for:
   shutdown hook;
 * `Calibrate`, which solves for the camera matrix in Java instead of calling
   the native VIP library;
-* example credentials in comments and test mains, replaced by placeholders.
+* example credentials in comments and test mains, replaced by placeholders;
+* resizable camera views: `gui.awt.ImageCanvas` scales its image to fit,
+  `CalibratedCanvas` gives overlays a calibration matrix that includes the
+  display scale, `CameraPanel`, `CameraManagerPanel` and the `TA200001`
+  layout let the cameras take the window's spare space, and `Calibrate`
+  converts mouse clicks back to image pixels.
 
 ## Left out
 

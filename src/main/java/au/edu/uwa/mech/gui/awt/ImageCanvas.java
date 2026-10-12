@@ -36,6 +36,9 @@ import java.awt.MediaTracker;
 import java.awt.Container;
 import java.awt.Window;
 import java.awt.Rectangle;
+import java.awt.Point;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 
 import au.edu.uwa.mech.gui.TheConsole;
 import au.edu.uwa.mech.util.TheLog;
@@ -63,11 +66,40 @@ public class ImageCanvas extends Canvas {
   }
 
   public Dimension getMinimumSize() {
-    return size;
+    return new Dimension(w / 4, h / 4);
   }
 
   public Dimension getMaximumSize(){
-    return getMinimumSize();
+    return new Dimension(Short.MAX_VALUE, Short.MAX_VALUE);
+  }
+
+  // The image is drawn scaled to fit the canvas, keeping its aspect
+  // ratio, and centred: display = image * scale + offset.
+  protected double scale = 1;
+  protected int offsetX, offsetY;
+
+  protected void fit() {
+    Dimension d = getSize();
+    if (d.width <= 0 || d.height <= 0 || w <= 0 || h <= 0) {
+      scale = 1;
+      offsetX = offsetY = 0;
+      return;
+    }
+    scale = Math.min(d.width / (double) w, d.height / (double) h);
+    if (Math.abs(scale - 1) < 0.03)
+      scale = 1;   // a few pixels spare: keep the image sharp
+    offsetX = (int) Math.round((d.width - w * scale) / 2);
+    offsetY = (int) Math.round((d.height - h * scale) / 2);
+  }
+
+  public double getDisplayScale() { return scale; }
+
+  public Point getDisplayOffset() { return new Point(offsetX, offsetY); }
+
+  /** Converts a point on the canvas (e.g. a mouse event) to image pixels. */
+  public Point toImage(Point p) {
+    return new Point((int) Math.round((p.x - offsetX) / scale),
+                     (int) Math.round((p.y - offsetY) / scale));
   }
   
   
@@ -133,6 +165,9 @@ public class ImageCanvas extends Canvas {
     
     setSize(w, h);
     invalidate();
+    // let a layout manager give us our real bounds again
+    if (getParent() != null)
+      getParent().validate();
    //   Container parent=getParent();
 //      while (parent.getParent() != null)
 //        parent = parent.getParent();
@@ -152,7 +187,7 @@ public class ImageCanvas extends Canvas {
   /**     * Paint the previous frame (if any).     */
   public void paint(Graphics g) {
     setClipRect(g);
-    if (offImage == null)
+    if (offImage == null || !getSize().equals(offDimension))
       update(g);
     else
       g.drawImage(offImage, 0, 0, null);
@@ -194,7 +229,7 @@ public class ImageCanvas extends Canvas {
     //we're larger than the image
     //Rectangle clip=g.getClipBounds();
     //offGraphics.setClip(g.getClipBounds().intersection(new Rectangle(size)));
-    offGraphics.setClip(new Rectangle(size));
+    offGraphics.setClip(new Rectangle(d));
     
     doPaint(offGraphics);	// Paint the image onto the offscreen
     g.drawImage(offImage, 0, 0, null);
@@ -228,23 +263,34 @@ public class ImageCanvas extends Canvas {
           doResize(imageWidth, imageHeight);
         
       }
-      g.drawImage(image, 0, 0, this);
+    }
+    fit();
+    int dw = (int) Math.round(w * scale), dh = (int) Math.round(h * scale);
+    Dimension d = getSize();
+    Color bg = getBackground();
+    g.setColor(bg == null ? Color.lightGray : bg);
+    g.fillRect(0, 0, d.width, d.height);
+    // overlays drawn after us stay on the image
+    g.setClip(offsetX, offsetY, dw, dh);
+    if (image != null) {
+      if (g instanceof Graphics2D)
+        ((Graphics2D) g).setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                          RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+      g.drawImage(image, offsetX, offsetY, dw, dh, this);
     }
     else
     {
       TheLog.println("No image so we're drawing a white background");
-      Color c=g.getColor();
       g.setColor(Color.white);
-      g.fillRect(0,0,w-1,h-1);
-      g.setColor(c);
+      g.fillRect(offsetX, offsetY, dw - 1, dh - 1);
     }
     
     g.setColor(Color.black);
-    g.drawRect(0, 0, w - 1, h - 1);
+    g.drawRect(offsetX, offsetY, dw - 1, dh - 1);
   }
 
   void setClipRect(Graphics g){
-    g.setClip(new Rectangle(new Dimension(w,h)));
+    g.setClip(new Rectangle(getSize()));
     //Rectangle us = new Rectangle(0,0,w,h);
     //Rectangle clip = g.getClipBounds().intersection(us);
     //g.setClip(clip.x, clip.y, clip.height, clip.width);

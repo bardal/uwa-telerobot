@@ -333,15 +333,15 @@ public class Calibrate extends JApplet implements StateListener {
         public void mouseMoved(MouseEvent e)
         {
           label.setText("Mouse coordinates :("
-                        + e.getPoint().x + ", "
-                        + e.getPoint().y + ")"); 
+                        + cameraPanel.getImageCanvas().toImage(e.getPoint()).x + ", "
+                        + cameraPanel.getImageCanvas().toImage(e.getPoint()).y + ")"); 
         }
       });
 
     
     cameraPanel.getImageCanvas().addMouseListener(new MouseAdapter() {
         public void mouseClicked(MouseEvent e){
-          setCurrentPointTo(e.getPoint());
+          setCurrentPointTo(cameraPanel.getImageCanvas().toImage(e.getPoint()));
         } 
     });
     //Align the left edges of the components.

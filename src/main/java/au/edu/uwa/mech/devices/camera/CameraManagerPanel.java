@@ -52,7 +52,7 @@ public class CameraManagerPanel extends java.awt.Panel implements CameraManagerL
     cameras.setLayout(cameraLayout=new CardLayout());
     
     add(buttons, "North");
-    add(cameras, "South");
+    add(cameras, "Center");
 
     this.panelWidth    = panelWidth;
     this.panelHeight   = panelHeight;

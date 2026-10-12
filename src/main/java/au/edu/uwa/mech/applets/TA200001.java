@@ -296,16 +296,28 @@ public class TA200001 extends Applet
       //cameraB.add(overlayButtons, "North");
       cameraB.add(cameraPanel, "Center");
 
-      Panel left = new Panel(new BorderLayout());
+      // fixed width for the controls; the cameras take the rest
+      Panel left = new Panel(new BorderLayout()) {
+          public Dimension getPreferredSize() {
+            return new Dimension(getIntParameter("controlswidth", 360), super.getPreferredSize().height);
+          }
+        };
       left.add(robotB, "North");
       left.add(consoleB, "Center");
 
+      // the cameras take any extra space when the window is enlarged
       Panel top = new Panel(new BorderLayout());
-      top.add(left, "Center");
-      top.add(cameraB, "East");
+      top.add(left, "West");
+      top.add(cameraB, "Center");
       
-      controlPage.add(top, "North");
-      controlPage.add(chatB, "Center");
+      controlPage.add(top, "Center");
+      Panel chatArea = new Panel(new BorderLayout()) {
+          public Dimension getPreferredSize() {
+            return new Dimension(super.getPreferredSize().width, getIntParameter("chatheight", 110));
+          }
+        };
+      chatArea.add(chatB, "Center");
+      controlPage.add(chatArea, "South");
       
       ((CardLayout)getLayout()).show(this, LOGINPAGE);
     }

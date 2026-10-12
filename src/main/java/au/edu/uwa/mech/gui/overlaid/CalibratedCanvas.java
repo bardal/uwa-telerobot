@@ -26,6 +26,7 @@
 package au.edu.uwa.mech.gui.overlaid;
 
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.util.Vector;
 import java.util.Enumeration;
 import au.edu.uwa.mech.gui.awt.ImageCanvas;
@@ -47,9 +48,34 @@ public class CalibratedCanvas extends ImageCanvas
     this.calibrationMatrix=cm;
   }
 
+  /**
+   * The calibration for canvas coordinates: the image's matrix with the
+   * display scale and offset applied, so overlays and mouse picking work
+   * however large the image is drawn.
+   */
   public Matrix getCalibrationMatrix(){
+    if (calibrationMatrix == null)
+      return null;
+    if (displayMatrix == null || displaySource != calibrationMatrix
+        || displayScale != scale || displayX != offsetX || displayY != offsetY) {
+      Matrix t = new Matrix(new double[][] {{scale, 0, offsetX}, {0, scale, offsetY}, {0, 0, 1}});
+      displayMatrix = t.times(calibrationMatrix);
+      displaySource = calibrationMatrix;
+      displayScale = scale;
+      displayX = offsetX;
+      displayY = offsetY;
+    }
+    return displayMatrix;
+  }
+
+  /** The calibration for image pixel coordinates, as received. */
+  public Matrix getImageCalibrationMatrix(){
     return calibrationMatrix;
   }
+
+  private Matrix displayMatrix, displaySource;
+  private double displayScale;
+  private int displayX, displayY;
   
   
   public void doPaint (Graphics g) {
@@ -58,8 +84,14 @@ public class CalibratedCanvas extends ImageCanvas
     for (Enumeration e=overlays.elements();e.hasMoreElements();)
     {
       Object toDraw = e.nextElement();
-      if(toDraw instanceof Overlay)
-        ((Overlay)toDraw).overlay(g);
+      if(toDraw instanceof Overlay) {
+        // 2D overlays work in image pixels
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.translate(offsetX, offsetY);
+        g2.scale(scale, scale);
+        ((Overlay)toDraw).overlay(g2);
+        g2.dispose();
+      }
       else if (calibrationMatrix !=null)
         ((Overlay3D)toDraw).projectOnTo(this, g);
     }

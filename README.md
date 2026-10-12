@@ -37,6 +37,10 @@ calibration: the yellow stick cursor, the blue path of commanded moves, the x/y/
 the cursor's coordinates in red, and shared workspace points. The **Images**
 menu turns them on and off, and **Workspace** has measuring tools.
 
+Enlarge the window to enlarge the camera image; the overlays and cursor scale
+with it. For a sharper picture, raise the camera's width and height (up to
+768×576) and press **Change Settings**.
+
 Commands are path scripts: waypoints separated by `;`, each setting axes
 `x y z` (mm), `s` (spin), `t` (tilt) and `g0`/`g1` (open/close the gripper).
 [web/help.html](web/help.html) has the details. To stack the red block on the

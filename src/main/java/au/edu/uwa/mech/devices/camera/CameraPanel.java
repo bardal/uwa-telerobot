@@ -63,16 +63,12 @@ public class CameraPanel extends java.awt.Panel
   protected void setupUI(int width, int height){
     
     imageCanvas = new ImageCanvas(width, height);
-    ScrollPane sp1 = new ScrollPane();
-    sp1.setSize(width, height);
-    sp1.add(imageCanvas);
-    Panel imagePanel = new Panel();
-    imagePanel.add(sp1);
     
     controls = new CameraControlsPanel();
 
     setLayout(new BorderLayout());
-    add(imagePanel, "Center");
+    // the canvas fills the panel and scales the image to fit
+    add(imageCanvas, "Center");
     add(controls, "South");
   }
   
