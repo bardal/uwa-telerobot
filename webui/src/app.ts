@@ -2,6 +2,7 @@
 // page while the lab starts, and the session flow login -> wake -> gateway.
 
 import { loadConfig, type Config } from './config';
+import { HistoryPage } from './archive/history';
 import { auth as defaultAuth } from './net/auth';
 import { buildHello, Gateway, type GatewayOpts } from './net/gateway';
 import type { In, Out } from './net/protocol';
@@ -108,11 +109,13 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   );
   let login = makeLogin(false, false);
   login.setBusy(true); // until the config (site key, user pool) is loaded
-  const history = h(
-    'div',
-    { class: 'page history-page' },
-    h('fieldset', { class: 'border-panel history-box' }, h('legend', { text: 'History' }), h('div', { class: 'awt-label', text: 'The archive will be shown here.' }), h('a', { href: '#/', class: 'back-link', text: 'Back' })),
-  );
+  let admin = false; // the current session's welcome.level === 'admin'
+  const history = new HistoryPage({
+    fetchImpl,
+    canDelete: () => admin && welcomed && gateway !== null,
+    send: (m) => gateway?.send(m),
+  });
+  let historyShown = false;
 
   function makeLogin(signInAvailable: boolean, dev: boolean): LoginPage {
     return new LoginPage({
@@ -131,7 +134,9 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
 
   function render(): void {
     const r = route();
-    const el = r === 'history' ? history : r === 'login' ? login.el : r === 'waking' ? waking.el : (control?.el ?? login.el);
+    if (r === 'history' && !historyShown) void history.load();
+    historyShown = r === 'history';
+    const el = r === 'history' ? history.el : r === 'login' ? login.el : r === 'waking' ? waking.el : (control?.el ?? login.el);
     if (viewHost.firstChild !== el) viewHost.replaceChildren(el);
   }
 
@@ -202,7 +207,10 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (run === wakeRun) waking.show(st);
     }
     if (run !== wakeRun || !mode) return;
-    if (st.kind === 'running') connect();
+    if (st.kind === 'running') {
+      if (welcomed) return; // the socket's own retry got in while we checked
+      connect();
+    }
   }
 
   function connect(): void {
@@ -228,8 +236,9 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
         welcomed = false;
         page.disconnected();
         if (view === 'control') {
-          setView('waking');
-          waking.checking();
+          // the lab may have restarted: show the waking page and check it, rather than
+          // leaving the last image frozen while the socket retries
+          void wakeThenConnect();
         }
       },
       onWakeNeeded: () => {
@@ -246,6 +255,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     page.handle(m);
     if (m.t === 'welcome') {
       welcomed = true;
+      admin = m.level === 'admin';
       login.setBusy(false);
       setView('control');
     } else if (m.t === 'error' && !welcomed && (m.code === 'unauthorised' || m.code === 'too-many')) {
@@ -255,6 +265,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       wakeRun++;
       g.close();
       gateway = null;
+      admin = false;
+      welcomed = false;
       page.disconnected();
       setView('waking');
       waking.stopped(m.message || 'The robot has stopped');
@@ -265,6 +277,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     wakeRun++;
     gateway?.close();
     gateway = null;
+    admin = false;
+    welcomed = false;
     control?.dispose();
     control = null;
   }

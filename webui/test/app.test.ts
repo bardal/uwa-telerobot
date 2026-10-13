@@ -129,12 +129,63 @@ describe('app flow', () => {
     expect(g.sent).toEqual([{ t: 'selectCamera', camera: 'ZCam' }]);
   });
 
+  it('a closed gateway shows the waking page and re-runs ensureAwake, then reconnects', async () => {
+    const wake = vi.fn(async (getProof: () => Promise<unknown>, onProgress: (s: WakeState) => void) => {
+      await getProof();
+      onProgress(wakeResult);
+      return wakeResult;
+    });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const app = startApp(root, deps({ ensureAwake: wake }));
+    await app.ready;
+    app.login.nicknameField.value = 'ann';
+    guestButton(root).click();
+    await flush();
+    const g = FakeGateway.all.at(-1)!;
+    g.emit(welcome('ann'));
+    expect(wake).toHaveBeenCalledTimes(1);
+    g.opts.onClose!();
+    expect(app.view()).toBe('waking');
+    await flush();
+    expect(wake).toHaveBeenCalledTimes(2);
+    expect(g.reconnects).toBe(1);
+    g.emit(welcome('ann'));
+    expect(app.view()).toBe('control');
+  });
+
+  it('a retry that welcomes while the wake check runs is not torn down', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    let calls = 0;
+    const wake = async (_gp: unknown, onProgress: (s: WakeState) => void): Promise<WakeState> => {
+      if (++calls > 1) await gate;
+      onProgress({ kind: 'running' });
+      return { kind: 'running' };
+    };
+    const root = document.createElement('div');
+    const app = startApp(root, deps({ ensureAwake: wake }));
+    await app.ready;
+    app.login.nicknameField.value = 'ann';
+    guestButton(root).click();
+    await flush();
+    const g = FakeGateway.all.at(-1)!;
+    g.emit(welcome('ann'));
+    g.opts.onClose!();
+    g.emit(welcome('ann'));
+    release();
+    await flush();
+    expect(g.reconnects).toBe(0);
+    expect(app.view()).toBe('control');
+  });
+
   it('onWakeNeeded runs the wake flow again and reconnects', async () => {
     const { g } = await loggedIn();
     g.emit(welcome('ann'));
+    g.opts.onClose!(); // the gateway reports each lost connection before asking for a wake
     g.opts.onWakeNeeded!();
     await flush();
-    expect(g.reconnects).toBe(1);
+    expect(g.reconnects).toBeGreaterThanOrEqual(1);
   });
 
   it('lab stopping goes to the waking page with Reconnect', async () => {
@@ -181,6 +232,45 @@ describe('app flow', () => {
     globalThis.dispatchEvent(new Event('hashchange'));
     expect(app.view()).toBe('history');
     expect(root.querySelector('.history-page')).not.toBeNull();
+  });
+
+  it('History reads static files only: no wake, no gateway, no Delete when logged out', async () => {
+    const ensure = vi.fn(async () => ({ kind: 'running' }) as WakeState);
+    const day = { day: '2026-10-13', entries: [{ kind: 'chat', id: '1-ab', time: 1, nick: 'a', text: 'hi' }] };
+    const fetchImpl = vi.fn(async (u: string | URL | Request) =>
+      new Response(JSON.stringify(String(u).endsWith('days.json') ? { days: ['2026-10-13'] } : day))) as unknown as typeof fetch;
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    globalThis.location.hash = '#/history';
+    const app = startApp(root, deps({ ensureAwake: ensure, fetchImpl }));
+    await app.ready;
+    await flush();
+    expect(root.querySelector('.history-chat')).not.toBeNull();
+    expect(root.querySelector('.history-delete')).toBeNull();
+    expect(ensure).not.toHaveBeenCalled();
+    expect(FakeGateway.all).toHaveLength(0);
+  });
+
+  it('an admin session sees Delete in History and it goes through the gateway', async () => {
+    const day = { day: '2026-10-13', entries: [{ kind: 'chat', id: '1-ab', time: 1, nick: 'a', text: 'hi' }] };
+    const fetchImpl = vi.fn(async (u: string | URL | Request) =>
+      new Response(JSON.stringify(String(u).endsWith('days.json') ? { days: ['2026-10-13'] } : day))) as unknown as typeof fetch;
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const app = startApp(root, deps({ fetchImpl }));
+    await app.ready;
+    app.login.nicknameField.value = 'ann';
+    guestButton(root).click();
+    await flush();
+    const g = FakeGateway.all.at(-1)!;
+    g.emit({ ...(welcome('ann') as Extract<Out, { t: 'welcome' }>), level: 'admin' });
+    globalThis.location.hash = '#/history';
+    globalThis.dispatchEvent(new Event('hashchange'));
+    await flush();
+    const del = root.querySelector('.history-delete') as HTMLButtonElement;
+    expect(del).not.toBeNull();
+    del.click();
+    expect(g.sent).toContainEqual({ t: 'admin', action: 'deleteChat', id: '1-ab' });
   });
 
   it('dev sign-in sends hello.dev', async () => {

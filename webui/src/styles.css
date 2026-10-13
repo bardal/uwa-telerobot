@@ -575,3 +575,18 @@ a.back-link {
     min-height: 360px;
   }
 }
+
+/* ---- history ---- */
+
+.history-page { align-items: flex-start; }
+.history-box { align-items: stretch; width: min(960px, 100%); }
+.history-bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.history-entry { border-top: 1px solid #808080; padding: 6px 0; }
+.history-head { display: flex; gap: 8px; align-items: center; }
+.history-nick { font-weight: bold; }
+.history-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+.history-thumbs { display: inline-flex; gap: 4px; margin: 4px 8px 0 0; }
+.history-thumb { width: 120px; height: auto; border: 1px solid #000; cursor: zoom-in; background: #000; }
+.history-viewer { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.8); cursor: zoom-out; z-index: 20; }
+.history-viewer[hidden] { display: none; }
+.history-full { max-width: 96vw; max-height: 96vh; }
