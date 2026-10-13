@@ -94,14 +94,20 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
 
   let view: 'login' | 'waking' | 'control' = 'login';
   let mode: Mode | null = null;
+  /** The nick the user asked for. Every hello (and the dev sub) uses it; the gateway's
+   * de-duplicated one ("ann~2") is only shown, and matched against the controller. */
   let nick = store.get();
   let gateway: GatewayLike | null = null;
   let control: ControlPage | null = null;
   let welcomed = false;
   let wakeRun = 0;
 
-  const waking = new WakingPage(() => void wakeThenConnect());
+  const waking = new WakingPage(
+    () => void wakeThenConnect(),
+    () => endSession(''),
+  );
   let login = makeLogin(false, false);
+  login.setBusy(true); // until the config (site key, user pool) is loaded
   const history = h(
     'div',
     { class: 'page history-page' },
@@ -174,9 +180,11 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       begin(n, { kind: 'signedIn' });
       return;
     }
+    login.setBusy(true); // one redirect, however many clicks
     try {
       await auth.signIn();
     } catch (e) {
+      login.setBusy(false);
       login.println(e instanceof Error ? e.message : String(e));
     }
   }
@@ -238,7 +246,6 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     page.handle(m);
     if (m.t === 'welcome') {
       welcomed = true;
-      nick = m.nick;
       login.setBusy(false);
       setView('control');
     } else if (m.t === 'error' && !welcomed && (m.code === 'unauthorised' || m.code === 'too-many')) {
@@ -301,12 +308,16 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   render();
 
   const ready = (async () => {
+    let configError: string | null = null;
     try {
       config = await (deps.config ?? (() => loadConfig()))();
     } catch (e) {
-      login.println(`Could not load the configuration: ${e instanceof Error ? e.message : String(e)}`);
+      configError = `Could not load the configuration: ${e instanceof Error ? e.message : String(e)}`;
     }
+    const typed = login.nicknameField.value;
     login = makeLogin(Boolean(config.userPoolDomain && config.clientId), config.dev === true);
+    login.nicknameField.value = typed;
+    if (configError) login.println(configError);
     render();
     let signedIn = false;
     try {

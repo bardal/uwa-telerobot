@@ -62,6 +62,16 @@ export class CommandList {
     return { no: c.no, isNew };
   }
 
+  /**
+   * A new gateway connection numbers its commands from 1 again: forget the old ids and
+   * whatever was pending, as a fresh CommandList would; the page's numbering carries on.
+   */
+  reset(): void {
+    this.byId.clear();
+    this.byNo.clear();
+    this.lastSent = this.lastReceived = this.currentExecuting = this.next;
+  }
+
   backlog(): number {
     return this.lastSent - this.lastReceived;
   }
@@ -161,6 +171,11 @@ export class RobotPanel {
     this.bSend.disabled = !b;
     this.inControlNow = b;
     this.bControl.textContent = b ? 'Release Robot' : 'Control Robot';
+  }
+
+  /** Called on each welcome: the new connection's command ids start again. */
+  resetCommands(): void {
+    this.commands.reset();
   }
 
   /** Client's console lines and the CommandList status line. */

@@ -253,6 +253,34 @@ describe('menus', () => {
   });
 });
 
+describe('review fixes (control page)', () => {
+  it('a new welcome resets the command list, so a reused gateway id is a new command', () => {
+    const { p } = page();
+    p.handle(welcome);
+    p.handle({ t: 'commandStatus', id: '1', state: 'queued', script: 'x1', text: '' });
+    p.handle({ t: 'commandStatus', id: '1', state: 'sent', script: 'x1', text: '' });
+    p.handle(welcome); // the lab restarted; the gateway numbers from 1 again
+    p.handle({ t: 'commandStatus', id: '1', state: 'queued', script: 'x2', text: '' });
+    expect(p.console.text()).toContain('Sending command 2 x2\n');
+    expect(p.robot.lCommandStatus.textContent).toBe('Status: Sending   command 2. 0 commands queued');
+    p.handle({ t: 'commandStatus', id: '1', state: 'done', script: 'x2', text: '' });
+    expect(p.robot.lCommandStatus.textContent).toBe('Status: Finished  command 2. 0 commands queued');
+  });
+
+  it('a frame decoded after dispose is closed, not drawn', async () => {
+    let done: (b: ImageBitmap) => void = () => undefined;
+    const close = vi.fn();
+    const p = new ControlPage({ send: vi.fn(), logout: vi.fn(), openHelp: vi.fn(), openHistory: vi.fn(), decode: () => new Promise((r) => { done = r; }) });
+    p.handle(welcome);
+    const shown = p.image({ t: 'image', camera: 'Colour', seq: 1, width: 4, height: 3, calibration: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1] }, new Blob([]));
+    p.dispose();
+    done({ width: 4, height: 3, close } as unknown as ImageBitmap);
+    await shown;
+    expect(close).toHaveBeenCalledOnce();
+    expect(p.cameras.cameraMatrix('Colour')).toBeNull();
+  });
+});
+
 describe('cameras', () => {
   it('makes a button and canvas per camera and selects on press', () => {
     const { p, sent } = page();
@@ -330,7 +358,8 @@ describe('waking page', () => {
   it('shows elapsed seconds, the cap and errors with Retry', () => {
     let t = 10_000;
     const retry = vi.fn();
-    const w = new WakingPage(retry, () => t);
+    const back = vi.fn();
+    const w = new WakingPage(retry, back, () => t);
     w.show({ kind: 'starting', since: 7_000 });
     expect(w.heading.textContent).toBe(WAKING);
     expect(w.detail.textContent).toBe('3 s');
@@ -342,6 +371,11 @@ describe('waking page', () => {
     expect(w.retry.hidden).toBe(false);
     w.retry.click();
     expect(retry).toHaveBeenCalledOnce();
+    expect(w.back.hidden).toBe(false);
+    w.back.click();
+    expect(back).toHaveBeenCalledOnce();
+    w.show({ kind: 'starting', since: t });
+    expect(w.back.hidden).toBe(true);
     t += 1;
   });
 });

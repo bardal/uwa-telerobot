@@ -12,16 +12,20 @@ export class WakingPage {
   readonly heading: HTMLElement;
   readonly detail: HTMLElement;
   readonly retry: HTMLButtonElement;
+  readonly back: HTMLButtonElement;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     onRetry: () => void,
+    onBack: () => void,
     private readonly now: () => number = Date.now,
   ) {
     this.heading = h('div', { class: 'waking-heading', role: 'status', text: WAKING });
     this.detail = h('div', { class: 'waking-detail' });
     this.retry = button('Retry', onRetry);
     this.retry.hidden = true;
+    this.back = button('Back to login', onBack);
+    this.back.hidden = true;
     this.el = h(
       'div',
       { class: 'page waking-page' },
@@ -31,7 +35,7 @@ export class WakingPage {
         h('legend', { text: 'Telerobot' }),
         this.heading,
         this.detail,
-        h('div', { class: 'button-row' }, this.retry),
+        h('div', { class: 'button-row' }, this.retry, this.back),
         h('a', { href: '#/history', class: 'history-link', text: 'History' }),
       ),
     );
@@ -41,6 +45,7 @@ export class WakingPage {
   show(s: WakeState): void {
     this.stopTimer();
     this.retry.hidden = true;
+    this.back.hidden = s.kind !== 'capped' && s.kind !== 'error';
     switch (s.kind) {
       case 'starting': {
         this.heading.textContent = WAKING;
@@ -75,6 +80,7 @@ export class WakingPage {
     this.detail.textContent = '';
     this.retry.textContent = label;
     this.retry.hidden = false;
+    this.back.hidden = false;
   }
 
   /** Before ensureAwake has reported. */
@@ -82,6 +88,7 @@ export class WakingPage {
     this.stopTimer();
     this.retry.textContent = 'Retry';
     this.retry.hidden = true;
+    this.back.hidden = true;
     this.heading.textContent = 'Connecting…';
     this.detail.textContent = '';
   }

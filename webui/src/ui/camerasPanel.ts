@@ -252,6 +252,11 @@ export class CamerasPanel {
     return displayMatrix(v.calibration, v.canvas.scale, o.x, o.y);
   }
 
+  /**
+   * Redraws every camera, hidden ones included: as in the applet, each camera keeps showing
+   * its last frame with the current overlays (measuring needs two views), and only the
+   * selected camera receives new frames.
+   */
   invalidate(): void {
     for (const v of this.views.values()) v.canvas.invalidate();
   }

@@ -67,6 +67,7 @@ export class ControlPage {
   private pointIds = new Map<string, string>();
   private lastActivity = -Infinity;
   private readonly now: () => number;
+  private disposed = false;
 
   constructor(private readonly deps: ControlPageDeps) {
     this.now = deps.now ?? Date.now;
@@ -196,6 +197,10 @@ export class ControlPage {
     } catch {
       return; // a bad frame is skipped; the next one replaces it
     }
+    if (this.disposed) {
+      bmp.close(); // logged out while it decoded
+      return;
+    }
     this.cameras.setImage(header.camera, header.seq, bmp, header.width, header.height, header.calibration);
   }
 
@@ -208,6 +213,7 @@ export class ControlPage {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.cameras.dispose();
     this.menuBar.dispose();
     this.popup.dispose();
@@ -216,6 +222,7 @@ export class ControlPage {
   private welcome(m: Extract<Out, { t: 'welcome' }>): void {
     this.ourNick = m.nick;
     this.cameras.resetSequence();
+    this.robot.resetCommands();
     this.cameras.setCameras(m.cameras, this.stickPose, this.showingCursor);
     this.robot.setConnected(true);
     this.chat.setJoined(true);

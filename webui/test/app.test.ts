@@ -195,6 +195,71 @@ describe('app flow', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('a de-duplicated welcome nick is shown, but later hellos ask for the requested nick', async () => {
+    const { app, g } = await loggedIn('ann');
+    g.emit(welcome('ann~2'));
+    expect(app.control()!.nick()).toBe('ann~2');
+    g.opts.onClose!();
+    expect(await g.hello()).toEqual({ t: 'hello', nick: 'ann', turnstile: 'tok' });
+  });
+
+  it('the dev sub stays dev-<requested nick> after a de-duplicated welcome', async () => {
+    const root = document.createElement('div');
+    const app = startApp(root, deps({ config: async () => ({ ...config, dev: true }) }));
+    await app.ready;
+    app.login.nicknameField.value = 'dee';
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Dev sign in')!.click();
+    await flush();
+    const g = FakeGateway.all.at(-1)!;
+    g.emit(welcome('dee~2'));
+    expect(await g.hello()).toEqual({ t: 'hello', nick: 'dee', dev: { sub: 'dev-dee', groups: [] } });
+  });
+
+  it('a config load error stays visible, a typed nick survives, and Guest waits for the config', async () => {
+    let release: (c: Config) => void = () => undefined;
+    const root = document.createElement('div');
+    const app = startApp(root, deps({ config: () => new Promise<Config>((r) => { release = r; }) }));
+    app.login.nicknameField.value = 'early';
+    expect(guestButton(root).disabled).toBe(true);
+    release(config);
+    await app.ready;
+    expect(app.login.nicknameField.value).toBe('early');
+    expect(guestButton(root).disabled).toBe(false);
+
+    const root2 = document.createElement('div');
+    const app2 = startApp(root2, deps({ config: async () => { throw new Error('HTTP 503'); } }));
+    await app2.ready;
+    expect(app2.login.console.text()).toContain('Could not load the configuration: HTTP 503');
+  });
+
+  it('the waking page offers Back to login when capped or errored', async () => {
+    wakeResult = { kind: 'capped' };
+    const { app } = await loggedIn();
+    const back = app.waking.back;
+    expect(back.hidden).toBe(false);
+    back.click();
+    expect(app.view()).toBe('login');
+    expect(guestButton(app.root).disabled).toBe(false);
+  });
+
+  it('Sign in is guarded against a double click', async () => {
+    let finish: () => void = () => undefined;
+    const signIn = vi.fn(() => new Promise<void>((r) => { finish = r; }));
+    const root = document.createElement('div');
+    const d = deps({ config: async () => ({ ...config, userPoolDomain: 'pool.example', clientId: 'cid' }) });
+    d.auth = { ...d.auth!, signIn };
+    const app = startApp(root, d);
+    await app.ready;
+    app.login.nicknameField.value = 'ann';
+    const b = [...root.querySelectorAll('button')].find((x) => x.textContent === 'Sign in')!;
+    b.click();
+    b.click();
+    expect(signIn).toHaveBeenCalledTimes(1);
+    finish();
+  });
+});
+
 describe('e2e hook', () => {
   it('is absent without ?e2e=1', () => {
     startApp(document.createElement('div'), deps());
