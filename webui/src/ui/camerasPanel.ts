@@ -187,11 +187,12 @@ export class CamerasPanel {
       stick.onChange = (p) => this.deps.onCursor(p, stick);
       canvas.add(stick);
       for (const o of this.deps.shared()) canvas.add(o);
-      // the right button opens the popup instead of reaching the overlays (capture phase, on the wrapper)
+      // the right button (or Ctrl-click, the Mac popup trigger) opens the popup instead of
+      // reaching the overlays (capture phase, on the wrapper)
       wrap.addEventListener(
         'pointerdown',
         (e) => {
-          if (e.button !== 2) return;
+          if (e.button !== 2 && !(e.button === 0 && e.ctrlKey)) return;
           e.stopPropagation();
           e.preventDefault();
           this.deps.onPopup(e.clientX, e.clientY);

@@ -109,6 +109,8 @@ export class PopupMenu {
     this.el.classList.add('popup-menu');
     this.el.setAttribute('aria-label', title);
     this.el.hidden = true;
+    // Windows sends contextmenu on release, by when the popup is under the pointer
+    this.el.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerdown', this.onDocDown);
     document.addEventListener('keydown', this.onKey);
   }

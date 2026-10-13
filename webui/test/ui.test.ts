@@ -390,6 +390,32 @@ describe('cameras', () => {
     expect(sent.at(-1)).toEqual({ t: 'newImage', camera: 'Colour' });
   });
 
+  it('right-click opens the popup and never the browser menu, even when it lands on the popup', () => {
+    const { p } = page();
+    p.handle(welcome);
+    const wrap = p.el.querySelector('.camera-card:not([hidden]) .canvas-wrap') as HTMLElement;
+    wrap.dispatchEvent(new MouseEvent('pointerdown', { button: 2, clientX: 20, clientY: 30, bubbles: true, cancelable: true }));
+    expect(p.popup.visible).toBe(true);
+    // Windows fires contextmenu on release, at the same point: by then the popup is under the pointer
+    for (const target of [p.popup.el, p.popup.el.querySelector('.menu-item') as HTMLElement, wrap]) {
+      const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      target.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    }
+  });
+
+  it('Ctrl-click (the Mac popup trigger) opens the popup and does not reach the canvas', () => {
+    const { p } = page();
+    p.handle(welcome);
+    const wrap = p.el.querySelector('.camera-card:not([hidden]) .canvas-wrap') as HTMLElement;
+    const canvas = wrap.querySelector('canvas') as HTMLCanvasElement;
+    const reached = vi.fn();
+    canvas.addEventListener('pointerdown', reached);
+    canvas.dispatchEvent(new MouseEvent('pointerdown', { button: 0, ctrlKey: true, clientX: 5, clientY: 5, bubbles: true, cancelable: true }));
+    expect(p.popup.visible).toBe(true);
+    expect(reached).not.toHaveBeenCalled();
+  });
+
   it('shows a decoded frame and reports the display matrix', async () => {
     const decode = vi.fn(async () => ({ width: 4, height: 3, close() {} }) as unknown as ImageBitmap);
     const p = new ControlPage({ send: vi.fn(), logout: vi.fn(), openHelp: vi.fn(), openHistory: vi.fn(), decode });
