@@ -260,13 +260,15 @@ class BridgeIT {
         FakeConnection e = connect(guest("eve"), "10.0.0.6", false);
         e.await(Out.Welcome.class, w -> true, 20_000);
         a.await(Out.Users.class, u -> u.nicks().contains("eve"), 5_000);
+        int beforeDrop = a.size();
         e.in(new In.TakeControl());
         e.dropSocket();
-        a.await(Out.Users.class, u -> !u.nicks().contains("eve"), 15_000);
+        // Only a users list sent after the drop: the lists from before eve joined lack her too,
+        // and taking control on one of those raced eve's MOM logout (her grab, then ann's grab
+        // refused with "ann can't grab token from eve", then her release).
+        a.awaitFrom(beforeDrop, Out.Users.class, u -> !u.nicks().contains("eve"), 15_000);
         int beforeAnn = a.size();
         a.in(new In.TakeControl());
-        // MOM's token hand-over goes through its single-threaded HUW manager; 2 s flaked on a
-        // loaded build machine. 10 s still proves the point (not MOM's 180 s session timeout).
         a.awaitFrom(beforeAnn, Out.Controller.class, x -> "ann".equals(x.nick()), 10_000);
 
         // 14. ban: the session goes, and the same guest can't come back
