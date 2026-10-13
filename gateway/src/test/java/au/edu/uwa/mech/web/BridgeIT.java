@@ -278,7 +278,9 @@ class BridgeIT {
         a.await(Out.Users.class, u -> !u.nicks().contains("eve"), 15_000);
         int beforeAnn = a.size();
         a.in(new In.TakeControl());
-        a.awaitFrom(beforeAnn, Out.Controller.class, x -> "ann".equals(x.nick()), 2_000);
+        // 5 s, not 2: slow CI can stall the release behind the closing tab; still far below MOM's 180 s hold,
+        // which is what this step guards against
+        a.awaitFrom(beforeAnn, Out.Controller.class, x -> "ann".equals(x.nick()), 5_000);
 
         // 14. ban: the session goes, and the same guest can't come back
         FakeConnection f1 = connect(guest("fay"), "10.0.0.7", false);
