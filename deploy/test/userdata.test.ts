@@ -142,9 +142,9 @@ describe("user data", () => {
   });
 
   it("binds the lab, proxy and gateway to MOM (and the lab), so a MOM restart restarts them", () => {
-    // BindsTo= + After=: a MOM restart (Restart=on-failure, ExitOnOutOfMemoryError)
-    // restarts every bound unit, and MOM going down for good stops them,
-    // instead of leaving them holding dead MOM sessions.
+    // BindsTo= + After=: MOM failing (a crash, ExitOnOutOfMemoryError) stops every
+    // bound unit instead of leaving them holding dead MOM sessions; MOM's Wants=
+    // (next test) starts them again when Restart=on-failure brings MOM back.
     const bindsTo = (name: string) => (unit(name).match(/^BindsTo=(.*)$/m)?.[1] ?? "").split(" ").filter(Boolean);
     expect(bindsTo("telerobot-mom")).toEqual([]);
     expect(bindsTo("telerobot-lab")).toEqual(["telerobot-mom.service"]);
@@ -160,6 +160,27 @@ describe("user data", () => {
     }
     // MOM still needs this boot's fetch
     expect(unit("telerobot-mom")).toMatch(/^Requires=telerobot-fetch\.service$/m);
+  });
+
+  it("brings the bound units back when MOM restarts (live MOM-kill test)", () => {
+    // On a MOM crash systemd stops the bound units, and MOM's restart job only
+    // try-restarts them, so they stayed down. MOM's Wants= pulls them in on
+    // every MOM start, auto-restarts included.
+    expect(unit("telerobot-mom")).toMatch(
+      /^Wants=telerobot-lab\.service telerobot-proxy\.service telerobot-gateway\.service$/m,
+    );
+    for (const name of ["telerobot-lab", "telerobot-proxy", "telerobot-gateway"]) {
+      expect(unit(name)).not.toMatch(/^Wants=/m);
+    }
+  });
+
+  it("stops each JVM within 15 s, and a SIGTERM exit is a clean stop", () => {
+    // VirtualLab hung for the default 90 s on SIGTERM once MOM had died,
+    // holding up MOM's restart behind its stop job.
+    for (const name of ["telerobot-mom", "telerobot-lab", "telerobot-proxy", "telerobot-gateway"]) {
+      expect(unit(name)).toMatch(/^TimeoutStopSec=15$/m);
+      expect(unit(name)).toMatch(/^SuccessExitStatus=143$/m);
+    }
   });
 
   it("gives the gateway its environment", () => {

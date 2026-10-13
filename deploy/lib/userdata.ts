@@ -56,7 +56,11 @@ CapabilityBoundingSet=
 LockPersonality=yes
 RestrictNamespaces=yes
 Restart=on-failure
-RestartSec=5`;
+RestartSec=5
+# VirtualLab hung 90 s (the default) on SIGTERM once MOM was gone.
+TimeoutStopSec=15
+# A JVM stopped by SIGTERM exits 143: a clean stop, not a failure.
+SuccessExitStatus=143`;
 
 /** MOM, VirtualLab and RobotProxy only talk over loopback; this also cuts them off from IMDS. */
 const LOOPBACK_ONLY = "IPAddressDeny=any\nIPAddressAllow=localhost";
@@ -67,11 +71,17 @@ function service(o: {
   /** Units this one needs started first (Requires= + After=). */
   requires?: string[];
   /**
-   * Units this one is bound to (BindsTo= + After=): when one of them restarts
-   * (Restart=on-failure, an OOM exit) this unit restarts with it, and when one
-   * stops for good this unit stops too, rather than keep dead MOM sessions.
+   * Units this one is bound to (BindsTo= + After=): when one of them fails or
+   * stops (a crash, an OOM exit) this unit stops too, rather than keep dead MOM
+   * sessions; MOM's Wants= starts it again when MOM comes back.
    */
   bindsTo?: string[];
+  /**
+   * Units this one pulls in whenever it starts (Wants=). MOM wants the bound
+   * units: a MOM crash stops them and its restart job only try-restarts them,
+   * so without this they stayed down after MOM came back.
+   */
+  wants?: string[];
   /** Local ports that must be listening before this unit starts. */
   ports?: string;
   execStart: string;
@@ -81,6 +91,7 @@ function service(o: {
   const bindsTo = o.bindsTo ?? [];
   const requires = o.requires ?? [];
   const lines = [
+    ...(o.wants?.length ? [`Wants=${svc(o.wants)}`] : []),
     ...(bindsTo.length ? [`BindsTo=${svc(bindsTo)}`] : []),
     ...(requires.length ? [`Requires=${svc(requires)}`] : []),
     `After=${svc([...bindsTo, ...requires])}`,
@@ -300,6 +311,7 @@ ${service({
   name: "mom",
   description: "Telerobot MOM server",
   requires: ["telerobot-fetch"],
+  wants: ["telerobot-lab", "telerobot-proxy", "telerobot-gateway"],
   extra: LOOPBACK_ONLY,
   execStart: `${java("128m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.mom.server.MOMServer ../config/MOM.xml`,
 })}
