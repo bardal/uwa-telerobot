@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -328,6 +329,174 @@ class ArchiveTest {
         archive.flush();
         assertTrue(errors.isEmpty(), errors.toString());
         assertEquals(threads * per * 2, readJson("public/index/2026-10-13.json").get("entries").size());
+    }
+
+    /** A store that can be slowed down or made to fail. */
+    static final class FlakyStore implements ArchiveStore {
+        final ArchiveStore inner;
+        volatile boolean failGets, failPuts;
+        volatile long delayMs;
+
+        FlakyStore(ArchiveStore inner) {
+            this.inner = inner;
+        }
+
+        void pause() {
+            if (delayMs > 0) {
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        public void put(String key, byte[] body, String contentType) {
+            pause();
+            if (failPuts) throw new IllegalStateException("put failed");
+            inner.put(key, body, contentType);
+        }
+
+        public Optional<byte[]> get(String key) {
+            pause();
+            if (failGets) throw new IllegalStateException("get failed");
+            return inner.get(key);
+        }
+
+        public void delete(String key) {
+            inner.delete(key);
+        }
+
+        public long bytesUsed() {
+            return inner.bytesUsed();
+        }
+    }
+
+    @Test
+    void concurrentFlushersWriteEveryEntryAndAuditLineExactlyOnceInOrder() throws Exception {
+        FlakyStore slow = new FlakyStore(store);
+        slow.delayMs = 2;
+        Archive a = new Archive(slow, () -> now, 5_000_000_000L, new Random(5));
+        List<String> ids = new ArrayList<>();
+        var errors = new java.util.concurrent.ConcurrentLinkedQueue<Throwable>();
+        Runnable flusher = () -> {
+            try {
+                for (int i = 0; i < 15; i++) a.flush();
+            } catch (Throwable e) {
+                errors.add(e);
+            }
+        };
+        Thread f1 = new Thread(flusher), f2 = new Thread(flusher);
+        f1.start();
+        f2.start();
+        for (int i = 0; i < 40; i++) {
+            now += 1;
+            ids.add(a.chat("ann", ann, "m" + i));
+            if (i % 10 == 9) assertTrue(a.delete("chat", ids.get(i - 1))); // delete flushes inline too
+        }
+        f1.join();
+        f2.join();
+        a.flush();
+        assertTrue(errors.isEmpty(), errors.toString());
+
+        JsonNode entries = readJson("public/index/2026-10-13.json").get("entries");
+        assertEquals(36, entries.size());
+        List<String> lines = new String(store.get("private/audit/2026-10-13.jsonl").orElseThrow(), StandardCharsets.UTF_8)
+                .strip().lines().toList();
+        List<String> chatIds = new ArrayList<>();
+        int deletes = 0;
+        for (String l : lines) {
+            JsonNode n = JSON.readTree(l);
+            if (n.get("what").asText().equals("chat")) chatIds.add(n.get("id").asText());
+            else deletes++;
+        }
+        assertEquals(ids, chatIds); // each once, in order
+        assertEquals(4, deletes);
+        assertEquals(44, lines.size());
+    }
+
+    @Test
+    void transientReadFailureNeverOverwritesTheStoredDay() throws IOException {
+        archive.chat("ann", ann, "old");
+        archive.flush();
+        String before = new String(store.get("public/index/2026-10-13.json").orElseThrow(), StandardCharsets.UTF_8);
+
+        FlakyStore flaky = new FlakyStore(store);
+        flaky.failGets = true;
+        Archive b = new Archive(flaky, () -> now + 1000, 5_000_000_000L, new Random(8));
+        b.chat("bob", ann, "new");
+        b.flush();
+        assertEquals(before, new String(store.get("public/index/2026-10-13.json").orElseThrow(), StandardCharsets.UTF_8));
+        assertEquals(1, readJson("public/index/days.json").get("days").size());
+
+        flaky.failGets = false;
+        b.flush();
+        JsonNode entries = readJson("public/index/2026-10-13.json").get("entries");
+        assertEquals(List.of("old", "new"), texts2(entries));
+        String audit = new String(store.get("private/audit/2026-10-13.jsonl").orElseThrow(), StandardCharsets.UTF_8);
+        assertEquals(2, audit.strip().lines().count());
+    }
+
+    @Test
+    void corruptIndexIsQuarantinedThenStartedFresh() throws IOException {
+        store.put("public/index/2026-10-13.json", "{not json".getBytes(StandardCharsets.UTF_8), "application/json");
+        archive.chat("ann", ann, "hi");
+        archive.flush();
+        assertEquals(1, readJson("public/index/2026-10-13.json").get("entries").size());
+        List<String> bad = files().stream().filter(f -> f.startsWith("private/corrupt/2026-10-13-")).toList();
+        assertEquals(1, bad.size());
+        assertEquals("{not json", new String(Files.readAllBytes(dir.resolve(bad.get(0))), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void failedFlushKeepsEntriesPendingUntilTheNextSuccessfulFlush() throws IOException {
+        FlakyStore flaky = new FlakyStore(store);
+        Archive a = new Archive(flaky, () -> now, 5_000_000_000L, new Random(2));
+        a.chat("ann", ann, "keep");
+        flaky.failPuts = true;
+        a.flush();
+        assertTrue(store.get("public/index/2026-10-13.json").isEmpty());
+        flaky.failPuts = false;
+        a.flush();
+        assertEquals(List.of("keep"), texts2(readJson("public/index/2026-10-13.json").get("entries")));
+        assertEquals(1, new String(store.get("private/audit/2026-10-13.jsonl").orElseThrow(), StandardCharsets.UTF_8).strip().lines().count());
+        assertEquals(List.of("2026-10-13"), texts(readJson("public/index/days.json").get("days")));
+    }
+
+    @Test
+    void nonFiniteCalibrationSkipsTheFrame() throws IOException {
+        ImageData bad = img(5);
+        bad.calibrationMatrix.set(1, 1, Double.NaN);
+        String id = archive.startMove("ann", Level.GUEST, ann, "x", Map.of("Colour", bad), null);
+        archive.finishMove(id, "done", null, null);
+        archive.flush();
+        assertEquals(0, count(".jpg"));
+        assertFalse(readJson("public/index/2026-10-13.json").get("entries").get(0).get("frames").has("colour"));
+    }
+
+    @Test
+    void deleteRejectsIdsOutsideTheSaneTimeRange() {
+        assertFalse(archive.delete("chat", "1-aaaa"));
+        assertFalse(archive.delete("chat", "99999999999999-aaaa"));
+    }
+
+    @Test
+    void fileStoreRejectsKeyThatIsTheRoot() {
+        assertThrows(IllegalArgumentException.class, () -> store.put(".", new byte[1], "x"));
+        assertThrows(IllegalArgumentException.class, () -> store.put("a/..", new byte[1], "x"));
+    }
+
+    @Test
+    void s3CacheControl() {
+        assertEquals("public, max-age=31536000, immutable", S3ArchiveStore.cacheControl("public/moves/x.jpg", "image/jpeg"));
+        assertEquals("public, max-age=30", S3ArchiveStore.cacheControl("public/index/days.json", "application/json"));
+        assertEquals("private, no-store", S3ArchiveStore.cacheControl("private/audit/d.jsonl", "application/x-ndjson"));
+    }
+
+    static List<String> texts2(JsonNode entries) {
+        List<String> out = new ArrayList<>();
+        entries.forEach(n -> out.add(n.get("text").asText()));
+        return out;
     }
 
     static List<String> texts(JsonNode arr) {

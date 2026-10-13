@@ -24,7 +24,7 @@ public final class FileArchiveStore implements ArchiveStore {
             throw new IllegalArgumentException("bad archive key: " + key);
         }
         Path p = root.resolve(key).normalize();
-        if (!p.startsWith(root)) throw new IllegalArgumentException("bad archive key: " + key);
+        if (!p.startsWith(root) || p.equals(root)) throw new IllegalArgumentException("bad archive key: " + key);
         return p;
     }
 

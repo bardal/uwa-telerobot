@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 
 /**
@@ -32,13 +33,16 @@ import java.util.function.LongSupplier;
  * and chat, grouped into one JSON index per UTC day plus {@code days.json}. Who did it (sub and
  * IP hash) goes only to the private audit log.
  *
- * <p>All state is guarded by one lock; store I/O for images and for {@link #flush()} happens
- * outside it, so slow S3 calls never block chat. Image writes are skipped once the store passes
- * the byte cap, but chat and move entries are always kept.
+ * <p>Locking: {@code flushLock} serialises whole flushes (acquired before {@code lock}); {@code lock}
+ * guards in-memory state and is never held across store I/O. A day whose stored index could not be
+ * read is left unloaded: new entries for it are buffered and the day's index is never written until
+ * the load succeeds, so a transient read error cannot overwrite the real index.
  */
 public final class Archive {
     static final int SNAPSHOTS_PER_HOUR = 10;
     static final long HOUR_MS = 3_600_000L;
+    static final long MIN_ID_TIME = 1_577_836_800_000L; // 2020-01-01
+    static final long MAX_ID_TIME = 4_102_444_800_000L; // 2100-01-01
     private static final String JPEG = "image/jpeg";
     private static final String JSON_TYPE = "application/json";
     private static final String BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -50,13 +54,16 @@ public final class Archive {
     private final long capBytes;
     private final Random random;
 
+    private final ReentrantLock flushLock = new ReentrantLock();
     private final Object lock = new Object();
-    private final Map<String, ObjectNode> days = new HashMap<>(); // day -> {"day":..,"entries":[..]}
+    private final Map<String, ObjectNode> days = new HashMap<>(); // loaded days: {"day":..,"entries":[..]}
+    private final Map<String, List<ObjectNode>> pending = new HashMap<>(); // entries for days not loaded yet
     private final Set<String> touched = new HashSet<>();
     private final Map<String, StringBuilder> auditPending = new HashMap<>(); // day -> jsonl lines
     private final Map<String, Deque<Long>> snapshotTimes = new HashMap<>(); // sub -> recent snapshot times
     private final Map<String, ObjectNode> openMoves = new HashMap<>(); // moveId -> index entry
-    private TreeSet<String> knownDays; // loaded lazily from days.json
+    private TreeSet<String> knownDays; // loaded from days.json; null until it has loaded
+    private final Set<String> daysToAdd = new HashSet<>(); // days whose index is written but not yet in days.json
 
     public Archive(ArchiveStore store, LongSupplier clock, long capBytes) {
         this(store, clock, capBytes, new Random());
@@ -74,6 +81,8 @@ public final class Archive {
     public String startMove(String nick, Level lvl, Identity id, String script,
                             Map<String, ImageData> lastFrames, RobotState before) {
         long time = clock.getAsLong();
+        String day = Keys.day(time);
+        ensureLoaded(day);
         String moveId;
         synchronized (lock) {
             moveId = newId(time);
@@ -90,7 +99,7 @@ public final class Archive {
         e.set("frames", frames);
         synchronized (lock) {
             openMoves.put(moveId, e);
-            addEntry(Keys.day(time), e);
+            addEntry(day, e);
             audit(time, "move", moveId, nick, id, "script", script);
         }
         return moveId;
@@ -144,10 +153,14 @@ public final class Archive {
     /** Empty when the archive is full or the user has taken 10 snapshots in the last hour. */
     public Optional<String> snapshot(String nick, Identity id, Map<String, ImageData> frames, RobotState pose) {
         long time = clock.getAsLong();
+        String day = Keys.day(time);
         String sub = id == null ? "" : String.valueOf(id.sub());
+        if (capped()) return Optional.empty();
+        ensureLoaded(day);
         String snapId;
         synchronized (lock) {
-            if (capped()) return Optional.empty();
+            // forget users whose snapshots are all more than an hour old
+            snapshotTimes.values().removeIf(q -> q.isEmpty() || q.peekLast() <= time - HOUR_MS);
             Deque<Long> q = snapshotTimes.computeIfAbsent(sub, k -> new ArrayDeque<>());
             while (!q.isEmpty() && q.peekFirst() <= time - HOUR_MS) q.pollFirst();
             if (q.size() >= SNAPSHOTS_PER_HOUR) return Optional.empty();
@@ -169,7 +182,7 @@ public final class Archive {
         e.set("pose", pose(pose));
         e.set("frames", fr);
         synchronized (lock) {
-            addEntry(Keys.day(time), e);
+            addEntry(day, e);
             audit(time, "snapshot", snapId, nick, id, null, null);
         }
         return Optional.of(snapId);
@@ -179,12 +192,14 @@ public final class Archive {
 
     public String chat(String nick, Identity id, String text) {
         long time = clock.getAsLong();
+        String day = Keys.day(time);
+        ensureLoaded(day);
         synchronized (lock) {
             String chatId = newId(time);
             ObjectNode e = MAPPER.createObjectNode();
             e.put("kind", "chat").put("id", chatId).put("time", time).put("nick", nick == null ? "" : nick);
             e.put("text", text == null ? "" : text);
-            addEntry(Keys.day(time), e);
+            addEntry(day, e);
             audit(time, "chat", chatId, nick, id, "text", text);
             return chatId;
         }
@@ -192,46 +207,56 @@ public final class Archive {
 
     // ---- flush ----
 
-    /** Writes the touched day indexes, days.json and new audit lines. Safe to call at any time. */
+    /**
+     * Writes the touched day indexes, days.json and new audit lines. Safe to call at any time and from
+     * several threads: flushes run one at a time. Anything that fails stays queued for the next flush.
+     */
     public void flush() {
-        Map<String, byte[]> indexes = new LinkedHashMap<>();
-        Map<String, String> audits;
-        byte[] daysJson = null;
+        flushLock.lock();
+        try {
+            doFlush();
+        } finally {
+            flushLock.unlock();
+        }
+    }
+
+    private void doFlush() {
+        // 1. try to load any touched day that is still unloaded (outside the state lock)
+        Set<String> want;
         synchronized (lock) {
-            if (touched.isEmpty() && auditPending.isEmpty()) return;
-            loadKnownDays();
-            for (String day : touched) {
+            want = new HashSet<>(touched);
+        }
+        for (String day : want) ensureLoaded(day);
+
+        // 2. serialise what is ready
+        Map<String, byte[]> indexes = new LinkedHashMap<>();
+        Map<String, String> audits = new LinkedHashMap<>();
+        synchronized (lock) {
+            for (String day : new ArrayList<>(touched)) {
                 ObjectNode d = days.get(day);
-                if (d == null) continue;
+                if (d == null) continue; // not loaded: keep touched, never write it
                 sortEntries((ArrayNode) d.get("entries"));
                 indexes.put(day, bytes(d));
-                knownDays.add(day);
+                touched.remove(day);
             }
-            if (!touched.isEmpty()) daysJson = daysJson();
-            audits = new LinkedHashMap<>();
             auditPending.forEach((day, sb) -> audits.put(day, sb.toString()));
-            touched.clear();
             auditPending.clear();
         }
-        // I/O outside the lock; anything that fails is queued again for the next flush
+
+        // 3. write (flushLock keeps other flushes out; the state lock is free for chat and moves)
         Set<String> failedDays = new HashSet<>();
-        Map<String, String> failedAudits = new LinkedHashMap<>();
         for (var en : indexes.entrySet()) {
             try {
                 store.put(Keys.dayIndex(en.getKey()), en.getValue(), JSON_TYPE);
+                daysToAdd.add(en.getKey());
             } catch (RuntimeException ex) {
                 LOG.log(System.Logger.Level.WARNING, "archive index write failed: " + en.getKey(), ex);
                 failedDays.add(en.getKey());
             }
         }
-        if (daysJson != null) {
-            try {
-                store.put(Keys.DAYS, daysJson, JSON_TYPE);
-            } catch (RuntimeException ex) {
-                LOG.log(System.Logger.Level.WARNING, "archive days.json write failed", ex);
-                failedDays.addAll(indexes.keySet());
-            }
-        }
+        writeDaysJson();
+
+        Map<String, String> failedAudits = new LinkedHashMap<>();
         for (var en : audits.entrySet()) {
             try {
                 String key = Keys.audit(en.getKey());
@@ -248,10 +273,55 @@ public final class Archive {
         if (!failedDays.isEmpty() || !failedAudits.isEmpty()) {
             synchronized (lock) {
                 touched.addAll(failedDays);
-                // keep older lines ahead of any queued since
+                // older lines go ahead of any queued since
                 failedAudits.forEach((day, lines) ->
                         auditPending.computeIfAbsent(day, k -> new StringBuilder()).insert(0, lines));
             }
+        }
+    }
+
+    /** Adds the days whose index is safely written to days.json (newest first). Only under flushLock. */
+    private void writeDaysJson() {
+        if (daysToAdd.isEmpty()) return;
+        if (knownDays == null) {
+            TreeSet<String> loaded = loadKnownDays();
+            if (loaded == null) return; // retry next flush; never overwrite an unread days.json
+            knownDays = loaded;
+        }
+        TreeSet<String> all = new TreeSet<>(knownDays);
+        all.addAll(daysToAdd);
+        ObjectNode root = MAPPER.createObjectNode();
+        ArrayNode arr = root.putArray("days");
+        for (String d : all.descendingSet()) arr.add(d);
+        try {
+            store.put(Keys.DAYS, bytes(root), JSON_TYPE);
+            knownDays = all;
+            daysToAdd.clear();
+        } catch (RuntimeException ex) {
+            LOG.log(System.Logger.Level.WARNING, "archive days.json write failed", ex);
+        }
+    }
+
+    /** Reads days.json; an absent file is an empty set, a read failure is null, corrupt JSON is quarantined. */
+    private TreeSet<String> loadKnownDays() {
+        TreeSet<String> out = new TreeSet<>();
+        Optional<byte[]> old;
+        try {
+            old = store.get(Keys.DAYS);
+        } catch (RuntimeException ex) {
+            LOG.log(System.Logger.Level.WARNING, "days.json unreadable, will retry", ex);
+            return null;
+        }
+        if (old.isEmpty()) return out;
+        try {
+            JsonNode n = MAPPER.readTree(old.get());
+            if (!(n instanceof ObjectNode) || !n.path("days").isArray()) throw new IOException("not a days object");
+            for (JsonNode d : n.get("days")) out.add(d.asText());
+            return out;
+        } catch (IOException ex) {
+            if (!quarantine("days", old.get())) return null;
+            LOG.log(System.Logger.Level.ERROR, "days.json corrupt, starting fresh", ex);
+            return out;
         }
     }
 
@@ -261,23 +331,28 @@ public final class Archive {
     public boolean delete(String kind, String id) {
         if (kind == null || !(kind.equals("move") || kind.equals("snapshot") || kind.equals("chat"))) return false;
         long time = Keys.idTime(id);
-        if (time < 0) return false;
+        if (time < MIN_ID_TIME || time > MAX_ID_TIME) return false;
         String day = Keys.day(time);
+        ensureLoaded(day);
         List<String> keys = new ArrayList<>();
         synchronized (lock) {
-            ObjectNode d = dayIndex(day);
-            ArrayNode entries = (ArrayNode) d.get("entries");
-            int at = -1;
-            for (int i = 0; i < entries.size(); i++) {
-                JsonNode n = entries.get(i);
+            List<JsonNode> entries = new ArrayList<>();
+            ObjectNode d = days.get(day);
+            if (d != null) d.get("entries").forEach(entries::add);
+            List<ObjectNode> buffered = pending.get(day);
+            if (buffered != null) entries.addAll(buffered);
+            JsonNode hit = null;
+            for (JsonNode n : entries) {
                 if (kind.equals(n.path("kind").asText()) && id.equals(n.path("id").asText())) {
-                    at = i;
+                    hit = n;
                     break;
                 }
             }
-            if (at < 0) return false;
-            collectKeys(entries.get(at).path("frames"), keys);
-            entries.remove(at);
+            if (hit == null) return false;
+            collectKeys(hit.path("frames"), keys);
+            final JsonNode target = hit;
+            if (d != null) removeNode((ArrayNode) d.get("entries"), target);
+            if (buffered != null) buffered.removeIf(n -> n == target);
             openMoves.remove(id);
             touched.add(day);
             audit(clock.getAsLong(), "delete-" + kind, id, null, null, null, null);
@@ -293,6 +368,15 @@ public final class Archive {
         return true;
     }
 
+    private static void removeNode(ArrayNode arr, JsonNode target) {
+        for (int i = 0; i < arr.size(); i++) {
+            if (arr.get(i) == target) {
+                arr.remove(i);
+                return;
+            }
+        }
+    }
+
     private static void collectKeys(JsonNode n, List<String> out) {
         if (n.isTextual()) {
             out.add(n.asText());
@@ -303,7 +387,7 @@ public final class Archive {
         }
     }
 
-    // ---- internals (call under lock where they touch state) ----
+    // ---- internals ----
 
     private boolean capped() {
         return store.bytesUsed() >= capBytes;
@@ -326,52 +410,73 @@ public final class Archive {
         return sb.toString();
     }
 
+    /** Under lock. Entries for an unloaded day wait in {@code pending} until its index has loaded. */
     private void addEntry(String day, ObjectNode e) {
-        ((ArrayNode) dayIndex(day).get("entries")).add(e);
+        ObjectNode d = days.get(day);
+        if (d != null) {
+            ((ArrayNode) d.get("entries")).add(e);
+        } else {
+            pending.computeIfAbsent(day, k -> new ArrayList<>()).add(e);
+        }
         touched.add(day);
     }
 
-    /** The in-memory index for a day, loading what an earlier run stored. */
-    private ObjectNode dayIndex(String day) {
-        ObjectNode d = days.get(day);
-        if (d != null) return d;
-        d = null;
-        try {
-            Optional<byte[]> old = store.get(Keys.dayIndex(day));
-            if (old.isPresent()) {
-                JsonNode n = MAPPER.readTree(old.get());
-                if (n instanceof ObjectNode on && on.get("entries") instanceof ArrayNode) d = on;
+    /**
+     * Loads a day's stored index if it is not loaded yet. Store I/O happens outside the state lock; the
+     * result is installed under it (first installer wins, buffered entries are appended). A read failure
+     * leaves the day unloaded so a later call retries.
+     */
+    private void ensureLoaded(String day) {
+        synchronized (lock) {
+            if (days.containsKey(day)) return;
+        }
+        ObjectNode loaded = loadDay(day);
+        if (loaded == null) return;
+        synchronized (lock) {
+            if (days.containsKey(day)) return;
+            List<ObjectNode> buffered = pending.remove(day);
+            if (buffered != null) {
+                ArrayNode entries = (ArrayNode) loaded.get("entries");
+                buffered.forEach(entries::add);
             }
-        } catch (IOException | RuntimeException ex) {
-            LOG.log(System.Logger.Level.WARNING, "archive index unreadable: " + day, ex);
+            days.put(day, loaded);
         }
-        if (d == null) {
-            d = MAPPER.createObjectNode();
-            d.put("day", day);
-            d.putArray("entries");
+    }
+
+    /** The stored index (an empty one only if genuinely absent or corrupt and quarantined); null on read failure. */
+    private ObjectNode loadDay(String day) {
+        Optional<byte[]> old;
+        try {
+            old = store.get(Keys.dayIndex(day));
+        } catch (RuntimeException ex) {
+            LOG.log(System.Logger.Level.WARNING, "archive index unreadable, will retry: " + day, ex);
+            return null;
         }
-        days.put(day, d);
+        if (old.isPresent()) {
+            try {
+                JsonNode n = MAPPER.readTree(old.get());
+                if (n instanceof ObjectNode on && on.get("entries") instanceof ArrayNode) return on;
+                throw new IOException("not an index object");
+            } catch (IOException ex) {
+                if (!quarantine(day, old.get())) return null;
+                LOG.log(System.Logger.Level.ERROR, "archive index corrupt, starting fresh: " + day, ex);
+            }
+        }
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("day", day);
+        d.putArray("entries");
         return d;
     }
 
-    private void loadKnownDays() {
-        if (knownDays != null) return;
-        knownDays = new TreeSet<>();
+    /** Copies a bad object aside before it is replaced. False if the copy failed (then nothing is replaced). */
+    private boolean quarantine(String name, byte[] bad) {
         try {
-            Optional<byte[]> old = store.get(Keys.DAYS);
-            if (old.isPresent()) {
-                for (JsonNode n : MAPPER.readTree(old.get()).path("days")) knownDays.add(n.asText());
-            }
-        } catch (IOException | RuntimeException ex) {
-            LOG.log(System.Logger.Level.WARNING, "days.json unreadable", ex);
+            store.put("private/corrupt/" + name + "-" + clock.getAsLong() + ".json", bad, JSON_TYPE);
+            return true;
+        } catch (RuntimeException ex) {
+            LOG.log(System.Logger.Level.ERROR, "could not quarantine corrupt object: " + name, ex);
+            return false;
         }
-    }
-
-    private byte[] daysJson() {
-        ObjectNode root = MAPPER.createObjectNode();
-        ArrayNode arr = root.putArray("days");
-        for (String d : knownDays.descendingSet()) arr.add(d);
-        return bytes(root);
     }
 
     private static void sortEntries(ArrayNode entries) {
@@ -411,7 +516,10 @@ public final class Archive {
         return p;
     }
 
-    /** The 3x4 calibration matrix as 12 numbers, row by row; null if absent or the wrong shape. */
+    /**
+     * The 3x4 calibration matrix as 12 numbers, row by row. Null if absent, the wrong shape, or any value is
+     * NaN or infinite: the History page needs all 12 finite numbers, so such a frame is skipped.
+     */
     private static ArrayNode calibration(ImageData d) {
         if (d == null || d.calibrationMatrix == null) return null;
         double[][] m = d.calibrationMatrix.getArray();
@@ -419,7 +527,10 @@ public final class Archive {
         ArrayNode a = MAPPER.createArrayNode();
         for (double[] row : m) {
             if (row == null || row.length != 4) return null;
-            for (double v : row) a.add(v);
+            for (double v : row) {
+                if (!Double.isFinite(v)) return null;
+                a.add(v);
+            }
         }
         return a;
     }
