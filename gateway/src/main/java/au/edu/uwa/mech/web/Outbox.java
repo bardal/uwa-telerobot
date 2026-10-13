@@ -50,11 +50,15 @@ final class Outbox {
         return open;
     }
 
-    /** Sends {@code first}, opens, then sends the snapshot, so no live event slips in before it. */
+    /**
+     * Opens, then sends {@code first} and the snapshot. Live events cannot slip in before them:
+     * emit() and the rest take the same lock. The flag goes up before the welcome is written, so
+     * a browser that answers the welcome at once is never told to wait for it.
+     */
     void open(List<Out> first, Supplier<List<Out>> snapshot) {
         synchronized (lock) {
-            first.forEach(conn::send);
             open = true;
+            first.forEach(conn::send);
             snapshot.get().forEach(conn::send);
         }
         checkBacklog();

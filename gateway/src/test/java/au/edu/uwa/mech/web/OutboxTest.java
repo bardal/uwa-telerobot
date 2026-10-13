@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 class OutboxTest {
 
     /** Every frame stays "queued" until {@link #complete()} finishes the oldest write. */
-    static final class ManualConnection implements ClientConnection {
+    static class ManualConnection implements ClientConnection {
         final List<Object> sent = new ArrayList<>();
         final ArrayDeque<Runnable> writes = new ArrayDeque<>();
         long bytes;
@@ -144,6 +144,31 @@ class OutboxTest {
         conn.complete();
         box.robotState(state(4));
         assertEquals(state(4), conn.sent.get(2));
+    }
+
+    /**
+     * The browser may answer the welcome at once (BridgeIT's fake client does, on another
+     * thread): by the time the welcome is on the wire the session must already accept
+     * messages, or that answer gets "wait for welcome". Live events still cannot overtake
+     * the welcome, because emit() takes the same lock as open().
+     */
+    @Test
+    void isOpenBeforeTheWelcomeIsSent() {
+        List<Boolean> openWhenSent = new ArrayList<>();
+        Outbox[] self = new Outbox[1];
+        ManualConnection watching = new ManualConnection() {
+            @Override
+            public void send(Out message, Runnable written) {
+                openWhenSent.add(self[0].isOpen());
+                super.send(message, written);
+            }
+        };
+        self[0] = new Outbox(watching, () -> { });
+        self[0].open(List.of(new Out.Console("welcome stand-in"), new Out.Lab("ready", "")),
+            () -> List.of(new Out.Users(List.of())));
+        assertEquals(List.of(true, true, true), openWhenSent);
+        assertEquals(List.of("console", "lab", "users"),
+            watching.sent.stream().map(m -> ((Out) m).t()).toList(), "the first messages, then the snapshot");
     }
 
     @Test
