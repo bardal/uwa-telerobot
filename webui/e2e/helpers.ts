@@ -189,8 +189,9 @@ export async function expectConsole(page: Page, s: string | RegExp, timeout = 30
 
 /**
  * Resets the lab (blocks back on their marks, the arm home) through the admin `reset`
- * action, from a dev admin sign-in. The UI has no menu for it, so the admin's hello and
- * the action go over a WebSocket opened in a page on the gateway's origin.
+ * action, from a dev admin sign-in. A journey's setup step, so it skips the UI (admin.spec.ts
+ * drives the Admin menu): the admin's hello and the action go over a WebSocket opened in a
+ * page on the gateway's origin.
  */
 export async function resetLab(browser: Browser): Promise<void> {
   const { context, page } = await newUser(browser);

@@ -15,7 +15,7 @@ import { pointAsGBHString, poseAsGBHString, randomState, stateAsGBHString } from
 import { CamerasPanel } from './camerasPanel';
 import { ChatPanel } from './chatPanel';
 import { ConsolePanel } from './consolePanel';
-import { addPointDialog, confirmDialog, deletePointDialog } from './dialogs';
+import { addPointDialog, confirmDialog, deletePointDialog, nickDialog } from './dialogs';
 import { borderPanel, h } from './dom';
 import { MenuBar } from './menuBar';
 import { check, item, PopupMenu, separator } from './popupMenu';
@@ -221,6 +221,7 @@ export class ControlPage {
 
   private welcome(m: Extract<Out, { t: 'welcome' }>): void {
     this.ourNick = m.nick;
+    this.menuBar.setVisible('Admin', m.level === 'admin');
     this.cameras.resetSequence();
     this.robot.resetCommands();
     this.cameras.setCameras(m.cameras, this.stickPose, this.showingCursor);
@@ -348,6 +349,17 @@ export class ControlPage {
       {
         label: 'Help',
         items: [item('Brief Help', () => this.deps.openHelp()), item('History', () => this.deps.openHistory())],
+      },
+      {
+        // shown only to admins (welcome level); the gateway checks the level again
+        label: 'Admin',
+        hidden: true,
+        items: [
+          item('Kick user…', () => nickDialog('Kick user', 'Kick', (nick) => this.deps.send({ t: 'admin', action: 'kick', nick }))),
+          item('Ban user…', () => nickDialog('Ban user', 'Ban', (nick) => this.deps.send({ t: 'admin', action: 'ban', nick }))),
+          separator,
+          item('Reset lab', () => confirmDialog('Really reset the lab?', () => this.deps.send({ t: 'admin', action: 'reset' }))),
+        ],
       },
     ]);
     return mb;

@@ -173,6 +173,15 @@ describe('Gateway', () => {
     expect(FakeWS.instances).toHaveLength(2);
   });
 
+  it('close() from inside onClose stops the retry too', () => {
+    let g: Gateway | null = null;
+    g = new Gateway('ws://x/ws', hello, { WebSocketImpl: WS, onClose: () => g?.close() });
+    FakeWS.instances[0]!.open();
+    FakeWS.instances[0]!.drop();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWS.instances).toHaveLength(1);
+  });
+
   it('close() stops reconnecting', () => {
     const g = new Gateway('ws://x/ws', hello, { WebSocketImpl: WS });
     g.close();

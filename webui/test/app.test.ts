@@ -214,6 +214,30 @@ describe('app flow', () => {
     expect(app.login.console.text()).toContain('Turnstile check failed');
   });
 
+  it('a kicked or banned session goes back to the login page and does not reconnect', async () => {
+    const { app, g } = await loggedIn();
+    g.emit(welcome('ann'));
+    g.emit({ t: 'error', code: 'unauthorised', message: 'removed by an administrator' });
+    g.opts.onClose!();
+    await flush();
+    expect(app.view()).toBe('login');
+    expect(g.closed).toBe(true);
+    expect(g.reconnects).toBe(0);
+    expect(app.login.console.text()).toContain('removed by an administrator');
+  });
+
+  it('an unauthorised refusal that does not close the socket is only a console line', async () => {
+    const { app, g } = await loggedIn();
+    g.emit(welcome('ann'));
+    g.emit({ t: 'error', code: 'unauthorised', message: 'that point is not yours' });
+    g.emit({ t: 'users', nicks: ['ann'] });
+    expect(app.view()).toBe('control');
+    g.opts.onClose!(); // a later, unrelated drop: the usual wake and reconnect
+    await flush();
+    expect(app.view()).not.toBe('login');
+    expect(g.reconnects).toBe(1);
+  });
+
   it('Logout returns to the login page', async () => {
     const { app, g } = await loggedIn();
     g.emit(welcome('ann'));

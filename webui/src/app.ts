@@ -101,6 +101,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   let gateway: GatewayLike | null = null;
   let control: ControlPage | null = null;
   let welcomed = false;
+  /** An "unauthorised" error that was the last thing before the socket closed: a kick or a ban. */
+  let refusal: string | null = null;
   let wakeRun = 0;
 
   const waking = new WakingPage(
@@ -214,6 +216,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   }
 
   function connect(): void {
+    refusal = null;
     welcomed = false;
     if (gateway) {
       gateway.reconnect();
@@ -233,6 +236,13 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     const g = make(wsUrl(), hello, {
       onClose: () => {
         if (gateway !== g) return;
+        if (refusal !== null) {
+          // removed by an administrator, or banned: back to the login page, not straight back in
+          const why = refusal;
+          refusal = null;
+          endSession(why);
+          return;
+        }
         welcomed = false;
         page.disconnected();
         if (view === 'control') {
@@ -253,6 +263,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   function onMessage(g: GatewayLike, page: ControlPage, m: Out): void {
     if (gateway !== g) return;
     page.handle(m);
+    // the gateway closes a kicked or banned session right after telling it why
+    refusal = m.t === 'error' && m.code === 'unauthorised' && welcomed ? m.message : null;
     if (m.t === 'welcome') {
       welcomed = true;
       admin = m.level === 'admin';

@@ -116,6 +116,7 @@ export class Gateway {
       this.state = 'closed';
       if (this.stopped) return;
       this.opts.onClose?.();
+      if (this.stopped) return; // onClose closed us for good (a kick or ban)
       this.failures++;
       if (this.failures === WAKE_AFTER_FAILURES) {
         // The wake flow takes over; it calls reconnect() when the lab is up.
