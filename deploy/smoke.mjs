@@ -150,12 +150,17 @@ let idToken;
       const res = await get("/healthz");
       const body = await readJson(res);
       last = `HTTP ${res.status} ${JSON.stringify(body)}`;
+      // Ready means lab === "ready" (MOM, the robot proxy and the camera
+      // server all up; "starting" until then), on the expected commit. A
+      // ready gateway on another commit is the previous boot still serving
+      // while deploy.ps1's reboot lands, so keep polling; the deadline
+      // reports it.
       if (res.status === 200 && body.ok === true && body.lab === "ready") {
-        if (expectCommit && body.commit !== expectCommit) {
-          fail("healthz", `commit ${body.commit}, expected ${expectCommit}`);
+        if (!expectCommit || body.commit === expectCommit) {
+          pass("healthz", JSON.stringify(body));
+          break;
         }
-        pass("healthz", JSON.stringify(body));
-        break;
+        last += ` (commit ${body.commit}, expected ${expectCommit})`;
       }
     } catch (e) {
       last = `${e.name}: ${e.message}`;
