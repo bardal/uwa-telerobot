@@ -19,8 +19,22 @@
     </license>
   </licenses>
 
+  <!-- The lab (the 2000 code, JDK 8 source level) builds on any JDK from 8. The gateway needs JDK 21,
+       so it joins the build only there: on JDK 8 (the last with appletviewer) `mvn package` builds the
+       lab and the local applet; on JDK 21 it builds everything. -->
   <modules>
     <module>lab</module>
-    <module>gateway</module>
   </modules>
+
+  <profiles>
+    <profile>
+      <id>gateway</id>
+      <activation>
+        <jdk>[21,)</jdk>
+      </activation>
+      <modules>
+        <module>gateway</module>
+      </modules>
+    </profile>
+  </profiles>
 </project>
