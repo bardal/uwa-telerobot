@@ -63,6 +63,7 @@ public final class InProcessLab {
     private final Ports ports;
     private final Map<String, String> pins;
     private World world;
+    private SimCameraManager cameras;
     private Object cameraServer; // kept reachable
 
     /**
@@ -95,6 +96,9 @@ public final class InProcessLab {
     public Ports ports() { return ports; }
 
     public World world() { return world; }
+
+    /** The simulated cameras the camera server publishes (tests watch their photos). */
+    public au.edu.uwa.mech.devices.camera.CameraManager cameras() { return cameras; }
 
     /** PINs of the registered and admin accounts, keyed as {@link GatewayConfig#pins()}. */
     public Map<String, String> gatewayPins() {
@@ -141,7 +145,7 @@ public final class InProcessLab {
         robot.start(ports.control(), ports.position());
         robot.serveAdmin(ports.admin());
 
-        SimCameraManager cameras = new SimCameraManager(world, VirtualLab.defaultCameras(), null);
+        cameras = new SimCameraManager(world, VirtualLab.defaultCameras(), null);
         for (int attempt = 1; cameraServer == null; attempt++) {
             try {
                 cameraServer = new au.edu.uwa.mech.devices.camera.Server(labXml.toString(), cameras);

@@ -252,13 +252,18 @@ class HostileIT {
         int before = good.binaries.size();
 
         Random rnd = new Random(20261013);
+        long lastAsk = 0;
         for (int i = 0; i < 1000 && hostile.session.isOpen(); i++) {
             byte[] raw = new byte[1 + rnd.nextInt(200)];
             rnd.nextBytes(raw);
             // any byte value, as a text frame: each byte becomes one char (valid UTF-8 on the wire)
             if (raw[0] == '{') raw[0] = '!'; // a lone "{" prefix is no more valid, but keep it plainly garbage
             hostile.send(new String(raw, java.nio.charset.StandardCharsets.ISO_8859_1));
-            if (i % 4 == 0) good.send(msg("newImage").put("camera", "ZCam")); // the good session keeps asking, mid-flood
+            // the good session keeps asking mid-flood, within its camera allowance (1 a second)
+            if (System.currentTimeMillis() - lastAsk >= 1_100) {
+                lastAsk = System.currentTimeMillis();
+                good.send(msg("newImage").put("camera", "ZCam"));
+            }
         }
         assertClosedByServer(hostile, "noisy");
         assertEquals(20, hostile.count("error", "bad-message"), "refused one by one until the 20th closes it");
@@ -280,6 +285,35 @@ class HostileIT {
         assertEquals(0, good.count("error", null), "the good session was never refused: " + good.texts);
         assertEquals(-1, good.closeCode);
         good.leave();
+    }
+
+    // ---- 1b. a camera flood ------------------------------------------------------------------
+
+    @Test
+    void fiftyNewImagesInASecondReachTheCameraServerAtMostFourTimes() throws Exception {
+        // the arm at rest: the camera server's shutter thread photographs only while it moves
+        long rest = System.currentTimeMillis() + 30_000;
+        while (lab.world().snapshot().moving && System.currentTimeMillis() < rest) Thread.sleep(50);
+        Thread.sleep(700); // its photo after the move, too
+        AtomicInteger photos = new AtomicInteger();
+        au.edu.uwa.mech.devices.camera.Camera cam = lab.camera("YCam");
+        au.edu.uwa.mech.devices.camera.ImageListener count = (source, image) -> photos.incrementAndGet();
+        Peer p = guest("shutterbug");
+        try {
+            cam.addImageListener(count);
+            for (int i = 0; i < 50 && p.session.isOpen(); i++) {
+                p.send(msg("newImage").put("camera", "YCam"));
+                Thread.sleep(20);
+            }
+            p.awaitError("rate-limited");
+            Thread.sleep(1_500); // photos already asked for are taken
+            assertTrue(photos.get() >= 1, "the burst reached the camera server: " + photos.get());
+            assertTrue(photos.get() <= 4, "a burst of 3 and at most one refill, not 50: " + photos.get());
+            assertTrue(p.count("error", "rate-limited") >= 1, p.texts.toString());
+        } finally {
+            cam.removeImageListener(count);
+            p.leave();
+        }
     }
 
     // ---- 2. a serialized gadget ---------------------------------------------------------------
@@ -609,6 +643,28 @@ class HostileIT {
             assertEquals(0, p.count("welcome", null));
             assertEquals(0, p.count("users", null), "never listed");
         }
+    }
+
+    @Test
+    void reservedNicksAreForAdminsOnly() throws Exception {
+        for (String nick : List.of("Admin", "ro.bot", "Sys_Tem", "barney")) {
+            Peer g = connect();
+            g.send(hello(nick));
+            assertEquals("That nickname is reserved", g.awaitError("bad-message").get("message").asText(), nick);
+            assertEquals(1008, g.awaitClose(10_000));
+            assertEquals(0, g.count("welcome", null));
+        }
+        Peer reg = connect();
+        reg.send(helloToken("Moderator", jwt(key, List.of("students"))));
+        assertEquals("That nickname is reserved", reg.awaitError("bad-message").get("message").asText());
+        assertEquals(0, reg.count("welcome", null));
+
+        Peer admin = connect();
+        admin.send(helloToken("Moderator", jwt(key, List.of("admin"))));
+        JsonNode w = admin.awaitType("welcome");
+        assertEquals("admin", w.get("level").asText());
+        assertEquals("Moderator", w.get("nick").asText(), "an admin may use any valid nick");
+        admin.leave();
     }
 
     // ---- 12. the port probe --------------------------------------------------------------------

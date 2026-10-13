@@ -9,7 +9,20 @@ import java.util.Set;
  * and so on. Comparison ignores case, so "Ann" and "ann" are not both handed out. Thread-safe.
  */
 public final class Nicks {
+    /** Only admins may use these (compared by {@link #reserved}). */
+    static final Set<String> RESERVED = Set.of("admin", "administrator", "barney", "robot", "camera", "team",
+        "guest", "registered", "system", "moderator");
+
     private final Set<String> held = new HashSet<>();
+
+    /**
+     * Whether a nick would pass for a reserved one: equal to one of {@link #RESERVED} ignoring case,
+     * spaces, dots, underscores and dashes ("Ad.Min", "ROBOT_", "sys tem").
+     */
+    public static boolean reserved(String nick) {
+        if (nick == null) return false;
+        return RESERVED.contains(nick.replaceAll("[ ._-]", "").toLowerCase(Locale.ROOT));
+    }
 
     /** Holds and returns the first free one of {@code wanted}, {@code wanted~2}, {@code wanted~3}, ... */
     public synchronized String reserve(String wanted) {

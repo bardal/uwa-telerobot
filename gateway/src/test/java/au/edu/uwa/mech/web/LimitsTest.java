@@ -159,6 +159,20 @@ class LimitsTest {
     }
 
     @Test
+    void cameraRequestsAreOneASecondWithABurstOfThree() {
+        for (int i = 0; i < 3; i++) assertTrue(limits.allow("camera"), "burst " + i);
+        assertFalse(limits.allow("camera"));
+        now += 999;
+        assertFalse(limits.allow("camera"));
+        now += 1;
+        assertTrue(limits.allow("camera"));
+        assertFalse(limits.allow("camera"));
+        now += 10_000; // refills to the burst, no further
+        for (int i = 0; i < 3; i++) assertTrue(limits.allow("camera"), "refilled " + i);
+        assertFalse(limits.allow("camera"));
+    }
+
+    @Test
     void bucketsAreIndependentAndUnknownIsRejected() {
         for (int i = 0; i < 5; i++) limits.allow("chat");
         assertFalse(limits.allow("chat"));
