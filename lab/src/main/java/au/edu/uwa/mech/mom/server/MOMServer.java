@@ -555,7 +555,8 @@ public class MOMServer implements EventRelay, Clock//, NewConnectionHandler
 //    }
   
 
-  GUI gui=new GUI();
+  // no status window on a headless host (java.awt.headless=true, as on AWS)
+  GUI gui = java.awt.GraphicsEnvironment.isHeadless() ? null : new GUI();
   class GUI extends Frame
   {
     TextArea ta = new TextArea();
@@ -612,7 +613,8 @@ public class MOMServer implements EventRelay, Clock//, NewConnectionHandler
 
       
       Thread.currentThread().sleep(5000);
-      mom.gui.update();
+      if (mom.gui != null)
+        mom.gui.update();
     }
     
     

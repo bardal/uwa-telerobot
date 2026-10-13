@@ -41,7 +41,7 @@ import  au.edu.uwa.mech.maths.Point3d;
 //}
 
 
-class CameraSettings implements java.io.Serializable//implements CameraSettings
+public class CameraSettings implements java.io.Serializable//implements CameraSettings
   {
     CameraSettings(int maxWidth, int maxHeight){
       this.maxWidth=maxWidth;

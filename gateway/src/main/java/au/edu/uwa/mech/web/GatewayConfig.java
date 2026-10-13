@@ -30,6 +30,9 @@ public record GatewayConfig(
     String turnstileSecretParam) {
 
     public static final String DEFAULT_COMMIT = "dev";
+    /** Keys of {@link #pins()}: the MOM PINs of the {@code registered} and {@code admin} service accounts. */
+    public static final String PIN_REGISTERED = "registered";
+    public static final String PIN_ADMIN = "admin";
 
     public GatewayConfig {
         allowedOrigins = List.copyOf(allowedOrigins);
@@ -52,6 +55,8 @@ public record GatewayConfig(
         String turnstile = blankToNull(env.get("TURNSTILE_SECRET"));
         boolean instanceStop = "true".equalsIgnoreCase(env.get("INSTANCE_STOP"));
         String commit = null;
+        String pinRegistered = blankToNull(env.get("PIN_REGISTERED"));
+        String pinAdmin = blankToNull(env.get("PIN_ADMIN"));
 
         boolean originsFromFlags = false;
         boolean clientIdsFromFlags = false;
@@ -80,6 +85,8 @@ public record GatewayConfig(
                 case "--origin-secret" -> originSecret = blankToNull(value(args, ++i));
                 case "--turnstile-secret" -> turnstile = blankToNull(value(args, ++i));
                 case "--commit" -> commit = value(args, ++i);
+                case "--pin-registered" -> pinRegistered = blankToNull(value(args, ++i));
+                case "--pin-admin" -> pinAdmin = blankToNull(value(args, ++i));
                 default -> throw new IllegalArgumentException("unknown option " + a);
             }
         }
@@ -87,8 +94,11 @@ public record GatewayConfig(
         if (!clientIdsFromFlags && clientIds.isEmpty()) clientIds.addAll(split(env.get("COGNITO_CLIENT_IDS")));
 
         if (commit == null) commit = manifestCommit();
+        Map<String, String> pins = new java.util.HashMap<>();
+        if (pinRegistered != null) pins.put(PIN_REGISTERED, pinRegistered);
+        if (pinAdmin != null) pins.put(PIN_ADMIN, pinAdmin);
         return new GatewayConfig(port, momHost, momPort, labAdminPort, origins, originSecret, dev, staticDir,
-            archiveDir, issuer, clientIds, turnstile, Map.of(), blankToNull(env.get("ARCHIVE_BUCKET")), instanceStop,
+            archiveDir, issuer, clientIds, turnstile, pins, blankToNull(env.get("ARCHIVE_BUCKET")), instanceStop,
             commit, blankToNull(env.get("AWS_REGION")), blankToNull(env.get("ORIGIN_SECRET_PARAM")),
             blankToNull(env.get("TURNSTILE_SECRET_PARAM")));
     }

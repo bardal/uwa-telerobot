@@ -28,6 +28,15 @@ class GatewayConfigTest {
     }
 
     @Test
+    void momPinsFromEnvAndFlags() {
+        assertEquals(Map.of(), GatewayConfig.parse(new String[0], Map.of()).pins());
+        Map<String, String> env = Map.of("PIN_REGISTERED", "r-env", "PIN_ADMIN", "a-env");
+        assertEquals(Map.of("registered", "r-env", "admin", "a-env"), GatewayConfig.parse(new String[0], env).pins());
+        GatewayConfig f = GatewayConfig.parse(new String[] {"--pin-registered", "r-flag", "--pin-admin", " "}, env);
+        assertEquals(Map.of("registered", "r-flag"), f.pins(), "a blank flag clears the env value");
+    }
+
+    @Test
     void envIsReadAndFlagsOverrideIt() {
         Map<String, String> env = Map.of(
             "ALLOWED_ORIGIN", "https://a.example, https://b.example",

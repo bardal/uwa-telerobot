@@ -104,6 +104,19 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.6</version>
+        <configuration>
+          <!-- BridgeIT runs the real lab in process (LabFixture), so it runs in every build -->
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/*IT.java</include>
+          </includes>
+          <!-- the 2000 servers write logs/ under the working directory -->
+          <workingDirectory>${project.build.directory}/test-run</workingDirectory>
+          <redirectTestOutputToFile>true</redirectTestOutputToFile>
+          <systemPropertyVariables>
+            <java.awt.headless>true</java.awt.headless>
+          </systemPropertyVariables>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
