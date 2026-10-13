@@ -296,7 +296,8 @@ try {
   Step "Activating the '$($ProjectTag.Key)' cost-allocation tag"
   $ce = Invoke-Aws -Arguments @('ce', 'update-cost-allocation-tags-status', '--cost-allocation-tags-status',
     "TagKey=$($ProjectTag.Key),Status=Active") -In $EdgeRegion -AllowFail
-  $ceErrors = if ($ce.Ok -and $ce.Out.Trim()) { @(($ce.Out | ConvertFrom-Json).PSObject.Properties['Errors'] | ForEach-Object { $_.Value } | Where-Object { $_ }) } else { @() }
+  # @(...) around the whole if: an assignment from an if unrolls an empty array to $null.
+  $ceErrors = @(if ($ce.Ok -and $ce.Out.Trim()) { ($ce.Out | ConvertFrom-Json).PSObject.Properties['Errors'] | ForEach-Object { $_.Value } | Where-Object { $_ } })
   if ($ce.Ok -and $ceErrors.Count -eq 0) {
     Note 'active (the budget filters on it)'
     $Summary['Cost tag'] = 'active'
