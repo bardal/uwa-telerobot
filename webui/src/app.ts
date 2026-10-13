@@ -306,6 +306,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (new URLSearchParams(globalThis.location?.search ?? '').get('e2e') === '1') {
       const api = Object.freeze({
         cameraMatrix: (name: string) => control?.cameras.cameraMatrix(name) ?? null,
+        cameraScale: (name: string) => control?.cameras.view(name)?.canvas.scale ?? null,
         canvasRect: (name: string) => {
           const r = control?.cameras.view(name)?.canvasEl.getBoundingClientRect();
           return r ? { x: r.x, y: r.y, width: r.width, height: r.height, left: r.left, top: r.top, right: r.right, bottom: r.bottom } : null;
@@ -314,6 +315,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
         robotState: () => control?.robotState() ?? null,
         controller: () => control?.controller() ?? null,
         nick: () => control?.nick() ?? null,
+        workspacePoints: () => control?.workspace.names().map((n) => ({ ...control!.workspace.get(n)! })) ?? null,
+        tapeLength: () => control?.tapeMeasure.length() ?? null,
       });
       Object.defineProperty(globalThis, '__telerobot', { value: api, writable: false, configurable: false, enumerable: false });
     }

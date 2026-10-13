@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "lint": "eslint .",
-    "e2e": "playwright test"
+    "e2e": "npm run build && playwright test"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

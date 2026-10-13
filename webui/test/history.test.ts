@@ -109,6 +109,13 @@ describe('History page', () => {
     expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('never reads an index from the browser cache, so a reload after a flush or a delete is fresh', async () => {
+    const { page, fetchImpl } = make({ [DAYS]: () => json({ days: ['2026-10-13'] }), [DAY]: () => json(day) });
+    await page.load();
+    const calls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.map((c) => c[1].cache)).toEqual(['no-store', 'no-store']);
+  });
+
   it('shows no Delete buttons unless allowed', async () => {
     const { page } = make({ [DAYS]: () => json({ days: ['2026-10-13'] }), [DAY]: () => json(day) });
     await page.load();

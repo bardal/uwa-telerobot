@@ -121,7 +121,9 @@ export class HistoryPage {
 
   private async getJson(url: string): Promise<unknown> {
     try {
-      const r = await this.deps.fetchImpl(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      // never from the browser cache: an index rewritten within the second of its Last-Modified
+      // would revalidate as 304 Not Modified, and History would miss the new entry or the delete
+      const r = await this.deps.fetchImpl(url, { cache: 'no-store', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (r.status === 404) return MISSING;
       if (!r.ok) return FAILED;
       return (await r.json()) as unknown;

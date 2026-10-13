@@ -20,7 +20,7 @@ function copyCsp(): Plugin {
   };
 }
 
-const gateway = 'http://localhost:8080';
+const gateway = 'http://127.0.0.1:8080';
 
 export default defineConfig({
   plugins: [copyCsp()],
