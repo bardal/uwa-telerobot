@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["lambda/**/*.ts", "vitest.config.ts"]
+  "include": ["lambda/**/*.ts", "bin/**/*.ts", "lib/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }

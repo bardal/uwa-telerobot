@@ -7,6 +7,7 @@ import {
 import { GetParameterCommand, ParameterNotFound, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { checkOrigin, reap, status, wake, type Deps } from "./core";
+import { cachedValue, isReapEvent } from "./params";
 
 interface FunctionUrlEvent {
   rawPath?: string;
@@ -16,20 +17,40 @@ interface FunctionUrlEvent {
   requestContext?: { http?: { method?: string; path?: string } };
   source?: string;
   "detail-type"?: string;
+  reap?: boolean;
 }
 
 const ec2Client = new EC2Client({});
 const ssmClient = new SSMClient({});
 
+async function decryptedParam(name: string): Promise<string> {
+  const r = await ssmClient.send(new GetParameterCommand({ Name: name, WithDecryption: true }));
+  return r.Parameter?.Value ?? "";
+}
+
+// Each comes from its env var when set, else from SSM once per cold start.
+const turnstileSecret = cachedValue(
+  process.env.TURNSTILE_SECRET,
+  process.env.TURNSTILE_SECRET_PARAM,
+  decryptedParam,
+);
+const cognitoClientIds = cachedValue(
+  process.env.COGNITO_CLIENT_IDS,
+  process.env.COGNITO_CLIENT_IDS_PARAM,
+  decryptedParam,
+);
+
 let verifier: ReturnType<typeof makeVerifier> | undefined;
-function makeVerifier() {
+function makeVerifier(clientIds: string) {
+  const clientId = clientIds
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (clientId.length === 0) throw new Error("no Cognito client ids");
   return CognitoJwtVerifier.create({
     userPoolId: process.env.USER_POOL_ID ?? "",
     tokenUse: "id",
-    clientId: (process.env.COGNITO_CLIENT_IDS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
+    clientId,
   });
 }
 
@@ -71,7 +92,7 @@ function buildDeps(): Deps {
       const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET ?? "", response: token }),
+        body: new URLSearchParams({ secret: await turnstileSecret(), response: token }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) return false;
@@ -79,7 +100,7 @@ function buildDeps(): Deps {
       return j.success === true;
     },
     async verifyIdToken(token) {
-      verifier ??= makeVerifier();
+      verifier ??= makeVerifier(await cognitoClientIds());
       await verifier.verify(token);
       return true;
     },
@@ -101,7 +122,7 @@ function json(statusCode: number, body: unknown) {
 export async function handler(event: FunctionUrlEvent) {
   const deps = buildDeps();
 
-  if (event.source === "aws.events" || event["detail-type"] === "Scheduled Event") {
+  if (isReapEvent(event)) {
     await reap(deps);
     return { reaped: true };
   }

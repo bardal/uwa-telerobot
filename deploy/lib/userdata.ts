@@ -1,0 +1,298 @@
+/**
+ * Renders the lab instance's cloud-init script: packages, the telerobot user,
+ * the systemd units and the CloudWatch agent config.
+ *
+ * cloud-init runs this once, on the first boot. Everything that must be fresh
+ * on every boot (the artifacts of the current commit, the PINs, the configs)
+ * lives in the telerobot-fetch oneshot unit, so a new deploy only needs a
+ * restart.
+ *
+ * Values in the options may be CDK tokens; they are interpolated into the
+ * script text, never interpreted by bash (every heredoc here is quoted).
+ */
+
+/** Must equal `SerialFilter.PATTERN` in the lab module. */
+export const SERIAL_FILTER =
+  "au.edu.uwa.mech.**;Jama.**;java.lang.*;java.util.*;java.awt.Point;java.awt.Rectangle;[*;!*";
+
+/** SSM String parameters the stack writes once the distribution and clients exist. */
+export const STACK_PARAMS = {
+  allowedOrigin: "/telerobot/stack/allowed-origin",
+  cognitoClientIds: "/telerobot/stack/cognito-client-ids",
+} as const;
+
+export interface UserDataOptions {
+  artifactsBucket: string;
+  archiveBucket: string;
+  region: string;
+  cognitoIssuer: string;
+  logGroup: string;
+}
+
+const HOME = "/var/lib/telerobot";
+const LAB_JAR = `${HOME}/lib/lab.jar`;
+const LAB_JAVA = `/usr/bin/java "-Djdk.serialFilter=${SERIAL_FILTER}" -Dtelerobot.bind=127.0.0.1`;
+
+/** Decision 1's hardening, plus restart on failure. */
+const SERVICE_COMMON = `User=telerobot
+Group=telerobot
+WorkingDirectory=${HOME}/run
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ReadWritePaths=${HOME}
+Restart=on-failure
+RestartSec=5`;
+
+function service(o: {
+  name: string;
+  description: string;
+  after: string;
+  /** Local ports that must be listening before this unit starts. */
+  ports?: string;
+  execStart: string;
+  extra?: string;
+}): string {
+  return `cat > /etc/systemd/system/telerobot-${o.name}.service <<'UNIT'
+[Unit]
+Description=${o.description}
+Requires=${o.after}.service
+After=${o.after}.service
+StartLimitIntervalSec=0
+
+[Service]
+${SERVICE_COMMON}
+${o.extra ? o.extra + "\n" : ""}${o.ports ? `ExecStartPre=/usr/local/bin/telerobot-wait-port ${o.ports}\n` : ""}ExecStart=${o.execStart}
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+`;
+}
+
+const FETCH_SCRIPT = `#!/bin/bash
+# telerobot-fetch: runs as root on every boot, before MOM. Pulls the artifacts
+# of the commit named in SSM /telerobot/commit and renders the configs with
+# the PINs from SSM. Retries for 10 minutes: on the first deploy the instance
+# boots before deploy.ps1 has uploaded the artifacts and set the commit.
+set -euo pipefail
+. /etc/telerobot/telerobot.env
+export AWS_REGION AWS_DEFAULT_REGION="$AWS_REGION"
+umask 077
+
+STAGE=${HOME}/stage
+CFG=${HOME}/config
+
+param() { aws ssm get-parameter --name "$1" --with-decryption --query Parameter.Value --output text; }
+fail() { echo "telerobot-fetch: $*" >&2; return 1; }
+
+fetch() {
+  local commit src f u pin
+  commit=$(param /telerobot/commit) || return 1
+  [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || fail "/telerobot/commit is not a commit: $commit" || return 1
+  src="s3://$ARTIFACTS_BUCKET/artifacts/$commit"
+  rm -rf "$STAGE" && mkdir -p "$STAGE/config" || return 1
+  for f in lab.jar gateway.jar config/MOM.xml config/lab.xml config/RobotProxy.properties; do
+    aws s3 cp --only-show-errors "$src/$f" "$STAGE/$f" || return 1
+  done
+  for u in registered admin robot camera; do
+    pin=$(param "/telerobot/pins/$u") || return 1
+    # PINs go into MOM URLs, sed replacements and an ini file: keep them plain.
+    [[ "$pin" =~ ^[A-Za-z0-9_-]{12,}$ ]] || fail "/telerobot/pins/$u must be 12+ chars of [A-Za-z0-9_-]" || return 1
+    printf -v "pin_$u" '%s' "$pin"
+  done
+  allowed_origin=$(param ${STACK_PARAMS.allowedOrigin}) || return 1
+  [[ "$allowed_origin" =~ ^https://[a-z0-9.-]+$ ]] || fail "bad allowed origin: $allowed_origin" || return 1
+  client_ids=$(param ${STACK_PARAMS.cognitoClientIds}) || return 1
+  [[ "$client_ids" =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]] || fail "bad client ids: $client_ids" || return 1
+  COMMIT=$commit
+}
+
+for attempt in $(seq 1 60); do
+  if fetch; then break; fi
+  [ "$attempt" -lt 60 ] || { echo "telerobot-fetch: giving up" >&2; exit 1; }
+  sleep 10
+done
+
+# The local configs carry the *-local PINs; substitute the real ones.
+sed "s|camera-local|$pin_camera|g" "$STAGE/config/lab.xml" > "$STAGE/lab.xml"
+sed "s|robot-local|$pin_robot|g" "$STAGE/config/RobotProxy.properties" > "$STAGE/RobotProxy.properties"
+if grep -qE 'camera-local|robot-local' "$STAGE/lab.xml" "$STAGE/RobotProxy.properties" \\
+  || ! grep -qF ":$pin_camera:" "$STAGE/lab.xml" || ! grep -qF "$pin_robot" "$STAGE/RobotProxy.properties"; then
+  echo "telerobot-fetch: PIN substitution failed" >&2
+  exit 1
+fi
+
+cat > "$STAGE/users.ini" <<USERS
+; MOM user database, written by telerobot-fetch from SSM.
+
+[guest]
+name=Guest
+PIN=-1
+UserLevel=Guest
+
+[registered]
+name=Registered user
+PIN=$pin_registered
+UserLevel=Registered
+
+[admin]
+name=Administrator
+PIN=$pin_admin
+UserLevel=Team
+
+[robot]
+name=Robot proxy
+PIN=$pin_robot
+UserLevel=Registered
+
+[camera]
+name=Camera server
+PIN=$pin_camera
+UserLevel=Registered
+USERS
+
+cat > "$STAGE/gateway.env" <<GATEWAY
+ALLOWED_ORIGIN=$allowed_origin
+COGNITO_CLIENT_IDS=$client_ids
+GATEWAY
+
+install -o root -g telerobot -m 0640 "$STAGE/config/MOM.xml" "$CFG/MOM.xml"
+install -o root -g telerobot -m 0640 "$STAGE/lab.xml" "$CFG/lab.xml"
+install -o root -g telerobot -m 0640 "$STAGE/RobotProxy.properties" "$CFG/RobotProxy.properties"
+install -o root -g telerobot -m 0640 "$STAGE/users.ini" "$CFG/users.ini"
+install -o root -g telerobot -m 0640 "$STAGE/gateway.env" /etc/telerobot/gateway.env
+install -o root -g root -m 0644 "$STAGE/lab.jar" ${HOME}/lib/lab.jar
+install -o root -g root -m 0644 "$STAGE/gateway.jar" ${HOME}/lib/gateway.jar
+rm -rf "$STAGE"
+echo "telerobot-fetch: commit $COMMIT ready"
+`;
+
+const WAIT_PORT_SCRIPT = `#!/bin/bash
+# telerobot-wait-port PORT...: wait up to 2 minutes for each local TCP port to
+# be listening. Checks the socket table rather than connecting, so the old
+# servers never see a stray connection.
+for port in "$@"; do
+  for i in $(seq 1 120); do
+    if ss -Hltn "sport = :$port" | grep -q .; then continue 2; fi
+    sleep 1
+  done
+  echo "telerobot-wait-port: port $port is not listening" >&2
+  exit 1
+done
+`;
+
+const CWAGENT_MIN = "1.300070.0"; // first release that reads journald
+
+function cwAgentConfig(logGroup: string): string {
+  return JSON.stringify(
+    {
+      agent: { run_as_user: "root" },
+      logs: {
+        logs_collected: {
+          journald: {
+            collect_list: [
+              {
+                log_group_name: logGroup,
+                log_stream_name: "{instance_id}",
+                units: ["telerobot-fetch", "telerobot-mom", "telerobot-lab", "telerobot-proxy", "telerobot-gateway"],
+              },
+            ],
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+export function renderUserData(o: UserDataOptions): string {
+  return `#!/bin/bash
+set -euxo pipefail
+
+dnf install -y java-21-amazon-corretto-headless amazon-cloudwatch-agent
+# journald collection needs agent ${CWAGENT_MIN}+; the AL2023 repo can lag behind.
+cw_version=$(rpm -q --qf '%{VERSION}' amazon-cloudwatch-agent)
+if [ "$(printf '%s\\n' ${CWAGENT_MIN} "$cw_version" | sort -V | head -n1)" != "${CWAGENT_MIN}" ]; then
+  dnf install -y https://amazoncloudwatch-agent.s3.amazonaws.com/amazon_linux/arm64/latest/amazon-cloudwatch-agent.rpm
+fi
+
+id telerobot >/dev/null 2>&1 || useradd --system --user-group --home-dir ${HOME} --no-create-home --shell /sbin/nologin telerobot
+install -d -o root -g telerobot -m 0750 ${HOME} ${HOME}/config ${HOME}/lib /etc/telerobot
+install -d -o telerobot -g telerobot -m 0750 ${HOME}/run
+
+cat > /etc/telerobot/telerobot.env <<'ENV'
+ARTIFACTS_BUCKET=${o.artifactsBucket}
+ARCHIVE_BUCKET=${o.archiveBucket}
+AWS_REGION=${o.region}
+COGNITO_ISSUER=${o.cognitoIssuer}
+ORIGIN_SECRET_PARAM=/telerobot/origin-secret
+TURNSTILE_SECRET_PARAM=/telerobot/turnstile-secret
+ENV
+chmod 0640 /etc/telerobot/telerobot.env
+chgrp telerobot /etc/telerobot/telerobot.env
+
+cat > /usr/local/bin/telerobot-fetch <<'FETCH'
+${FETCH_SCRIPT}FETCH
+cat > /usr/local/bin/telerobot-wait-port <<'WAITPORT'
+${WAIT_PORT_SCRIPT}WAITPORT
+chmod 0755 /usr/local/bin/telerobot-fetch /usr/local/bin/telerobot-wait-port
+
+cat > /etc/systemd/system/telerobot-fetch.service <<'UNIT'
+[Unit]
+Description=Telerobot: fetch the current commit's artifacts and render configs
+Wants=network-online.target
+After=network-online.target
+Before=telerobot-mom.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=15min
+ExecStart=/usr/local/bin/telerobot-fetch
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+${service({
+  name: "mom",
+  description: "Telerobot MOM server",
+  after: "telerobot-fetch",
+  execStart: `${LAB_JAVA} -cp ${LAB_JAR} au.edu.uwa.mech.mom.server.MOMServer ../config/MOM.xml`,
+})}
+${service({
+  name: "lab",
+  description: "Telerobot VirtualLab (simulated robot and cameras)",
+  after: "telerobot-mom",
+  ports: "4444",
+  execStart: `${LAB_JAVA} -Djava.awt.headless=true -cp ${LAB_JAR} au.edu.uwa.mech.sim.VirtualLab ../config/lab.xml`,
+})}
+${service({
+  name: "proxy",
+  description: "Telerobot RobotProxy",
+  after: "telerobot-lab",
+  ports: "4444 30562 30563",
+  execStart: `${LAB_JAVA} -cp ${LAB_JAR} au.edu.uwa.mech.devices.robot.Server ../config/RobotProxy.properties`,
+})}
+${service({
+  name: "gateway",
+  description: "Telerobot web gateway",
+  after: "telerobot-proxy",
+  ports: "4444 30564",
+  extra: "EnvironmentFile=/etc/telerobot/telerobot.env\nEnvironmentFile=/etc/telerobot/gateway.env",
+  execStart: `/usr/bin/java -jar ${HOME}/lib/gateway.jar --port 8080 --mom-host 127.0.0.1 --mom-port 4444 --lab-admin-port 30564`,
+})}
+cat > /opt/aws/amazon-cloudwatch-agent/etc/telerobot.json <<'CWAGENT'
+${cwAgentConfig(o.logGroup)}
+CWAGENT
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/telerobot.json
+
+systemctl daemon-reload
+systemctl enable telerobot-fetch telerobot-mom telerobot-lab telerobot-proxy telerobot-gateway
+# This boot's transaction predates the units: start them now, without making
+# cloud-init wait for the fetch.
+systemctl start --no-block telerobot-gateway
+`;
+}
