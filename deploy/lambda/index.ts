@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/client-ec2";
 import { GetParameterCommand, ParameterNotFound, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
-import { reap, status, wake, type Deps } from "./core";
+import { checkOrigin, reap, status, wake, type Deps } from "./core";
 
 interface FunctionUrlEvent {
   rawPath?: string;
@@ -38,7 +38,11 @@ function buildDeps(): Deps {
     ec2: {
       async describeState(id) {
         const r = await ec2Client.send(new DescribeInstancesCommand({ InstanceIds: [id] }));
-        return r.Reservations?.[0]?.Instances?.[0]?.State?.Name ?? "stopped";
+        const i = r.Reservations?.[0]?.Instances?.[0];
+        return {
+          state: i?.State?.Name ?? "stopped",
+          launchTime: i?.LaunchTime ? new Date(i.LaunchTime).getTime() : 0,
+        };
       },
       async start(id) {
         await ec2Client.send(new StartInstancesCommand({ InstanceIds: [id] }));
@@ -68,6 +72,7 @@ function buildDeps(): Deps {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET ?? "", response: token }),
+        signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) return false;
       const j = (await res.json()) as { success?: boolean };
@@ -105,7 +110,7 @@ export async function handler(event: FunctionUrlEvent) {
   const path = event.rawPath ?? event.requestContext?.http?.path ?? "";
   const headers = event.headers ?? {};
 
-  if (!deps.originSecret || headers["x-telerobot-origin"] !== deps.originSecret) {
+  if (!checkOrigin(deps, headers)) {
     return json(403, { error: "forbidden" });
   }
 

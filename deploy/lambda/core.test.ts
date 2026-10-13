@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { reap, status, wake, type Deps } from "./core";
+import { checkOrigin, reap, status, wake, type Deps } from "./core";
 
 const NOW = Date.UTC(2026, 9, 13, 12, 0, 0);
+const HOUR = 3_600_000;
 const SECRET = "s3cret";
 const GOOD = { "x-telerobot-origin": SECRET };
 
 function makeDeps(opts: {
   state?: string;
+  launchTime?: number;
   heartbeat?: object | null;
   minutes?: Record<string, string>;
   turnstileOk?: boolean;
@@ -17,7 +19,10 @@ function makeDeps(opts: {
   const store: Record<string, string> = { ...(opts.minutes ?? {}) };
   if (opts.heartbeat) store["/telerobot/heartbeat"] = JSON.stringify(opts.heartbeat);
   const ec2 = {
-    describeState: vi.fn(async () => opts.state ?? "stopped"),
+    describeState: vi.fn(async () => ({
+      state: opts.state ?? "stopped",
+      launchTime: opts.launchTime ?? NOW - 60 * 60_000,
+    })),
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
   };
@@ -81,7 +86,25 @@ describe("status", () => {
   });
 });
 
+describe("status healthy", () => {
+  it("requires running state", async () => {
+    const { deps } = makeDeps({
+      state: "stopping",
+      heartbeat: { time: NOW - 1000, sessions: 0, lastSessionEnd: 0, commit: "abc" },
+    });
+    expect((await status(deps)).healthy).toBe(false);
+  });
+});
+
 describe("wake", () => {
+  it("401 when the verifier throws (e.g. turnstile timeout)", async () => {
+    const { deps, ec2 } = makeDeps({});
+    deps.verifyTurnstile = async () => {
+      throw new Error("timeout");
+    };
+    expect((await wake(deps, '{"turnstile":"t"}', GOOD)).status).toBe(401);
+    expect(ec2.start).not.toHaveBeenCalled();
+  });
   it("403 on wrong or missing origin header", async () => {
     const { deps, ec2 } = makeDeps({});
     expect((await wake(deps, '{"turnstile":"t"}', { "x-telerobot-origin": "nope" })).status).toBe(403);
@@ -227,7 +250,7 @@ describe("reap", () => {
     await reap(deps);
     expect(ec2.stop).toHaveBeenCalled();
   });
-  it("stops when idle with lastSessionEnd 0 (never had a session)", async () => {
+  it("stops when idle since launch with lastSessionEnd 0 (no session since boot)", async () => {
     const { deps, ec2 } = makeDeps({
       state: "running",
       heartbeat: fresh({ sessions: 0, lastSessionEnd: 0 }),
@@ -250,5 +273,94 @@ describe("reap", () => {
     });
     await reap(deps);
     expect(ec2.stop).not.toHaveBeenCalled();
+  });
+
+  const MIN = 60_000;
+  it("recently launched + missing heartbeat: not stopped, minutes still counted", async () => {
+    const { deps, ec2, store } = makeDeps({ state: "running", launchTime: NOW - 2 * MIN });
+    await reap(deps);
+    expect(ec2.stop).not.toHaveBeenCalled();
+    expect(store["/telerobot/minutes/2026-10"]).toBe("15");
+  });
+  it("recently launched + leftover heartbeat from before launch: not stopped", async () => {
+    const { deps, ec2 } = makeDeps({
+      state: "running",
+      launchTime: NOW - 3 * MIN,
+      heartbeat: fresh({ time: NOW - 3 * HOUR, sessions: 0, lastSessionEnd: NOW - 3 * HOUR }),
+    });
+    await reap(deps);
+    expect(ec2.stop).not.toHaveBeenCalled();
+  });
+  it("launched 11 min ago + no heartbeat: stopped", async () => {
+    const { deps, ec2 } = makeDeps({ state: "running", launchTime: NOW - 11 * MIN });
+    await reap(deps);
+    expect(ec2.stop).toHaveBeenCalled();
+  });
+  it("launched 11 min ago + only a pre-launch heartbeat: stopped", async () => {
+    const { deps, ec2 } = makeDeps({
+      state: "running",
+      launchTime: NOW - 11 * MIN,
+      heartbeat: fresh({ time: NOW - 12 * MIN }),
+    });
+    await reap(deps);
+    expect(ec2.stop).toHaveBeenCalled();
+  });
+  it("launched 20 min ago, fresh heartbeat, sessions 0, lastSessionEnd 0: stopped (idle since launch)", async () => {
+    const { deps, ec2 } = makeDeps({
+      state: "running",
+      launchTime: NOW - 20 * MIN,
+      heartbeat: fresh({ sessions: 0, lastSessionEnd: 0 }),
+    });
+    await reap(deps);
+    expect(ec2.stop).toHaveBeenCalled();
+  });
+  it("launched 20 min ago, sessions 0, lastSessionEnd 5 min ago: not stopped", async () => {
+    const { deps, ec2 } = makeDeps({
+      state: "running",
+      launchTime: NOW - 20 * MIN,
+      heartbeat: fresh({ sessions: 0, lastSessionEnd: NOW - 5 * MIN }),
+    });
+    await reap(deps);
+    expect(ec2.stop).not.toHaveBeenCalled();
+  });
+  it("lastSessionEnd from the previous run is ignored (idle measured from launch)", async () => {
+    const { deps, ec2 } = makeDeps({
+      state: "running",
+      launchTime: NOW - 12 * MIN,
+      heartbeat: fresh({ sessions: 0, lastSessionEnd: NOW - 60 * MIN }),
+    });
+    await reap(deps);
+    expect(ec2.stop).not.toHaveBeenCalled();
+  });
+  it("hard cap: stops a running instance once minutes reach the cap", async () => {
+    const { deps, ec2, store } = makeDeps({
+      state: "running",
+      launchTime: NOW - 2 * MIN,
+      heartbeat: fresh(),
+      minutes: { "/telerobot/minutes/2026-10": "8985" },
+    });
+    await reap(deps);
+    expect(store["/telerobot/minutes/2026-10"]).toBe("9000");
+    expect(ec2.stop).toHaveBeenCalled();
+  });
+  it("under the cap after adding: not stopped", async () => {
+    const { deps, ec2 } = makeDeps({
+      state: "running",
+      heartbeat: fresh(),
+      minutes: { "/telerobot/minutes/2026-10": "8984" },
+    });
+    await reap(deps);
+    expect(ec2.stop).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkOrigin", () => {
+  it("accepts equal, rejects unequal, different length, or missing", () => {
+    const d = { originSecret: SECRET };
+    expect(checkOrigin(d, GOOD)).toBe(true);
+    expect(checkOrigin(d, { "x-telerobot-origin": "s3cre!" })).toBe(false);
+    expect(checkOrigin(d, { "x-telerobot-origin": "short" })).toBe(false);
+    expect(checkOrigin(d, {})).toBe(false);
+    expect(checkOrigin({ originSecret: "" }, { "x-telerobot-origin": "" })).toBe(false);
   });
 });

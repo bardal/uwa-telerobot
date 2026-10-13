@@ -1,9 +1,11 @@
+import { timingSafeEqual } from "node:crypto";
+
 export type State = "stopped" | "starting" | "running" | "stopping";
 
 export interface Deps {
   ec2: {
     /** Raw EC2 state name: pending, running, stopping, stopped, shutting-down, terminated. */
-    describeState(instanceId: string): Promise<string>;
+    describeState(instanceId: string): Promise<{ state: string; launchTime: number }>;
     start(instanceId: string): Promise<void>;
     stop(instanceId: string): Promise<void>;
   };
@@ -42,6 +44,7 @@ const HEALTHY_MS = 90_000;
 const STALE_MS = 5 * 60_000;
 const IDLE_MS = 15 * 60_000;
 const REAP_MINUTES = 15;
+const BOOT_GRACE_MS = 10 * 60_000;
 
 export function minutesParam(nowMs: number): string {
   const d = new Date(nowMs);
@@ -86,10 +89,21 @@ async function readMinutes(deps: Deps): Promise<number> {
 }
 
 export async function status(deps: Deps): Promise<StatusResult> {
-  const state = mapState(await deps.ec2.describeState(deps.instanceId));
+  const state = mapState((await deps.ec2.describeState(deps.instanceId)).state);
   const hb = await readHeartbeat(deps);
-  const healthy = hb !== null && deps.now() - hb.time <= HEALTHY_MS;
+  const healthy = state === "running" && hb !== null && deps.now() - hb.time <= HEALTHY_MS;
   return { state, healthy, commit: hb?.commit ?? null };
+}
+
+export function checkOrigin(
+  deps: Pick<Deps, "originSecret">,
+  headers: Record<string, string | undefined>,
+): boolean {
+  const got = header(headers, "x-telerobot-origin");
+  if (!deps.originSecret || got === undefined) return false;
+  const a = Buffer.from(got);
+  const b = Buffer.from(deps.originSecret);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function header(headers: Record<string, string | undefined>, name: string): string | undefined {
@@ -104,7 +118,7 @@ export async function wake(
   rawBody: string | undefined | null,
   headers: Record<string, string | undefined>,
 ): Promise<HttpResult> {
-  if (header(headers, "x-telerobot-origin") !== deps.originSecret) {
+  if (!checkOrigin(deps, headers)) {
     return { status: 403, body: { error: "forbidden" } };
   }
 
@@ -133,7 +147,7 @@ export async function wake(
   }
   if (!ok) return { status: 401, body: { error: "unauthorized" } };
 
-  const state = mapState(await deps.ec2.describeState(deps.instanceId));
+  const state = mapState((await deps.ec2.describeState(deps.instanceId)).state);
   if (state === "running" || state === "starting") {
     return { status: 202, body: { state } };
   }
@@ -152,16 +166,28 @@ export async function wake(
 }
 
 export async function reap(deps: Deps): Promise<void> {
-  const state = mapState(await deps.ec2.describeState(deps.instanceId));
-  if (state !== "running") return;
+  const { state: raw, launchTime } = await deps.ec2.describeState(deps.instanceId);
+  if (mapState(raw) !== "running") return;
 
   const now = deps.now();
-  const param = minutesParam(now);
-  const current = await readMinutes(deps);
-  await deps.ssm.put(param, String(current + REAP_MINUTES));
+  const total = (await readMinutes(deps)) + REAP_MINUTES;
+  await deps.ssm.put(minutesParam(now), String(total));
 
-  const hb = await readHeartbeat(deps);
+  // Hard cap: stop a running instance once the month's minutes reach the cap.
+  if (total >= deps.hoursCap * 60) {
+    await deps.ec2.stop(deps.instanceId);
+    return;
+  }
+
+  // Boot grace: never stop an instance launched recently.
+  if (now - launchTime < BOOT_GRACE_MS) return;
+
+  // A heartbeat older than LaunchTime belongs to the previous run.
+  let hb = await readHeartbeat(deps);
+  if (hb !== null && hb.time < launchTime) hb = null;
+
   const stale = hb === null || now - hb.time > STALE_MS;
-  const idle = hb !== null && hb.sessions === 0 && now - hb.lastSessionEnd > IDLE_MS;
+  const idle =
+    hb !== null && hb.sessions === 0 && now - Math.max(hb.lastSessionEnd, launchTime) > IDLE_MS;
   if (stale || idle) await deps.ec2.stop(deps.instanceId);
 }
