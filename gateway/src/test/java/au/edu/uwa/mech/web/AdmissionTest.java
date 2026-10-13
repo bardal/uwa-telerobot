@@ -108,6 +108,49 @@ class AdmissionTest {
     }
 
     @Test
+    void unconfirmedReservationIsReclaimedAfterTheLease() {
+        Admission a = new Admission(config(false, SECRET), now::get, 10_000);
+        Admission.Admitted r1 = a.admit(good(), "10.0.0.1");
+        Admission.Admitted r2 = a.admit(good(), "10.0.0.1");
+        assertNull(r1.refusal());
+        assertEquals(2, a.viewers());
+        assertTrue(r2.reservation().confirm());
+        now.addAndGet(9_999);
+        assertEquals(0, a.sweep());
+        now.addAndGet(1);
+        assertEquals(1, a.sweep());
+        assertEquals(1, a.viewers());
+        assertFalse(r1.reservation().confirm(), "a lapsed lease cannot be confirmed");
+        r1.reservation().release(); // idempotent
+        assertEquals(1, a.viewers());
+        r2.reservation().release();
+        r2.reservation().release();
+        assertEquals(0, a.viewers());
+        // per-IP count is back to zero: four more fit
+        for (int i = 0; i < 4; i++) { assertNull(a.admit(good(), "10.0.0.1").refusal()); now.addAndGet(1000); }
+        assertNotNull(a.admit(good(), "10.0.0.1").refusal());
+    }
+
+    @Test
+    void onlyHandshakesWithTheValidSecretCountTowardTheRate() {
+        Admission a = admission(false, SECRET);
+        for (int i = 0; i < 50; i++) {
+            assertTrue(a.check(headers("Origin", "https://robot.example", "X-Telerobot-Origin", "wrong"), "6.6.6." + i).isPresent());
+        }
+        for (int i = 0; i < 10; i++) assertTrue(a.check(good(), "10.3.0." + i).isEmpty(), "hs " + i);
+        assertTrue(a.check(good(), "10.3.0.99").isPresent());
+    }
+
+    @Test
+    void emptyFlagSecretIsNoSecretAndAnEmptyHeaderNeverMatches() {
+        GatewayConfig c = GatewayConfig.parse(new String[] {"--origin-secret", "", "--turnstile-secret", "", "--allowed-origin", "https://robot.example"}, Map.of());
+        assertNull(c.originSecret());
+        assertNull(c.turnstileSecret());
+        Admission a = new Admission(c, now::get);
+        assertTrue(a.check(headers("Origin", "https://robot.example", "X-Telerobot-Origin", ""), "10.0.0.1").isPresent());
+    }
+
+    @Test
     void clientIpComesFromCloudFrontOnlyWhenSecretIsValid() {
         Admission a = admission(false, SECRET);
         assertEquals("203.0.113.9", a.resolveIp(headers("X-Telerobot-Origin", SECRET, "CloudFront-Viewer-Address", "203.0.113.9:5555"), "10.0.0.1"));

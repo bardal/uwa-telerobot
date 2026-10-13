@@ -77,8 +77,8 @@ public record GatewayConfig(
                     clientIdsFromFlags = true;
                     clientIds.add(value(args, ++i));
                 }
-                case "--origin-secret" -> originSecret = value(args, ++i);
-                case "--turnstile-secret" -> turnstile = value(args, ++i);
+                case "--origin-secret" -> originSecret = blankToNull(value(args, ++i));
+                case "--turnstile-secret" -> turnstile = blankToNull(value(args, ++i));
                 case "--commit" -> commit = value(args, ++i);
                 default -> throw new IllegalArgumentException("unknown option " + a);
             }

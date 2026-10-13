@@ -4,7 +4,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Optional;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.eclipse.jetty.http.HttpHeader;
@@ -34,17 +33,34 @@ public final class GatewayServer {
     public static final int MAX_TEXT_BYTES = Protocol.MAX_MESSAGE_BYTES;
     public static final Duration IDLE_TIMEOUT = Duration.ofMinutes(11);
 
+    /** Timers: slot lease before the socket opens, time allowed to say hello, how often leases are swept. */
+    public record Timing(long leaseMillis, long helloDeadlineMillis, long sweepMillis) {
+        public static final Timing DEFAULT = new Timing(Admission.DEFAULT_LEASE_MILLIS, 15_000, 2_000);
+    }
+
     private final GatewayConfig config;
     private final SessionHandler handler;
     private final Admission admission;
     private final Server server = new Server();
     private final ServerConnector connector = new ServerConnector(server);
+    private final Timing timing;
+    private final java.util.concurrent.ScheduledExecutorService timers =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "gateway-timers");
+            t.setDaemon(true);
+            return t;
+        });
     private volatile Supplier<String> labState = () -> "ready";
 
     public GatewayServer(GatewayConfig config, SessionHandler handler, LongSupplier clockMillis) {
+        this(config, handler, clockMillis, Timing.DEFAULT);
+    }
+
+    public GatewayServer(GatewayConfig config, SessionHandler handler, LongSupplier clockMillis, Timing timing) {
         this.config = config;
         this.handler = handler;
-        this.admission = new Admission(config, clockMillis);
+        this.timing = timing;
+        this.admission = new Admission(config, clockMillis, timing.leaseMillis());
         connector.setPort(config.port());
         connector.setIdleTimeout(IDLE_TIMEOUT.toMillis());
         server.addConnector(connector);
@@ -91,10 +107,17 @@ public final class GatewayServer {
     }
 
     public void start() throws Exception {
+        if (config.dev()) {
+            LOG.warn("DEV MODE IS ON: {}never run this on a public host", config.originSecret() == null
+                ? "the origin secret header is NOT checked (only Origin is); " : "");
+        }
         server.start();
+        timers.scheduleWithFixedDelay(admission::sweep, timing.sweepMillis(), timing.sweepMillis(),
+            java.util.concurrent.TimeUnit.MILLISECONDS);
     }
 
     public void stop() throws Exception {
+        timers.shutdownNow();
         server.stop();
     }
 
@@ -124,15 +147,16 @@ public final class GatewayServer {
                                    Callback callback) {
         java.util.function.Function<String, String> header = name -> request.getHeaders().get(name);
         String socketIp = socketIp(request);
-        Optional<String> refusal = admission.check(header, socketIp);
-        if (refusal.isPresent()) {
-            String why = refusal.get();
+        Admission.Admitted admitted = admission.admit(header, socketIp);
+        if (admitted.refusal() != null) {
+            String why = admitted.refusal();
             int status = (why.equals(Admission.BAD_SECRET) || why.equals(Admission.BAD_ORIGIN)) ? 403 : 429;
             LOG.info("refused handshake from {}: {}", socketIp, why);
-            Response.writeError(request, response, callback, status, why);
+            // the body never says which check failed; the reason is in the log only
+            Response.writeError(request, response, callback, status, status == 403 ? "forbidden" : "too many");
             return null;
         }
-        return new Connection(admission.resolveIp(header, socketIp));
+        return new Connection(admitted.reservation());
     }
 
     private static String socketIp(Request request) {
@@ -145,19 +169,31 @@ public final class GatewayServer {
 
     /** One client socket: strict parse, hello gate, then hand over to the {@link SessionHandler}. */
     public final class Connection implements Session.Listener.AutoDemanding, ClientConnection {
+        private final Admission.Reservation reservation;
         private final String ip;
         private volatile Session session;
         private volatile Object attachment;
-        private boolean helloSeen;
-        private boolean released;
+        private volatile boolean helloSeen;
+        private volatile java.util.concurrent.ScheduledFuture<?> helloTimer;
 
-        Connection(String ip) {
-            this.ip = ip;
+        Connection(Admission.Reservation reservation) {
+            this.reservation = reservation;
+            this.ip = reservation.ip();
         }
 
         @Override
         public void onWebSocketOpen(Session session) {
             this.session = session;
+            if (!reservation.confirm()) { // the lease ran out before we got here
+                session.close(1013, "try again", org.eclipse.jetty.websocket.api.Callback.NOOP);
+                return;
+            }
+            helloTimer = timers.schedule(() -> {
+                if (!helloSeen) {
+                    send(new Out.Error("unauthorised", "say hello first"));
+                    close(1008, "unauthorised");
+                }
+            }, timing.helloDeadlineMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
         }
 
         @Override
@@ -176,6 +212,8 @@ public final class GatewayServer {
                         return;
                     }
                     helloSeen = true;
+                    var timer = helloTimer;
+                    if (timer != null) timer.cancel(false);
                     handler.onHello(this, hello);
                     return;
                 }
@@ -213,12 +251,13 @@ public final class GatewayServer {
             finish();
         }
 
+        private final java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean();
+
         private void finish() {
-            synchronized (this) {
-                if (released) return;
-                released = true;
-            }
-            admission.release(ip);
+            if (!finished.compareAndSet(false, true)) return;
+            var timer = helloTimer;
+            if (timer != null) timer.cancel(false);
+            reservation.release();
             if (helloSeen) {
                 try {
                     handler.onClose(this);
