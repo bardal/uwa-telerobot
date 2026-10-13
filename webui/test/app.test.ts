@@ -66,6 +66,8 @@ function deps(extra: Partial<AppDeps> = {}): AppDeps {
     storage: () => ({ getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }) as unknown as Storage,
     turnstileToken: async () => 'tok',
     makeGateway: (u, hl, o) => new FakeGateway(u, hl, o),
+    // no real requests: apps from earlier tests still follow hashchange (e.g. to #/history)
+    fetchImpl: (async () => new Response('', { status: 404 })) as unknown as typeof fetch,
     ensureAwake: async (getProof, onProgress) => {
       await getProof();
       onProgress(wakeResult);
@@ -249,13 +251,17 @@ describe('app flow', () => {
   });
 
   it('routes #/history to the History page', async () => {
+    // History fetches its index: a stub, so no real request goes out
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ days: [] }))) as unknown as typeof fetch;
     const root = document.createElement('div');
-    const app = startApp(root, deps());
+    const app = startApp(root, deps({ fetchImpl }));
     await app.ready;
     globalThis.location.hash = '#/history';
     globalThis.dispatchEvent(new Event('hashchange'));
     expect(app.view()).toBe('history');
     expect(root.querySelector('.history-page')).not.toBeNull();
+    await flush();
+    expect(fetchImpl).toHaveBeenCalled();
   });
 
   it('History reads static files only: no wake, no gateway, no Delete when logged out', async () => {
