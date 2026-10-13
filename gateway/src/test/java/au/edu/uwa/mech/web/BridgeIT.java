@@ -223,6 +223,19 @@ class BridgeIT {
         assertEquals("error", bad.state());
         assertTrue(bad.text().contains("outside the workspace"), bad.text());
 
+        // 10b. a two-line script (the UI's textarea form) is one protocol line: it completes, and the next
+        //      command's reply is not off by one
+        int beforeLines = a.size();
+        a.in(new In.Command("x200,y300,z60\nz40"));
+        Out.CommandStatus multi = a.awaitFrom(beforeLines, Out.CommandStatus.class,
+            s -> s.state().equals("done") || s.state().equals("error"), 30_000);
+        assertEquals("done", multi.state(), "two-line script: " + multi.text());
+        int beforeNext = a.size();
+        a.in(new In.Command("z60"));
+        Out.CommandStatus next2 = a.awaitFrom(beforeNext, Out.CommandStatus.class,
+            s -> s.state().equals("done") || s.state().equals("error"), 30_000);
+        assertEquals("done", next2.state(), "following command: " + next2.text());
+
         // 11. at most 4 commands queued
         int beforeQueue = a.size();
         for (String z : List.of("z100", "z110", "z100", "z110", "z100")) a.in(new In.Command(z));
@@ -269,6 +282,8 @@ class BridgeIT {
         a.awaitFrom(beforeDrop, Out.Users.class, u -> !u.nicks().contains("eve"), 15_000);
         int beforeAnn = a.size();
         a.in(new In.TakeControl());
+        // 10 s of headroom on a loaded build machine; still far below MOM's 180 s hold, which is
+        // what this step guards against (the flake itself was the users-list wait above)
         a.awaitFrom(beforeAnn, Out.Controller.class, x -> "ann".equals(x.nick()), 10_000);
 
         // 14. ban: the session goes, and the same guest can't come back

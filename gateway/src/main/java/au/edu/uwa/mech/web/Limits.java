@@ -19,6 +19,9 @@ public final class Limits {
     public static final int REJECTIONS_TO_CLOSE = 20;
     public static final long REJECTION_WINDOW_MILLIS = 60_000;
 
+    public static final int MAX_NUMBER_DIGITS = 6;
+    private static final Pattern LINE_BREAKS = Pattern.compile("[\r\n\t]+");
+    private static final Pattern LONG_NUMBER = Pattern.compile("[0-9]{" + (MAX_NUMBER_DIGITS + 1) + ",}");
     private static final Pattern NICK = Pattern.compile("[A-Za-z0-9 _.-]{1,20}");
     private static final RobotPose ORIGIN = new RobotPose(0, 0, 0, 0, 0, true);
 
@@ -69,10 +72,14 @@ public final class Limits {
     /** Length, then syntax (and the parser), then waypoint count. */
     public Verdict checkScript(String s) {
         if (s == null || s.isBlank()) return Verdict.refuse("script is empty");
+        // CR, LF and TAB are separators to PathScript, but a newline in what is forwarded would become a
+        // second RobotServer protocol line, so each run becomes one ';' and the caller forwards that text.
+        s = LINE_BREAKS.matcher(s).replaceAll(";");
         if (s.length() > MAX_SCRIPT_CHARS) return Verdict.refuse("script is longer than " + MAX_SCRIPT_CHARS + " characters");
         // PathScript ignores what it does not recognise, so every character must belong to a term it reads.
         String bad = unrecognisedTerm(s);
         if (bad != null) return Verdict.refuse("script: unrecognised term '" + printable(bad) + "'");
+        if (LONG_NUMBER.matcher(s).find()) return Verdict.refuse("script: numbers have at most " + MAX_NUMBER_DIGITS + " digits");
         List<RobotPose> path;
         try {
             path = PathScript.parse(s, ORIGIN);

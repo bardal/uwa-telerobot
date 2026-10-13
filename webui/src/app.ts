@@ -264,7 +264,11 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (gateway !== g) return;
     page.handle(m);
     // the gateway closes a kicked or banned session right after telling it why
-    refusal = m.t === 'error' && m.code === 'unauthorised' && welcomed ? m.message : null;
+    // before the welcome, unauthorised / too-many / bad-message (a reserved nick) are terminal: the close
+    // that follows must end the session, not retry. Anything else (lab-unavailable while the lab starts)
+    // is transient and goes through the wake/retry flow.
+    const terminal = welcomed ? ['unauthorised'] : ['unauthorised', 'too-many', 'bad-message'];
+    refusal = m.t === 'error' && terminal.includes(m.code) ? m.message : null;
     if (m.t === 'welcome') {
       welcomed = true;
       admin = m.level === 'admin';

@@ -42,6 +42,22 @@ class LimitsTest {
     }
 
     @Test
+    void lineBreaksAreNormalisedToSemicolons() {
+        assertEquals("x200;z60", limits.checkScript("x200\nz60").text());
+        assertEquals("x1;z2;", limits.checkScript("x1\r\n\r\nz2\t").text());
+        assertFalse(limits.checkScript("x1\nz2").text().contains("\n"));
+    }
+
+    @Test
+    void numbersOverSixDigitsAreRefused() {
+        assertTrue(limits.checkScript("x123456").ok());
+        Limits.Verdict v = limits.checkScript("x1234567");
+        assertFalse(v.ok());
+        assertTrue(v.reason().contains("6 digits"), v.reason());
+        assertFalse(limits.checkScript("x10.1234567").ok());
+    }
+
+    @Test
     void realScriptsParse() {
         assertTrue(limits.checkScript("x100,y200,z50;rx10;go;tf;gc").ok());
     }
