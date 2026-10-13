@@ -128,10 +128,49 @@ describe('Gateway', () => {
     new Gateway('ws://x/ws', hello, { WebSocketImpl: WS, onWakeNeeded });
     for (let i = 0; i < 2; i++) { FakeWS.instances.at(-1)!.drop(); vi.advanceTimersByTime(20000); }
     FakeWS.instances.at(-1)!.open();
+    FakeWS.instances.at(-1)!.msg(JSON.stringify({ t: 'welcome', nick: 'a', level: 'guest', cameras: [], commit: 'c', limits: { script: 1, waypoints: 1, chat: 1 } }));
     FakeWS.instances.at(-1)!.drop();
     vi.advanceTimersByTime(1000);
     expect(onWakeNeeded).not.toHaveBeenCalled();
     expect(FakeWS.instances).toHaveLength(4);
+  });
+
+  it('open then close without a welcome still counts as a failure', () => {
+    const onWakeNeeded = vi.fn();
+    new Gateway('ws://x/ws', hello, { WebSocketImpl: WS, onWakeNeeded });
+    for (let i = 0; i < 3; i++) {
+      FakeWS.instances.at(-1)!.open();
+      FakeWS.instances.at(-1)!.drop();
+      vi.advanceTimersByTime(20000);
+    }
+    expect(onWakeNeeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('queues sends until hello is sent (cap 20) and flushes in order', async () => {
+    const g = new Gateway('ws://x/ws', hello, { WebSocketImpl: WS });
+    const ws = FakeWS.instances[0]!;
+    ws.open();
+    for (let i = 0; i < 25; i++) g.send({ t: 'chat', text: String(i) });
+    expect(ws.sent).toHaveLength(0);
+    await Promise.resolve(); await Promise.resolve();
+    expect(ws.sent).toHaveLength(21);
+    expect(JSON.parse(ws.sent[0]!).t).toBe('hello');
+    expect(JSON.parse(ws.sent[1]!).text).toBe('0');
+  });
+
+  it('reconnect() closes a live socket first; a bad text frame clears the image header', () => {
+    const g = new Gateway('ws://x/ws', hello, { WebSocketImpl: WS });
+    const onImage = vi.fn();
+    g.onImage(onImage);
+    const ws = FakeWS.instances[0]!;
+    ws.open();
+    ws.msg(JSON.stringify(imageHeader));
+    ws.msg('garbage');
+    ws.msg(new ArrayBuffer(2));
+    expect(onImage).not.toHaveBeenCalled();
+    g.reconnect();
+    expect(ws.closed).toBe(true);
+    expect(FakeWS.instances).toHaveLength(2);
   });
 
   it('close() stops reconnecting', () => {

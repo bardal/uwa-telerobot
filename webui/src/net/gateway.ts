@@ -13,6 +13,7 @@ export interface GatewayOpts {
 export const BACKOFF_MS = [1000, 2000, 4000, 8000];
 export const BACKOFF_CAP_MS = 15000;
 export const WAKE_AFTER_FAILURES = 3;
+export const MAX_QUEUE = 20;
 
 /** Delay before the reconnect that follows failure number `failures` (1-based): 1, 2, 4, 8, then 15 s. */
 export function backoffDelay(failures: number): number {
@@ -29,6 +30,8 @@ export class Gateway {
   private failures = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private helloSent = false;
+  private queue: string[] = [];
   private readonly WS: typeof WebSocket;
 
   constructor(
@@ -51,7 +54,13 @@ export class Gateway {
   }
 
   send(m: In): void {
-    if (this.ws && this.state === 'open') this.ws.send(JSON.stringify(m));
+    if (!this.ws || this.state !== 'open') return;
+    const s = JSON.stringify(m);
+    if (!this.helloSent) {
+      if (this.queue.length < MAX_QUEUE) this.queue.push(s); // nothing reaches the gateway before hello
+      return;
+    }
+    this.ws.send(s);
   }
 
   close(): void {
@@ -68,21 +77,31 @@ export class Gateway {
     this.timer = null;
     this.stopped = false;
     this.failures = 0;
+    const old = this.ws;
+    this.ws = null; // its late onclose is ignored
+    old?.close();
     this.connect();
   }
 
   private connect(): void {
     this.state = 'connecting';
     this.pendingImage = null;
+    this.helloSent = false;
+    this.queue = [];
     const ws = new this.WS(this.url);
     ws.binaryType = 'blob';
     this.ws = ws;
     ws.onopen = () => {
       if (this.ws !== ws) return;
       this.state = 'open';
-      this.failures = 0;
       this.hello().then(
-        (h) => { if (this.ws === ws && this.state === 'open') ws.send(JSON.stringify(h)); },
+        (h) => {
+          if (this.ws !== ws || this.state !== 'open') return;
+          ws.send(JSON.stringify(h));
+          this.helloSent = true;
+          for (const q of this.queue) ws.send(q);
+          this.queue = [];
+        },
         () => { ws.close(); },
       );
     };
@@ -108,14 +127,18 @@ export class Gateway {
   private onFrame(data: unknown): void {
     if (typeof data === 'string') {
       let msg: unknown;
-      try { msg = JSON.parse(data); } catch { return; }
-      if (typeof msg !== 'object' || msg === null || typeof (msg as { t?: unknown }).t !== 'string') return;
+      try { msg = JSON.parse(data); } catch { this.pendingImage = null; return; }
+      if (typeof msg !== 'object' || msg === null || typeof (msg as { t?: unknown }).t !== 'string') {
+        this.pendingImage = null;
+        return;
+      }
       const m = msg as Out;
       if (m.t === 'image') {
         this.pendingImage = m;
         return;
       }
       this.pendingImage = null;
+      if (m.t === 'welcome') this.failures = 0; // only a welcome proves the hello was accepted
       for (const fn of this.handlers.get(m.t) ?? []) (fn as (x: Out) => void)(m);
       return;
     }

@@ -8,6 +8,7 @@ export interface TurnstileApi {
     callback: (token: string) => void;
     'error-callback': (code?: string) => void;
     'expired-callback'?: () => void;
+    'timeout-callback'?: () => void;
   }): string;
   reset(widgetId: string): void;
   remove?(widgetId: string): void;
@@ -60,15 +61,20 @@ export class TurnstileWidget {
           sitekey: this.opts.siteKey,
           appearance: 'interaction-only',
           callback: (t) => { const p = this.pending; this.pending = null; p?.resolve(t); },
-          'error-callback': (code) => {
-            const p = this.pending; this.pending = null;
-            p?.reject(new Error(`Turnstile failed${code ? ` (${code})` : ''}`));
-          },
+          'error-callback': (code) => this.fail(`Turnstile failed${code ? ` (${code})` : ''}`),
+          'expired-callback': () => this.fail('Turnstile token expired'),
+          'timeout-callback': () => this.fail('Turnstile challenge timed out'),
         });
       } else {
         api.reset(this.widgetId);
       }
     });
+  }
+
+  private fail(message: string): void {
+    const p = this.pending;
+    this.pending = null;
+    p?.reject(new Error(message));
   }
 
   destroy(): void {

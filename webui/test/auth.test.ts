@@ -102,6 +102,19 @@ describe('auth', () => {
     expect(auth.idToken()).toBeNull();
   });
 
+  it('an error redirect throws the reason and strips the params', async () => {
+    const { auth, setHref, replaced } = setup();
+    setHref('https://site.example/p?error=access_denied&error_description=Nope&state=s');
+    await expect(auth.handleRedirect()).rejects.toThrow(/Nope/);
+    expect(replaced).toEqual(['/p']);
+  });
+
+  it('a token with no parseable exp is treated as expired', () => {
+    const { auth, storage } = setup();
+    storage.setItem('telerobot.auth.tokens', JSON.stringify({ idToken: 'opaque' }));
+    expect(auth.idToken()).toBeNull();
+  });
+
   it('returns false when the URL has no code', async () => {
     expect(await setup().auth.handleRedirect()).toBe(false);
   });
@@ -164,6 +177,14 @@ describe('TurnstileWidget', () => {
     cb('t2');
     expect(await p2).toBe('t2');
     expect(api.render).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects on timeout and expired callbacks', async () => {
+    for (const k of ['timeout-callback', 'expired-callback'] as const) {
+      const api: TurnstileApi = { render: (_c, o) => { o[k]?.(); return 'w'; }, reset: () => {} };
+      const w = new TurnstileWidget({ siteKey: 'k', container: {} as HTMLElement, api });
+      await expect(w.token()).rejects.toThrow();
+    }
   });
 
   it('rejects on error-callback', async () => {

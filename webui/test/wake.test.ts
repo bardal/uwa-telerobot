@@ -140,6 +140,20 @@ describe('ensureAwake', () => {
     expect(seen.at(-1)?.kind).toBe('error');
   });
 
+  it('a getProof that never resolves ends in error at 180 s', async () => {
+    const { f } = fakeFetch(() => json({ state: 'stopped', healthy: false, commit: null }));
+    const p = ensureAwake(f, () => new Promise(() => {}), () => {});
+    await vi.advanceTimersByTimeAsync(181_000);
+    expect((await p).kind).toBe('error');
+  });
+
+  it('a hanging status fetch does not block past 180 s', async () => {
+    const f = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+    const p = ensureAwake(f, proof, () => {});
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect((await p).kind).toBe('error');
+  });
+
   it('passes fakeStatus through to the status URL', async () => {
     vi.stubGlobal('location', { search: '?fakeStatus=stopped' });
     try {

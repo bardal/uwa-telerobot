@@ -11,6 +11,20 @@ export const WAKE_TIMEOUT_MS = 180_000;
 type Proof = { turnstile?: string; idToken?: string };
 type StatusBody = { state: 'stopped' | 'starting' | 'running' | 'stopping'; healthy: boolean; commit: string | null };
 
+export const FETCH_TIMEOUT_MS = 10_000;
+
+/** Rejects if p does not settle within ms (also covers fetches that ignore their signal). */
+function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what} timed out`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e: unknown) => { clearTimeout(t); reject(e instanceof Error ? e : new Error(String(e))); });
+  });
+}
+
+function timedFetch(fetchImpl: typeof fetch, url: string, init: RequestInit = {}): Promise<Response> {
+  return within(fetchImpl(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }), FETCH_TIMEOUT_MS, url);
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function statusUrl(): string {
@@ -24,7 +38,7 @@ function statusUrl(): string {
 
 async function getStatus(fetchImpl: typeof fetch): Promise<StatusBody | null> {
   try {
-    const res = await fetchImpl(statusUrl(), { cache: 'no-store' });
+    const res = await timedFetch(fetchImpl, statusUrl(), { cache: 'no-store' });
     if (!res.ok) return null;
     const b = (await res.json()) as Partial<StatusBody>;
     if (b.state !== 'stopped' && b.state !== 'starting' && b.state !== 'running' && b.state !== 'stopping') return null;
@@ -36,7 +50,7 @@ async function getStatus(fetchImpl: typeof fetch): Promise<StatusBody | null> {
 
 async function healthy(fetchImpl: typeof fetch): Promise<boolean> {
   try {
-    const res = await fetchImpl('/healthz', { cache: 'no-store' });
+    const res = await timedFetch(fetchImpl, '/healthz', { cache: 'no-store' });
     if (!res.ok) return false;
     const b = (await res.json()) as { ok?: unknown };
     return b.ok === true;
@@ -47,18 +61,18 @@ async function healthy(fetchImpl: typeof fetch): Promise<boolean> {
 
 type WakeResult = 'started' | 'stopping' | WakeState;
 
-async function postWake(fetchImpl: typeof fetch, getProof: () => Promise<Proof>): Promise<WakeResult> {
+async function postWake(fetchImpl: typeof fetch, getProof: () => Promise<Proof>, budgetMs: () => number): Promise<WakeResult> {
   for (let attempt = 0; attempt < 2; attempt++) {
     let proof: Proof;
     try {
-      proof = await getProof();
+      proof = await within(getProof(), Math.max(1, budgetMs()), 'Proof of humanity');
     } catch (e) {
       return { kind: 'error', message: `Could not get proof of humanity: ${e instanceof Error ? e.message : String(e)}` };
     }
     const body: Proof = proof.idToken ? { idToken: proof.idToken } : { turnstile: proof.turnstile };
     let res: Response;
     try {
-      res = await fetchImpl('/api/wake', {
+      res = await timedFetch(fetchImpl, '/api/wake', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -118,7 +132,7 @@ export async function ensureAwake(
       continue;
     }
     // stopped
-    const r = await postWake(fetchImpl, getProof);
+    const r = await postWake(fetchImpl, getProof, () => WAKE_TIMEOUT_MS - (now() - start));
     if (r === 'started') { waking = true; continue; }
     if (r === 'stopping') { await sleep(STOPPING_RETRY_MS); continue; }
     return finish(r);

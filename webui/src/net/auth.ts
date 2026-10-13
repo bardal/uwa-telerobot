@@ -105,14 +105,18 @@ export function createAuth(deps: AuthDeps) {
       const url = new URL(deps.location().href);
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
-      if (!code || !state) return false;
+      const oauthError = url.searchParams.get('error');
+      const errorDescription = url.searchParams.get('error_description');
+      const hasParams = ['code', 'state', 'error', 'error_description'].some((k) => url.searchParams.has(k));
+      if (!hasParams) return false;
       const expected = store.get(KEY_STATE);
       const verifier = store.get(KEY_VERIFIER);
       store.del(KEY_STATE);
       store.del(KEY_VERIFIER);
-      url.searchParams.delete('code');
-      url.searchParams.delete('state');
+      for (const k of ['code', 'state', 'error', 'error_description']) url.searchParams.delete(k);
       deps.replaceUrl(url.pathname + url.search + url.hash);
+      if (oauthError) throw new Error(`Sign-in failed: ${errorDescription || oauthError}`);
+      if (!code || !state) return false;
       if (!expected || !verifier || expected !== state) return false;
       const c = await domainConfig();
       const res = await deps.fetchImpl(`${base(c)}/oauth2/token`, {
@@ -141,7 +145,7 @@ export function createAuth(deps: AuthDeps) {
       loadStored();
       if (!tokens) return null;
       const exp = jwtExp(tokens.idToken);
-      if (exp !== null && exp * 1000 <= deps.now()) return null;
+      if (exp === null || exp * 1000 <= deps.now()) return null; // unparseable exp counts as expired
       return tokens.idToken;
     },
 
