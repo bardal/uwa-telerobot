@@ -15,6 +15,8 @@ import java.time.Duration;
 public interface Turnstile {
     String SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
+    int MAX_BODY = 16 * 1024;
+
     boolean verify(String token, String remoteIp);
 
     static Turnstile http(String secret) {
@@ -32,10 +34,14 @@ public interface Turnstile {
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
-                HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() != 200) return false;
-                JsonNode success = mapper.readTree(resp.body()).get("success");
-                return success != null && success.isBoolean() && success.booleanValue();
+                HttpResponse<java.io.InputStream> resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream());
+                try (java.io.InputStream in = resp.body()) {
+                    if (resp.statusCode() != 200) return false;
+                    byte[] buf = in.readNBytes(MAX_BODY + 1);
+                    if (buf.length > MAX_BODY) return false;
+                    JsonNode success = mapper.readTree(buf).get("success");
+                    return success != null && success.isBoolean() && success.booleanValue();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;

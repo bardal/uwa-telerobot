@@ -159,4 +159,59 @@ class AuthTest {
         assertTrue(a.ipHash("1.2.3.4").matches("[0-9a-f]{16}"));
         assertNotEquals(a.ipHash("1.2.3.4"), auth(true).ipHash("1.2.3.4"), "dev uses the constant key");
     }
+
+    @Test
+    void invalidTokenWithValidTurnstileIsRefused() throws Exception {
+        rejected(auth(false), new In.Hello("n", "tok", "garbage", null));
+        assertEquals(0, turnstileCalls.get());
+    }
+
+    @Test
+    void stringGroupsClaimIsRefused() throws Exception {
+        rejected(auth(false), token(sign(claims().claim("cognito:groups", "admin").build(), key)));
+    }
+
+    @Test
+    void hs256WithProperKeyRejectedByAlgorithmPin() throws Exception {
+        SignedJWT j = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).keyID("k1").build(), claims().build());
+        byte[] k = new byte[64];
+        java.util.Arrays.fill(k, (byte) 7);
+        j.sign(new MACSigner(k));
+        rejected(auth(false), token(j.serialize()));
+    }
+
+    @Test
+    void nonDevWithoutOriginSecretFailsToConstruct() {
+        GatewayConfig c = cfg(false);
+        GatewayConfig noSecret = new GatewayConfig(c.port(), c.momUrlHost(), c.momPort(), c.labAdminPort(),
+            c.allowedOrigins(), "  ", false, null, null, ISS, c.cognitoClientIds(), "ts", Map.of(), null, false,
+            "dev", null, null, null);
+        assertThrows(IllegalStateException.class, () -> new Auth(noSecret, (t, ip) -> true, null));
+        GatewayConfig nullSecret = new GatewayConfig(c.port(), c.momUrlHost(), c.momPort(), c.labAdminPort(),
+            c.allowedOrigins(), null, false, null, null, ISS, c.cognitoClientIds(), "ts", Map.of(), null, false,
+            "dev", null, null, null);
+        assertThrows(IllegalStateException.class, () -> new Auth(nullSecret, (t, ip) -> true, null));
+    }
+
+    @Test
+    void badDevIdentitiesRefused() {
+        Auth a = auth(true);
+        rejected(a, new In.Hello("n", null, null, new In.Dev(" ", List.of())));
+        rejected(a, new In.Hello("n", null, null, new In.Dev("x".repeat(65), List.of())));
+    }
+
+    @Test
+    void guestWithoutIpRefused() {
+        assertThrows(Unauthorised.class, () -> auth(false).authenticate(new In.Hello("n", "tok", null, null), null));
+        assertThrows(Unauthorised.class, () -> auth(false).authenticate(new In.Hello("n", "tok", null, null), " "));
+    }
+
+    @Test
+    void remoteProcessorRequiresIssuer() {
+        GatewayConfig c = cfg(false);
+        GatewayConfig noIssuer = new GatewayConfig(c.port(), c.momUrlHost(), c.momPort(), c.labAdminPort(),
+            c.allowedOrigins(), "secret", false, null, null, null, c.cognitoClientIds(), "ts", Map.of(), null, false,
+            "dev", null, null, null);
+        assertThrows(IllegalArgumentException.class, () -> Auth.remoteProcessor(noIssuer));
+    }
 }
