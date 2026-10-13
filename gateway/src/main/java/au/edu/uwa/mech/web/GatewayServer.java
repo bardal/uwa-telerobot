@@ -37,9 +37,22 @@ public final class GatewayServer {
     /** How long a client has to complete a close we started before its TCP connection is dropped. */
     public static final long CLOSE_GRACE_MILLIS = 2_000;
 
-    /** Timers: slot lease before the socket opens, time allowed to say hello, how often leases are swept. */
-    public record Timing(long leaseMillis, long helloDeadlineMillis, long sweepMillis) {
+    /**
+     * How often each open socket is pinged, so CloudFront and other intermediaries never see it idle
+     * and drop it while the user is only watching.
+     */
+    public static final long PING_MILLIS = 30_000;
+
+    /**
+     * Timers: slot lease before the socket opens, time allowed to say hello, how often leases are
+     * swept, and how often each open socket is pinged.
+     */
+    public record Timing(long leaseMillis, long helloDeadlineMillis, long sweepMillis, long pingMillis) {
         public static final Timing DEFAULT = new Timing(Admission.DEFAULT_LEASE_MILLIS, 15_000, 2_000);
+
+        public Timing(long leaseMillis, long helloDeadlineMillis, long sweepMillis) {
+            this(leaseMillis, helloDeadlineMillis, sweepMillis, PING_MILLIS);
+        }
     }
 
     private final GatewayConfig config;
@@ -236,6 +249,7 @@ public final class GatewayServer {
         private volatile Object attachment;
         private volatile boolean helloSeen;
         private volatile java.util.concurrent.ScheduledFuture<?> helloTimer;
+        private volatile java.util.concurrent.ScheduledFuture<?> pingTimer;
         private volatile boolean closing;
         private volatile java.util.concurrent.ScheduledFuture<?> closeTimer;
 
@@ -257,6 +271,23 @@ public final class GatewayServer {
                     close(1008, "unauthorised");
                 }
             }, timing.helloDeadlineMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            // keepalive: an empty ping now and then; the pongs are ignored (Listener's default)
+            try {
+                pingTimer = timers.scheduleAtFixedRate(this::ping, timing.pingMillis(), timing.pingMillis(),
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.RejectedExecutionException stopping) {
+                // the server is stopping
+            }
+        }
+
+        private void ping() {
+            Session s = session;
+            if (s == null || closing || !s.isOpen()) return;
+            try {
+                s.sendPing(ByteBuffer.allocate(0), org.eclipse.jetty.websocket.api.Callback.NOOP);
+            } catch (RuntimeException e) {
+                LOG.debug("ping to {} failed", ip, e);
+            }
         }
 
         @Override
@@ -322,6 +353,8 @@ public final class GatewayServer {
             if (!finished.compareAndSet(false, true)) return;
             var timer = helloTimer;
             if (timer != null) timer.cancel(false);
+            var pings = pingTimer;
+            if (pings != null) pings.cancel(false);
             reservation.release();
             if (helloSeen) {
                 try {
