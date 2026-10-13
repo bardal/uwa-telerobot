@@ -29,6 +29,8 @@ public final class LabFixture {
 
     public int adminPort() { return lab.adminPort(); }
 
+    public InProcessLab.Ports ports() { return lab.ports(); }
+
     public World world() { return lab.world(); }
 
     /** PINs of the registered and admin accounts, keyed as {@link GatewayConfig#pins()}. */
