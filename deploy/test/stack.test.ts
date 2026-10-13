@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -11,12 +12,13 @@ const ORIGIN_HEADER = "X-Telerobot-Origin";
 
 type Resources = Record<string, { Type: string; Properties?: any; DependsOn?: string | string[] }>;
 
+let app: App;
 let edge: Template;
 let main: Template;
 
 beforeAll(() => {
   // Skip esbuild bundling: these tests are about the template, not the bundle.
-  const app = new App({ context: { "aws:cdk:bundling-stacks": [] } });
+  app = new App({ context: { "aws:cdk:bundling-stacks": [] } });
   const edgeStack = new EdgeStack(app, "Edge", {
     env: { account: ACCOUNT, region: "us-east-1" },
     crossRegionReferences: true,
@@ -370,6 +372,24 @@ describe("telerobot stack", () => {
     });
     main.hasResourceProperties("AWS::Cognito::UserPoolDomain", { Domain: "uwa-telerobot-789012" });
     main.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 0);
+  });
+
+  it("writes a production config.json with no dev key", () => {
+    // Source.jsonData stages the file as a directory asset in the assembly.
+    const dir = app.synth().directory;
+    const files = readdirSync(dir)
+      .filter((d) => d.startsWith("asset.") && existsSync(join(dir, d, "config.json")))
+      .map((d) => join(dir, d, "config.json"));
+    expect(files).toHaveLength(1);
+    // Tokens (the client id, the site key) are deploy-time markers; quote them to parse.
+    const text = readFileSync(files[0], "utf8").replace(/<<marker:0xbaba:(\d+)>>/g, '"marker $1"');
+    const cfg = JSON.parse(text);
+    expect(cfg).not.toHaveProperty("dev");
+    expect(Object.keys(cfg).sort()).toEqual(["clientId", "redirectUri", "region", "turnstileSiteKey", "userPoolDomain"]);
+    expect(cfg.region).toBe("eu-west-2");
+    // the dev config in webui/public is the one that must never ship
+    const devCfg = JSON.parse(readFileSync(new URL("../../webui/public/config.json", import.meta.url), "utf8"));
+    expect(devCfg.dev).toBe(true);
   });
 
   it("never creates the secrets or pins in SSM", () => {

@@ -9,7 +9,8 @@
     2. clones HEAD into a temp directory and builds it there: Maven (all tests,
        stamped with the commit) and the web UI (npm ci, test, lint, build);
     3. creates any missing SSM parameter (never overwrites one);
-    4. runs the pre-flight checks, then `cdk deploy --all`;
+    4. runs the pre-flight checks, then `cdk deploy --all` from the clone's
+       deploy/ (after npm ci, test and tsc there; never the working tree);
     5. activates the `project` cost-allocation tag;
     6. uploads the jars and config templates to artifacts/<sha>/, points
        /telerobot/commit at <sha>, reboots the instance if it is running,
@@ -17,7 +18,8 @@
     7. tries the CloudFront flat-rate Free plan;
     8. resets the smoke user's password and runs deploy/smoke.mjs.
 
-  -InfraOnly does 1, 3, 4, 5, 7 and the smoke user, and uploads nothing:
+  -InfraOnly does 1, the clone (not the build), 3, 4, 5, 7 and the smoke
+  user, and uploads nothing:
   /telerobot/commit is created as "none", so the instance's fetch unit waits
   (and gives up after 10 minutes) until a full deploy uploads artifacts.
 
@@ -153,14 +155,19 @@ $exitCode = 0
 try {
   # ---------------------------------------------------------------- 1. tree
   Step 'Checking the working tree'
-  $Repo = (git -C $Deploy rev-parse --show-toplevel).Trim()
-  if ($LASTEXITCODE -ne 0) { Abort 'not inside a git repository' }
+  $Repo = git -C $Deploy rev-parse --show-toplevel
+  if ($LASTEXITCODE -ne 0 -or -not $Repo) { Abort 'not inside a git repository' }
+  $Repo = "$Repo".Trim()
   $dirty = git -C $Repo status --porcelain
+  if ($LASTEXITCODE -ne 0) { Abort "git status failed (exit $LASTEXITCODE)" }
   if ($dirty) {
     $dirty | Select-Object -First 20 | ForEach-Object { Note $_ }
     Abort 'the working tree is dirty; commit or stash first (deploys are built from the committed HEAD)'
   }
-  $Sha = (git -C $Repo rev-parse HEAD).Trim()
+  $Sha = git -C $Repo rev-parse HEAD
+  if ($LASTEXITCODE -ne 0 -or -not $Sha) { Abort "git rev-parse HEAD failed (exit $LASTEXITCODE)" }
+  $Sha = "$Sha".Trim()
+  if ($Sha -notmatch '^[0-9a-f]{40}$') { Abort "HEAD is not a commit sha: $Sha" }
   Note "HEAD $Sha"
   $Summary['Commit'] = $Sha
   $Summary['Mode'] = if ($InfraOnly) { 'infra-only' } else { 'full' }
@@ -218,16 +225,22 @@ try {
   Note "EBS default key: $kmsKey (AWS managed, OK)"
 
   # ------------------------------------------------------------ 3. build
+  # Everything that is deployed, the CDK app included, comes from a clean
+  # clone of the committed HEAD, never from the working tree.
+  Step "Cloning $Sha"
+  $BuildDir = Join-Path ([IO.Path]::GetTempPath()) ("telerobot-build-" + $Sha.Substring(0, 12) + '-' + [guid]::NewGuid().ToString().Substring(0, 8))
+  Exec 'git clone' $Repo { git clone --no-hardlinks --quiet $Repo $BuildDir }
+  Exec 'git checkout' $BuildDir { git checkout --quiet --detach $Sha }
+  $cloned = git -C $BuildDir rev-parse HEAD
+  if ($LASTEXITCODE -ne 0) { Abort "git rev-parse in the clone failed (exit $LASTEXITCODE)" }
+  if ("$cloned".Trim() -ne $Sha) { Abort "the clone is at $cloned, not $Sha" }
+  Note "clone: $BuildDir"
+  $CdkDir = Join-Path $BuildDir 'deploy'
+
   if (-not $InfraOnly) {
-    Step "Building $Sha from a clean clone"
+    Step "Building $Sha in the clone"
     if (-not (Test-Path (Join-Path $JavaHome 'bin\java.exe'))) { Abort "no JDK 21 at $JavaHome" }
     if (-not (Test-Path $Mvn)) { Abort "no Maven at $Mvn" }
-    $BuildDir = Join-Path ([IO.Path]::GetTempPath()) ("telerobot-build-" + $Sha.Substring(0, 12) + '-' + [guid]::NewGuid().ToString().Substring(0, 8))
-    Exec 'git clone' $Repo { git clone --no-hardlinks --quiet $Repo $BuildDir }
-    Exec 'git checkout' $BuildDir { git checkout --quiet --detach $Sha }
-    $cloned = (git -C $BuildDir rev-parse HEAD).Trim()
-    if ($cloned -ne $Sha) { Abort "the clone is at $cloned, not $Sha" }
-    Note "clone: $BuildDir"
 
     $env:JAVA_HOME = $JavaHome
     $env:Path = (Join-Path $JavaHome 'bin') + [IO.Path]::PathSeparator + $env:Path
@@ -251,10 +264,10 @@ try {
   }
 
   # ------------------------------------------------- 4. the CDK app itself
-  Step 'Checking the CDK app'
-  Exec 'deploy npm ci' $Deploy { npm ci --no-audit --no-fund }
-  if ($SkipTests) { Warn 'deploy/ tests skipped (-SkipTests)' } else { Exec 'deploy npm test' $Deploy { npm test } }
-  Exec 'deploy tsc' $Deploy { npx tsc --noEmit }
+  Step 'Checking the CDK app (in the clone)'
+  Exec 'deploy npm ci' $CdkDir { npm ci --no-audit --no-fund }
+  if ($SkipTests) { Warn 'deploy/ tests skipped (-SkipTests)' } else { Exec 'deploy npm test' $CdkDir { npm test } }
+  Exec 'deploy tsc' $CdkDir { npx tsc --noEmit }
 
   # ------------------------------------------------------ 5. SSM parameters
   Step 'Creating missing SSM parameters (existing ones are left alone)'
@@ -282,7 +295,7 @@ try {
   } else {
     Note 'Google sign-in: off (set TELEROBOT_GOOGLE_CLIENT_ID and TELEROBOT_GOOGLE_CLIENT_SECRET to turn it on)'
   }
-  Exec 'cdk deploy' $Deploy { npx @cdkArgs }
+  Exec 'cdk deploy' $CdkDir { npx @cdkArgs }
 
   $Out = Get-StackOutputs $MainStack $Region
   $EdgeOut = Get-StackOutputs $EdgeStack $EdgeRegion
@@ -354,7 +367,7 @@ try {
 
   # -------------------------------------------------- 9. flat-rate Free plan
   Step 'CloudFront flat-rate Free plan'
-  $flat = & node (Join-Path $Deploy 'flat-rate.mjs') $DistributionArn $WebAclArn 2>&1
+  $flat = & node (Join-Path $CdkDir 'flat-rate.mjs') $DistributionArn $WebAclArn 2>&1
   $flat | ForEach-Object { Note "$_" }
   $flatLine = @($flat | Where-Object { "$_" -like 'FLAT-RATE:*' }) | Select-Object -Last 1
   $Summary['Flat-rate plan'] = if ($flatLine) { "$flatLine".Substring(11) } else { "unknown (flat-rate.mjs exit $LASTEXITCODE)" }
@@ -387,7 +400,7 @@ try {
     $env:SMOKE_PASSWORD = $SmokePassword
     $env:SMOKE_COMMIT = $Sha
     try {
-      & node (Join-Path $Deploy 'smoke.mjs') $Url
+      & node (Join-Path $CdkDir 'smoke.mjs') $Url
       $smokeCode = $LASTEXITCODE
     } finally {
       Remove-Item Env:SMOKE_PASSWORD -ErrorAction SilentlyContinue

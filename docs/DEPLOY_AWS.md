@@ -42,7 +42,9 @@ pwsh -File deploy/deploy.ps1 -SkipTests   # skip the test suites (retries only)
    executions after the API's reservation of 2, and the default EBS key
    must be AWS managed (a customer-managed key would need `kms:CreateGrant`
    for the wake Lambda);
-3. runs `npm ci`, `npm test` and `tsc` in `deploy/`;
+3. runs `npm ci`, `npm test` and `tsc` in the clone's `deploy/`, which is
+   also where `cdk deploy`, `flat-rate.mjs` and `smoke.mjs` run from (the
+   working tree's `deploy/` is never deployed);
 4. creates the SSM parameters below that are missing (it never overwrites
    one);
 5. runs `npx cdk deploy --all --require-approval never -c alertEmail=<git email>`
@@ -60,7 +62,7 @@ pwsh -File deploy/deploy.ps1 -SkipTests   # skip the test suites (retries only)
     password in an environment variable only;
 11. prints the URL, the stack outputs and a summary.
 
-`-InfraOnly` skips the build, the uploads, the UI sync and the smoke test.
+`-InfraOnly` still clones `HEAD` (the CDK app comes from the clone) but skips the build, the uploads, the UI sync and the smoke test.
 `/telerobot/commit` is created as `none`, so a freshly created instance's
 `telerobot-fetch` unit retries for 10 minutes and then fails. That is
 expected: stop the instance, or let the reaper stop it.
@@ -151,10 +153,12 @@ user's password with `aws cognito-idp admin-set-user-password --permanent`),
 optionally `SMOKE_COMMIT`, then `node deploy/smoke.mjs <url>`. It checks
 `/api/status`, signs in and wakes the lab, waits for `/healthz`, runs a
 WebSocket session (welcome, an image and its JPEG, take control, a move to
-`commandStatus done`), the public archive index, that `/archive/private/*`
-is refused, and that a WebSocket with a foreign `Origin` is refused. Every
-request carries a `User-Agent`: the WAF's common rule set blocks requests
-without one.
+`commandStatus done`, then its `archived` message), that `days.json` and the
+day's index list that move, that the day's audit log (which now exists) is
+refused at `/archive/private/audit/<day>.jsonl` and through `public/../`
+traversals with no audit content in the body, and that a WebSocket with a
+foreign `Origin` gets HTTP 403. Every request carries the site's `Origin`
+and a `User-Agent`: the WAF's common rule set blocks requests without one.
 
 ## Costs
 
