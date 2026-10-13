@@ -228,6 +228,18 @@ describe('app flow', () => {
     expect(app.login.console.text()).toContain('removed by an administrator');
   });
 
+  it('a reserved-nickname error before welcome, then close, ends the session with the message', async () => {
+    const { app, g } = await loggedIn();
+    g.emit({ t: 'error', code: 'bad-message', message: 'That nickname is reserved' });
+    g.opts.onClose!();
+    await flush();
+    expect(app.view()).toBe('login');
+    expect(g.closed).toBe(true);
+    expect(g.reconnects).toBe(0);
+    expect(FakeGateway.all.length).toBe(1);
+    expect(app.login.console.text()).toContain('That nickname is reserved');
+  });
+
   it('an unauthorised refusal that does not close the socket is only a console line', async () => {
     const { app, g } = await loggedIn();
     g.emit(welcome('ann'));

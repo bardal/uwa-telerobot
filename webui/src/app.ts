@@ -264,7 +264,9 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (gateway !== g) return;
     page.handle(m);
     // the gateway closes a kicked or banned session right after telling it why
-    refusal = m.t === 'error' && m.code === 'unauthorised' && welcomed ? m.message : null;
+    // an error before any welcome is terminal whatever its code (a reserved nick is bad-message):
+    // the close that follows must end the session, not retry
+    refusal = m.t === 'error' && (welcomed ? m.code === 'unauthorised' : true) ? m.message : null;
     if (m.t === 'welcome') {
       welcomed = true;
       admin = m.level === 'admin';

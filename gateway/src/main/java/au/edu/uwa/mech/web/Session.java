@@ -297,7 +297,7 @@ public final class Session implements MomBridge.Listener {
         boolean queued = run(() -> {
             String commandId = null;
             try {
-                commandId = b.command(c.script());
+                commandId = b.command(v.text());
             } finally {
                 if (commandId == null) commandDone(); // refused (closing) or failed before it was tracked
             }
