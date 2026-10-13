@@ -87,8 +87,9 @@ public class MOMListenerImpl extends Thread implements MOMListener
   public void listen() throws MOMIOException
   {
     try{
-      s = new ServerSocket (port);
-      ssBulk = new ServerSocket(bulkPort);
+      InetAddress bind = InetAddress.getByName(System.getProperty("telerobot.bind", "127.0.0.1"));
+      s = new ServerSocket (port, 50, bind);
+      ssBulk = new ServerSocket(bulkPort, 50, bind);
       ssBulk.setSoTimeout(10000);
       TheLog.println("Listening for connections on "+port);
       start();

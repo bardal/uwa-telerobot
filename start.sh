@@ -5,8 +5,8 @@
 # Set NO_APPLET=1 to skip launching appletviewer.
 set -e
 root=$(cd "$(dirname "$0")" && pwd)
-jar="$root/target/telerobot.jar"
-[ -f "$jar" ] || { echo "target/telerobot.jar not found - run 'mvn package' first"; exit 1; }
+jar="$root/lab/target/telerobot.jar"
+[ -f "$jar" ] || { echo "lab/target/telerobot.jar not found - run 'mvn package' first"; exit 1; }
 java="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 appletviewer="${JAVA_HOME:+$JAVA_HOME/bin/}appletviewer"
 web_port=${WEB_PORT:-18080}

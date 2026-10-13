@@ -48,8 +48,10 @@ public class VirtualLab
     }
     XMLConfigFile config = new XMLConfigFile(args[0]);
     World world = World.withDefaultBlocks();
-    new VirtualRobotServer(world).start(config.getInt("robot", "controlport", 30562),
-                                        config.getInt("robot", "positionport", 30563));
+    VirtualRobotServer robot = new VirtualRobotServer(world);
+    robot.start(config.getInt("robot", "controlport", 30562),
+                config.getInt("robot", "positionport", 30563));
+    robot.serveAdmin(config.getInt("robot", "adminPort", 30564));
     String momURL = config.getString("MOM", "url", null);
     if (momURL == null) {
       System.out.println("VirtualLab: no <MOM><url> configured, running the robot only");

@@ -7,10 +7,10 @@
   <groupId>au.edu.uwa.mech</groupId>
   <artifactId>uwa-telerobot</artifactId>
   <version>2000.2-SNAPSHOT</version>
-  <packaging>jar</packaging>
+  <packaging>pom</packaging>
 
   <name>UWA Telerobot</name>
-  <description>The 1999-2000 UWA web telerobot: MOM middleware, robot proxy, camera server and control applet</description>
+  <description>The 1999-2000 UWA web telerobot: MOM middleware, robot proxy, camera server and control applet, plus the web gateway</description>
 
   <licenses>
     <license>
@@ -19,57 +19,8 @@
     </license>
   </licenses>
 
-  <properties>
-    <!-- Java 8: the last JDK with appletviewer, and java.applet is still present -->
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
-    <!-- the original sources are Latin-1 (degree signs etc.) -->
-    <project.build.sourceEncoding>ISO-8859-1</project.build.sourceEncoding>
-  </properties>
-
-  <dependencies>
-    <dependency>
-      <groupId>gov.nist.math</groupId>
-      <artifactId>jama</artifactId>
-      <version>1.0.3</version>
-    </dependency>
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <version>4.13.2</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.13.0</version>
-        <configuration>
-          <compilerArgs>
-            <arg>-Xlint:-options</arg>
-          </compilerArgs>
-          <showWarnings>false</showWarnings>
-        </configuration>
-      </plugin>
-      <plugin>
-        <!-- one jar with Jama included, usable as the applet archive and for every server -->
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>3.6.0</version>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals><goal>shade</goal></goals>
-            <configuration>
-              <finalName>telerobot</finalName>
-              <createDependencyReducedPom>false</createDependencyReducedPom>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
+  <modules>
+    <module>lab</module>
+    <module>gateway</module>
+  </modules>
 </project>

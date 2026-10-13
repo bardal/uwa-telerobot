@@ -8,8 +8,8 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$jar = Join-Path $root "target\telerobot.jar"
-if (-not (Test-Path $jar)) { throw "target\telerobot.jar not found - run 'mvn package' first" }
+$jar = Join-Path $root "lab\target\telerobot.jar"
+if (-not (Test-Path $jar)) { throw "lab\target\telerobot.jar not found - run 'mvn package' first" }
 $java = if ($JavaHome) { Join-Path $JavaHome "bin\java.exe" } else { (Get-Command java).Source }
 $bin = Split-Path $java
 $run = Join-Path $root "run"

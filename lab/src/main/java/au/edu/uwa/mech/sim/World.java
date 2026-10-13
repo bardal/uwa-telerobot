@@ -47,12 +47,31 @@ public class World
   public static World withDefaultBlocks()
   {
     World w = new World();
-    w.addBlock(new Block("red",    120, 150, 0,   0, 30, 30, 30, new Color(196, 48, 40)));
-    w.addBlock(new Block("blue",   330, 120, 0,  20, 30, 30, 30, new Color(40, 80, 180)));
-    w.addBlock(new Block("yellow", 200, 360, 0, -15, 30, 30, 30, new Color(225, 190, 40)));
-    w.addBlock(new Block("green",  400, 330, 0,  45, 30, 30, 30, new Color(50, 150, 70)));
-    w.addBlock(new Block("bar",    260, 200, 0,  70, 60, 30, 30, new Color(180, 130, 80)));
+    w.addDefaultBlocks();
     return w;
+  }
+
+  private void addDefaultBlocks()
+  {
+    addBlock(new Block("red",    120, 150, 0,   0, 30, 30, 30, new Color(196, 48, 40)));
+    addBlock(new Block("blue",   330, 120, 0,  20, 30, 30, 30, new Color(40, 80, 180)));
+    addBlock(new Block("yellow", 200, 360, 0, -15, 30, 30, 30, new Color(225, 190, 40)));
+    addBlock(new Block("green",  400, 330, 0,  45, 30, 30, 30, new Color(50, 150, 70)));
+    addBlock(new Block("bar",    260, 200, 0,  70, 60, 30, 30, new Color(180, 130, 80)));
+  }
+
+  /** Back to the start: default blocks, the arm at (250,250,100) open, fingers open. Listeners are told. */
+  public void reset()
+  {
+    synchronized (this) {
+      held = null;
+      blocks.clear();
+      addDefaultBlocks();
+      pose = new RobotPose(250, 250, 100, -90, 0, true);
+      moving = false;
+      fingerGap = OPEN_GAP;
+    }
+    fire();
   }
 
   public synchronized void addBlock(Block b)

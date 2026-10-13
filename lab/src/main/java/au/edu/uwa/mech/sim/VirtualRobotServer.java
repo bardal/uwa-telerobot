@@ -34,16 +34,67 @@ public class VirtualRobotServer
 
   private final World world;
   private final Object motionLock = new Object();
+  private InetAddress bound;
+
+  /** The address the servers listen on: -Dtelerobot.bind, default loopback only. */
+  static InetAddress bindAddress() throws IOException
+  {
+    return InetAddress.getByName(System.getProperty("telerobot.bind", "127.0.0.1"));
+  }
+
+  /** The address the control socket is bound to (after {@link #start}). */
+  public InetAddress boundTo() { return bound; }
 
   public VirtualRobotServer(World world) { this.world = world; }
 
   public void start(int controlPort, int positionPort) throws IOException
   {
-    final ServerSocket control = new ServerSocket(controlPort, 5, InetAddress.getByName("0.0.0.0"));
-    final ServerSocket position = new ServerSocket(positionPort, 5, InetAddress.getByName("0.0.0.0"));
+    final ServerSocket control = new ServerSocket(controlPort, 5, bindAddress());
+    final ServerSocket position = new ServerSocket(positionPort, 5, bindAddress());
+    bound = control.getInetAddress();
     daemon("robot-control-accept", () -> acceptLoop(control, true));
     daemon("robot-position-accept", () -> acceptLoop(position, false));
     System.out.println("VirtualRobot: control port " + controlPort + ", position port " + positionPort);
+  }
+
+  /** Admin port: a line "reset" puts the world back to the start and is answered "ok". */
+  public void serveAdmin(int port) throws IOException
+  {
+    final ServerSocket admin = new ServerSocket(port, 5, bindAddress());
+    daemon("robot-admin-accept", () -> {
+      while (true) {
+        try {
+          final Socket s = admin.accept();
+          daemon("robot-admin", () -> serveAdminClient(s));
+        } catch (IOException e) {
+          System.err.println("VirtualRobot: admin accept failed: " + e);
+          return;
+        }
+      }
+    });
+    System.out.println("VirtualRobot: admin port " + port);
+  }
+
+  private void serveAdminClient(Socket s)
+  {
+    try (Socket sock = s;
+         BufferedReader in = new BufferedReader(new InputStreamReader(sock.getInputStream(), StandardCharsets.ISO_8859_1))) {
+      OutputStream out = sock.getOutputStream();
+      String line;
+      while ((line = in.readLine()) != null) {
+        line = line.trim();
+        if (line.equals("reset")) {
+          world.reset();
+          System.out.println("VirtualRobot: world reset");
+          out.write("ok\n".getBytes(StandardCharsets.ISO_8859_1));
+        } else if (!line.isEmpty()) {
+          out.write("error unknown command\n".getBytes(StandardCharsets.ISO_8859_1));
+        }
+        out.flush();
+      }
+    } catch (IOException e) {
+      System.out.println("VirtualRobot: admin client gone: " + e.getMessage());
+    }
   }
 
   private void acceptLoop(ServerSocket ss, boolean control)
