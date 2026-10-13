@@ -1,6 +1,5 @@
 import './styles.css';
+import { startApp } from './app';
 
-const app = document.getElementById('app');
-if (app) {
-  app.textContent = 'UWA Telerobot';
-}
+const root = document.getElementById('app');
+if (root) startApp(root);

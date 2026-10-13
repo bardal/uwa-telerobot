@@ -119,6 +119,15 @@ describe('pose conversions and text', () => {
       'x=1 y=2 z=3 s=4° t=5°',
     );
   });
+  it('draws the coordinate text at (10, 20) from the image corner, not the canvas corner', () => {
+    const calls: [string, number, number][] = [];
+    const ctx = { fillText: (t: string, x: number, y: number) => calls.push([t, x, y]) } as unknown as CanvasRenderingContext2D;
+    const c = new StickCursorCoords(() => ({ x: 1, y: 2, z: 3, spin: 4, tilt: 5 }));
+    c.draw(ctx);
+    c.setClip({ x: 30, y: 7, width: 400, height: 300 });
+    c.draw(ctx);
+    expect(calls.map((k) => [k[1], k[2]])).toEqual([[10, 20], [40, 27]]);
+  });
 });
 
 describe('measuring overlays', () => {

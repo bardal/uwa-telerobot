@@ -192,3 +192,18 @@ describe('buildHello', () => {
     expect(buildHello({ nick: 'a', proof: { turnstile: 't' }, config: {}, devIdentity: dev }).dev).toBeUndefined();
   });
 });
+
+describe('Gateway onClose', () => {
+  it('reports each lost connection, but not an explicit close()', () => {
+    const onClose = vi.fn();
+    const g = new Gateway('ws://x/ws', hello, { WebSocketImpl: WS, onClose });
+    FakeWS.instances[0]!.open();
+    FakeWS.instances[0]!.drop();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(backoffDelay(1));
+    FakeWS.instances[1]!.open();
+    g.close();
+    FakeWS.instances[1]!.drop();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

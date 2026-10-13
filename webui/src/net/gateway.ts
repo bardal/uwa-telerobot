@@ -8,6 +8,8 @@ export interface GatewayOpts {
   WebSocketImpl?: typeof WebSocket;
   /** Called after 3 consecutive failed connections; the caller should run ensureAwake then reconnect(). */
   onWakeNeeded?: () => void;
+  /** Called when an open or opening connection is lost (not after close()). */
+  onClose?: () => void;
 }
 
 export const BACKOFF_MS = [1000, 2000, 4000, 8000];
@@ -113,6 +115,7 @@ export class Gateway {
       this.pendingImage = null;
       this.state = 'closed';
       if (this.stopped) return;
+      this.opts.onClose?.();
       this.failures++;
       if (this.failures === WAKE_AFTER_FAILURES) {
         // The wake flow takes over; it calls reconnect() when the lab is up.
