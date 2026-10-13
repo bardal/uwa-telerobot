@@ -4,7 +4,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 import { CSP } from "../lib/csp";
 import { EdgeStack } from "../lib/edge-stack";
-import { TelerobotStack } from "../lib/telerobot-stack";
+import { ARCHIVE_CSP, TelerobotStack } from "../lib/telerobot-stack";
 
 const ACCOUNT = "123456789012";
 const ORIGIN_HEADER = "X-Telerobot-Origin";
@@ -150,6 +150,72 @@ describe("telerobot stack", () => {
     }
   });
 
+  it("lets neither the instance nor the Lambda read SSM parameters outside /telerobot/", () => {
+    // Statements of the roles we write (CDK's own cross-region export reader
+    // has a separate role scoped to /cdk/exports/).
+    const all = Object.entries(main.findResources("AWS::IAM::Policy"))
+      .filter(([id]) => id.startsWith("LabRole") || id.startsWith("ApiServiceRole"))
+      .flatMap(([, p]) => p.Properties.PolicyDocument.Statement);
+    expect(all.length).toBeGreaterThan(10);
+    const paramRead = (s: any) => actions(s).some((a) => /^ssm:(GetParameter|\*)/.test(a) || a === "*");
+    for (const s of all.filter((s) => s.Effect === "Allow" && paramRead(s))) {
+      for (const r of [s.Resource].flat()) {
+        expect(JSON.stringify(r)).toMatch(/:parameter\/telerobot\//);
+      }
+    }
+    // no managed policy that grants ssm:GetParameter* on "*"
+    for (const r of Object.values(main.findResources("AWS::IAM::Role"))) {
+      expect(JSON.stringify(r.Properties.ManagedPolicyArns ?? [])).not.toContain("AmazonSSMManagedInstanceCore");
+    }
+    const deny = all.filter((s) => s.Effect === "Deny" && s.NotResource);
+    expect(deny).toHaveLength(1);
+    expect(actions(deny[0]).sort()).toEqual([
+      "ssm:GetParameter",
+      "ssm:GetParameterHistory",
+      "ssm:GetParameters",
+      "ssm:GetParametersByPath",
+    ]);
+    expect(JSON.stringify(deny[0].NotResource)).toContain(":parameter/telerobot/*");
+
+    const decrypt = all.filter((s) => actions(s).includes("kms:Decrypt"));
+    expect(decrypt).toHaveLength(2);
+    for (const s of decrypt) {
+      expect(s.Condition).toEqual({
+        StringEquals: { "kms:ViaService": "ssm.eu-west-2.amazonaws.com" },
+        StringLike: { "kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:*:*:parameter/telerobot/*" },
+      });
+    }
+    // Session Manager still works
+    expect(all.some((s) => actions(s).includes("ssmmessages:OpenDataChannel"))).toBe(true);
+  });
+
+  it("uses standard CPU credits", () => {
+    const [, lt] = only(main, "AWS::EC2::LaunchTemplate");
+    expect(lt.LaunchTemplateData.CreditSpecification).toEqual({ CpuCredits: "standard" });
+  });
+
+  it("tags both stacks with project=uwa-telerobot", () => {
+    const tag = { Key: "project", Value: "uwa-telerobot" };
+    const [, acl] = only(edge, "AWS::WAFv2::WebACL");
+    expect(acl.Tags).toContainEqual(tag);
+    const [, inst] = only(main, "AWS::EC2::Instance");
+    expect(inst.Tags).toContainEqual(tag);
+    expect(inst.PropagateTagsToVolumeOnCreation).toBe(true);
+    const [, dist] = only(main, "AWS::CloudFront::Distribution");
+    expect(dist.Tags).toContainEqual(tag);
+    for (const b of Object.values(main.findResources("AWS::S3::Bucket"))) expect(b.Properties.Tags).toContainEqual(tag);
+  });
+
+  it("gives every log group 14-day retention, including the BucketDeployment's", () => {
+    const groups = main.findResources("AWS::Logs::LogGroup");
+    expect(Object.keys(groups).length).toBe(3);
+    for (const g of Object.values(groups)) expect(g.Properties.RetentionInDays).toBe(14);
+    const deployFn = Object.values(main.findResources("AWS::Lambda::Function")).find((f) =>
+      JSON.stringify(f.Properties.Layers ?? []).includes("AwsCliLayer"),
+    )!;
+    expect(deployFn.Properties.LoggingConfig.LogGroup.Ref).toMatch(/^UiConfigLogs/);
+  });
+
   it("blocks public access on every bucket, and CloudFront reads only public/* of the archive", () => {
     const buckets = main.findResources("AWS::S3::Bucket");
     expect(Object.keys(buckets).length).toBe(3);
@@ -222,13 +288,39 @@ describe("telerobot stack", () => {
   it("sends the CSP from webui/csp.json and the security headers", () => {
     const json = JSON.parse(readFileSync(new URL("../../webui/csp.json", import.meta.url), "utf8"));
     expect(CSP).toBe(json.csp);
-    const [, rhp] = only(main, "AWS::CloudFront::ResponseHeadersPolicy");
-    const sec = rhp.ResponseHeadersPolicyConfig.SecurityHeadersConfig;
-    expect(sec.ContentSecurityPolicy.ContentSecurityPolicy).toBe(CSP);
+    const policies = main.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+    expect(Object.keys(policies)).toHaveLength(2);
+    const byCsp = (csp: string) =>
+      Object.entries(policies).find(
+        ([, p]) =>
+          p.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy
+            .ContentSecurityPolicy === csp,
+      )!;
+    const [siteId, site] = byCsp(CSP);
+    const sec = site.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig;
     expect(sec.StrictTransportSecurity).toMatchObject({ AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true });
     expect(sec.FrameOptions.FrameOption).toBe("DENY");
     expect(sec.ReferrerPolicy.ReferrerPolicy).toBe("strict-origin-when-cross-origin");
     expect(sec.ContentTypeOptions).toBeDefined();
+    expect(site.Properties.ResponseHeadersPolicyConfig.CustomHeadersConfig.Items).toEqual([
+      { Header: "Permissions-Policy", Value: "camera=(), microphone=(), geolocation=()", Override: true },
+      { Header: "Cross-Origin-Opener-Policy", Value: "same-origin", Override: true },
+    ]);
+
+    // the archive serves inert images under its own policy
+    const [archiveId, archive] = byCsp(ARCHIVE_CSP);
+    expect(ARCHIVE_CSP).toBe("default-src 'none'; img-src 'self'; sandbox");
+    const asec = archive.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig;
+    expect(asec.StrictTransportSecurity).toMatchObject({ AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true });
+    expect(asec.FrameOptions.FrameOption).toBe("DENY");
+    expect(asec.ContentTypeOptions).toBeDefined();
+
+    const [, dist] = only(main, "AWS::CloudFront::Distribution");
+    const cfg = dist.DistributionConfig;
+    for (const b of [cfg.DefaultCacheBehavior, ...cfg.CacheBehaviors]) {
+      const want = b.PathPattern === "/archive/public/*" ? archiveId : siteId;
+      expect(b.ResponseHeadersPolicyId, b.PathPattern ?? "default").toEqual({ Ref: want });
+    }
   });
 
   it("gives the Lambda arm64, 128 MB and a reserved concurrency of 2", () => {
@@ -248,6 +340,8 @@ describe("telerobot stack", () => {
   it("sets a $20 monthly budget emailing the alert address at 50% and 100%", () => {
     const [, b] = only(main, "AWS::Budgets::Budget");
     expect(b.Budget).toMatchObject({ BudgetLimit: { Amount: 20, Unit: "USD" }, TimeUnit: "MONTHLY" });
+    // only this project's costs (the account is shared)
+    expect(b.Budget.CostFilters).toEqual({ TagKeyValue: ["user:project$uwa-telerobot"] });
     expect(b.NotificationsWithSubscribers.map((n: any) => n.Notification.Threshold).sort()).toEqual([100, 50]);
     for (const n of b.NotificationsWithSubscribers) {
       expect(n.Subscribers).toEqual([{ SubscriptionType: "EMAIL", Address: "test@example.invalid" }]);

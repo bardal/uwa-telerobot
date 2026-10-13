@@ -31,9 +31,14 @@ export interface UserDataOptions {
 
 const HOME = "/var/lib/telerobot";
 const LAB_JAR = `${HOME}/lib/lab.jar`;
-const LAB_JAVA = `/usr/bin/java "-Djdk.serialFilter=${SERIAL_FILTER}" -Dtelerobot.bind=127.0.0.1`;
+/** Heaps sized for 2 GB plus 1 GB swap; on OOM the JVM exits and systemd restarts it. */
+const java = (xmx: string) => `/usr/bin/java -Xmx${xmx} -XX:+ExitOnOutOfMemoryError`;
+const LAB_FLAGS = `"-Djdk.serialFilter=${SERIAL_FILTER}" -Dtelerobot.bind=127.0.0.1 -Djava.awt.headless=true`;
 
-/** Decision 1's hardening, plus restart on failure. */
+/**
+ * Decision 1's hardening and more, plus restart on failure. Not
+ * MemoryDenyWriteExecute: it breaks the JIT.
+ */
 const SERVICE_COMMON = `User=telerobot
 Group=telerobot
 WorkingDirectory=${HOME}/run
@@ -41,8 +46,20 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 PrivateTmp=yes
 ReadWritePaths=${HOME}
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+RestrictNamespaces=yes
 Restart=on-failure
 RestartSec=5`;
+
+/** MOM, VirtualLab and RobotProxy only talk over loopback; this also cuts them off from IMDS. */
+const LOOPBACK_ONLY = "IPAddressDeny=any\nIPAddressAllow=localhost";
 
 function service(o: {
   name: string;
@@ -170,19 +187,21 @@ echo "telerobot-fetch: commit $COMMIT ready"
 
 const WAIT_PORT_SCRIPT = `#!/bin/bash
 # telerobot-wait-port PORT...: wait up to 2 minutes for each local TCP port to
-# be listening. Checks the socket table rather than connecting, so the old
-# servers never see a stray connection.
+# be listening. Reads the kernel's socket table (/proc/net/tcp*, state 0A is
+# LISTEN) rather than connecting, so the old servers never see a stray
+# connection. No netlink (ss), which RestrictAddressFamilies denies.
+listening() {
+  awk -v p=":$(printf '%04X' "$1")" '$4 == "0A" && substr($2, length($2) - 4) == p { found = 1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
 for port in "$@"; do
   for i in $(seq 1 120); do
-    if ss -Hltn "sport = :$port" | grep -q .; then continue 2; fi
+    if listening "$port"; then continue 2; fi
     sleep 1
   done
   echo "telerobot-wait-port: port $port is not listening" >&2
   exit 1
 done
 `;
-
-const CWAGENT_MIN = "1.300070.0"; // first release that reads journald
 
 function cwAgentConfig(logGroup: string): string {
   return JSON.stringify(
@@ -211,12 +230,17 @@ export function renderUserData(o: UserDataOptions): string {
   return `#!/bin/bash
 set -euxo pipefail
 
-dnf install -y java-21-amazon-corretto-headless amazon-cloudwatch-agent
-# journald collection needs agent ${CWAGENT_MIN}+; the AL2023 repo can lag behind.
-cw_version=$(rpm -q --qf '%{VERSION}' amazon-cloudwatch-agent)
-if [ "$(printf '%s\\n' ${CWAGENT_MIN} "$cw_version" | sort -V | head -n1)" != "${CWAGENT_MIN}" ]; then
-  dnf install -y https://amazoncloudwatch-agent.s3.amazonaws.com/amazon_linux/arm64/latest/amazon-cloudwatch-agent.rpm
+# 1 GB of swap under four JVMs on 2 GB. Idempotent.
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=1024
+  chmod 0600 /swapfile
+  mkswap /swapfile
 fi
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile
+
+# fontconfig and a font: VirtualLab's renderer draws text with Font.SANS_SERIF.
+dnf install -y java-21-amazon-corretto-headless fontconfig dejavu-sans-fonts
 
 id telerobot >/dev/null 2>&1 || useradd --system --user-group --home-dir ${HOME} --no-create-home --shell /sbin/nologin telerobot
 install -d -o root -g telerobot -m 0750 ${HOME} ${HOME}/config ${HOME}/lib /etc/telerobot
@@ -260,39 +284,53 @@ ${service({
   name: "mom",
   description: "Telerobot MOM server",
   after: "telerobot-fetch",
-  execStart: `${LAB_JAVA} -cp ${LAB_JAR} au.edu.uwa.mech.mom.server.MOMServer ../config/MOM.xml`,
+  extra: LOOPBACK_ONLY,
+  execStart: `${java("128m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.mom.server.MOMServer ../config/MOM.xml`,
 })}
 ${service({
   name: "lab",
   description: "Telerobot VirtualLab (simulated robot and cameras)",
   after: "telerobot-mom",
   ports: "4444",
-  execStart: `${LAB_JAVA} -Djava.awt.headless=true -cp ${LAB_JAR} au.edu.uwa.mech.sim.VirtualLab ../config/lab.xml`,
+  extra: LOOPBACK_ONLY,
+  execStart: `${java("384m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.sim.VirtualLab ../config/lab.xml`,
 })}
 ${service({
   name: "proxy",
   description: "Telerobot RobotProxy",
   after: "telerobot-lab",
   ports: "4444 30562 30563",
-  execStart: `${LAB_JAVA} -cp ${LAB_JAR} au.edu.uwa.mech.devices.robot.Server ../config/RobotProxy.properties`,
+  extra: LOOPBACK_ONLY,
+  execStart: `${java("96m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.devices.robot.Server ../config/RobotProxy.properties`,
 })}
 ${service({
   name: "gateway",
   description: "Telerobot web gateway",
   after: "telerobot-proxy",
   ports: "4444 30564",
+  // Needs AWS endpoints and IMDS, so no IPAddressDeny.
   extra: "EnvironmentFile=/etc/telerobot/telerobot.env\nEnvironmentFile=/etc/telerobot/gateway.env",
-  execStart: `/usr/bin/java -jar ${HOME}/lib/gateway.jar --port 8080 --mom-host 127.0.0.1 --mom-port 4444 --lab-admin-port 30564`,
+  execStart: `${java("384m")} -jar ${HOME}/lib/gateway.jar --port 8080 --mom-host 127.0.0.1 --mom-port 4444 --lab-admin-port 30564`,
 })}
-cat > /opt/aws/amazon-cloudwatch-agent/etc/telerobot.json <<'CWAGENT'
-${cwAgentConfig(o.logGroup)}
-CWAGENT
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/telerobot.json
-
 systemctl daemon-reload
 systemctl enable telerobot-fetch telerobot-mom telerobot-lab telerobot-proxy telerobot-gateway
-# This boot's transaction predates the units: start them now, without making
-# cloud-init wait for the fetch.
+# This boot's transaction predates the units: start them now (this pulls in the
+# whole Requires= chain) without making cloud-init wait for the fetch.
 systemctl start --no-block telerobot-gateway
+
+# Log shipping last, and only ever a warning: the lab must run without it.
+# From the AL2023 repo (GPG-checked); journald collection needs agent
+# 1.300070.0 or later, so an older repo build fails here and warns.
+set +e
+if ! {
+  dnf install -y amazon-cloudwatch-agent &&
+  cat > /opt/aws/amazon-cloudwatch-agent/etc/telerobot.json <<'CWAGENT' &&
+${cwAgentConfig(o.logGroup)}
+CWAGENT
+  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/telerobot.json
+}; then
+  echo "WARNING: CloudWatch agent setup failed; the lab runs without log shipping" >&2
+fi
+exit 0
 `;
 }

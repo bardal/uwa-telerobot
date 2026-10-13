@@ -9,6 +9,7 @@ import {
   Lazy,
   SecretValue,
   Stack,
+  Tags,
   Token,
   type StackProps,
 } from "aws-cdk-lib";
@@ -46,6 +47,8 @@ export interface TelerobotStackProps extends StackProps {
 
 export const ORIGIN_HEADER = "X-Telerobot-Origin";
 const LAB_TAG = { key: "telerobot", value: "lab" };
+/** Cost-allocation tag on every resource; the budget filters on it. */
+export const PROJECT_TAG = { key: "project", value: "uwa-telerobot" };
 const LOG_GROUP = "/telerobot/lab";
 const PARAM = {
   originSecret: "/telerobot/origin-secret",
@@ -56,12 +59,14 @@ const PARAM = {
   archiveBytes: "/telerobot/archive-bytes",
   minutes: "/telerobot/minutes/*",
 };
+export const ARCHIVE_CSP = "default-src 'none'; img-src 'self'; sandbox";
 const DEPLOY_DIR = fileURLToPath(new URL("..", import.meta.url));
 
 /** eu-west-2: everything except the web ACL. */
 export class TelerobotStack extends Stack {
   constructor(scope: Construct, id: string, props: TelerobotStackProps) {
     super(scope, id, props);
+    Tags.of(this).add(PROJECT_TAG.key, PROJECT_TAG.value);
     if (Token.isUnresolved(this.account) || Token.isUnresolved(this.region)) {
       throw new Error("TelerobotStack needs a concrete env (account and region)");
     }
@@ -121,13 +126,43 @@ export class TelerobotStack extends Stack {
 
     const role = new iam.Role(this, "LabRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
-      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")],
     });
+    // Not AmazonSSMManagedInstanceCore: it allows ssm:GetParameter* on "*",
+    // and this account holds other projects' parameters. This is the Session
+    // Manager subset of it.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "ssm:UpdateInstanceInformation",
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel",
+          "ec2messages:AcknowledgeMessage",
+          "ec2messages:DeleteMessage",
+          "ec2messages:FailMessage",
+          "ec2messages:GetEndpoint",
+          "ec2messages:GetMessages",
+          "ec2messages:SendReply",
+        ],
+        resources: ["*"],
+      }),
+    );
+    // Belt and braces against any future grant: no parameter outside /telerobot/.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.DENY,
+        actions: ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath", "ssm:GetParameterHistory"],
+        notResources: [paramArn("/telerobot/*")],
+      }),
+    );
     const profile = new iam.CfnInstanceProfile(this, "LabProfile", { roles: [role.roleName] });
 
     const launchTemplate = new ec2.CfnLaunchTemplate(this, "LabLaunchTemplate", {
       launchTemplateData: {
         metadataOptions: { httpTokens: "required", httpEndpoint: "enabled", httpPutResponseHopLimit: 1 },
+        // t4g defaults to unlimited credits, which can bill beyond the instance price.
+        creditSpecification: { cpuCredits: "standard" },
       },
     });
 
@@ -153,6 +188,7 @@ export class TelerobotStack extends Stack {
         },
       ],
       instanceInitiatedShutdownBehavior: "stop",
+      propagateTagsToVolumeOnCreation: true,
       userData: Fn.base64(userData),
       tags: [
         { key: LAB_TAG.key, value: LAB_TAG.value },
@@ -177,7 +213,10 @@ export class TelerobotStack extends Stack {
     const ssmDecrypt = new iam.PolicyStatement({
       actions: ["kms:Decrypt"],
       resources: [`arn:${Aws.PARTITION}:kms:${region}:${this.account}:key/*`],
-      conditions: { StringEquals: { "kms:ViaService": `ssm.${region}.amazonaws.com` } },
+      conditions: {
+        StringEquals: { "kms:ViaService": `ssm.${region}.amazonaws.com` },
+        StringLike: { "kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:*:*:parameter/telerobot/*" },
+      },
     });
 
     role.addToPolicy(
@@ -312,6 +351,21 @@ export class TelerobotStack extends Stack {
         },
         contentSecurityPolicy: { contentSecurityPolicy: CSP, override: true },
       },
+      customHeadersBehavior: {
+        customHeaders: [
+          { header: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()", override: true },
+          { header: "Cross-Origin-Opener-Policy", value: "same-origin", override: true },
+        ],
+      },
+    });
+    // Archived images are served as inert documents (Cache-Control comes from the objects).
+    const archiveHeaders = new cloudfront.ResponseHeadersPolicy(this, "ArchiveHeaders", {
+      securityHeadersBehavior: {
+        strictTransportSecurity: { accessControlMaxAge: Duration.days(730), includeSubdomains: true, override: true },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
+        contentSecurityPolicy: { contentSecurityPolicy: ARCHIVE_CSP, override: true },
+      },
     });
 
     const noCache = {
@@ -348,6 +402,7 @@ export class TelerobotStack extends Stack {
         "/archive/public/*": {
           origin: archiveOrigin,
           ...cached,
+          responseHeadersPolicy: archiveHeaders,
           functionAssociations: [{ function: stripArchive, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
         },
         "/ws": { origin: ec2Origin, ...gatewayNoCache },
@@ -435,6 +490,7 @@ export class TelerobotStack extends Stack {
         }),
       ],
       prune: false,
+      logGroup: new logs.LogGroup(this, "UiConfigLogs", { retention: logs.RetentionDays.TWO_WEEKS }),
       distribution: dist,
       distributionPaths: ["/config.json"],
     });
@@ -446,6 +502,8 @@ export class TelerobotStack extends Stack {
         budgetType: "COST",
         timeUnit: "MONTHLY",
         budgetLimit: { amount: 20, unit: "USD" },
+        // Needs the user-defined cost-allocation tag activated (deploy.ps1).
+        costFilters: { TagKeyValue: [`user:${PROJECT_TAG.key}$` + PROJECT_TAG.value] },
       },
       notificationsWithSubscribers: [50, 100].map((threshold) => ({
         notification: {

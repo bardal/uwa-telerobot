@@ -16,8 +16,41 @@ function unit(name: string): string {
 }
 
 describe("user data", () => {
-  it("installs Corretto 21 headless and the CloudWatch agent", () => {
-    expect(script).toContain("dnf install -y java-21-amazon-corretto-headless amazon-cloudwatch-agent");
+  it("installs Corretto 21 headless with fontconfig and a sans font", () => {
+    expect(script).toContain("dnf install -y java-21-amazon-corretto-headless fontconfig dejavu-sans-fonts\n");
+  });
+
+  it("sets up the CloudWatch agent from the repo only after the units start, warning on failure", () => {
+    const start = script.indexOf("systemctl start --no-block telerobot-gateway");
+    const enable = script.indexOf("systemctl enable telerobot-fetch");
+    const agent = script.indexOf("dnf install -y amazon-cloudwatch-agent");
+    expect(enable).toBeGreaterThan(0);
+    expect(start).toBeGreaterThan(enable);
+    expect(agent).toBeGreaterThan(start);
+    const tail = script.slice(start);
+    expect(tail).toMatch(/set \+e\nif ! \{\n  dnf install -y amazon-cloudwatch-agent &&/);
+    expect(tail).toContain("WARNING: CloudWatch agent setup failed");
+    expect(script).not.toContain("amazoncloudwatch-agent.s3.amazonaws.com");
+    expect(script.indexOf("amazon-cloudwatch-agent")).toBe(agent + "dnf install -y ".length);
+  });
+
+  it("adds a 1 GB swapfile once and enables it on boot", () => {
+    expect(script).toContain("if [ ! -f /swapfile ]; then\n  dd if=/dev/zero of=/swapfile bs=1M count=1024\n");
+    expect(script).toContain(
+      "grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap defaults 0 0' >> /etc/fstab",
+    );
+    expect(script.indexOf("/swapfile")).toBeLessThan(script.indexOf("dnf install"));
+  });
+
+  it("caps each JVM heap and exits on OOM", () => {
+    for (const [name, xmx] of [
+      ["mom", "128m"],
+      ["lab", "384m"],
+      ["proxy", "96m"],
+      ["gateway", "384m"],
+    ]) {
+      expect(unit(`telerobot-${name}`)).toContain(`ExecStart=/usr/bin/java -Xmx${xmx} -XX:+ExitOnOutOfMemoryError `);
+    }
   });
 
   it("uses the exact serialization filter", () => {
@@ -60,9 +93,22 @@ describe("user data", () => {
         "PrivateTmp=yes",
         "ReadWritePaths=/var/lib/telerobot",
         "Restart=on-failure",
+        "ProtectHome=yes",
+        "PrivateDevices=yes",
+        "ProtectKernelTunables=yes",
+        "ProtectKernelModules=yes",
+        "ProtectControlGroups=yes",
+        "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+        "CapabilityBoundingSet=\n",
+        "LockPersonality=yes",
+        "RestrictNamespaces=yes",
       ]) {
         expect(u, `${name}: ${flag}`).toContain(flag);
       }
+      expect(u).not.toContain("MemoryDenyWriteExecute");
+      // loopback only, except the gateway, which needs AWS endpoints and IMDS
+      expect(u.includes("IPAddressDeny=any\nIPAddressAllow=localhost\n")).toBe(name !== "gateway");
+      expect(u.includes("-Djava.awt.headless=true")).toBe(name !== "gateway");
       // MOM starts first; the others wait for the ports they connect to.
       expect(u.includes("ExecStartPre=/usr/local/bin/telerobot-wait-port ")).toBe(name !== "mom");
       const lab = name !== "gateway";
@@ -73,7 +119,7 @@ describe("user data", () => {
     expect(unit("telerobot-lab")).toContain("au.edu.uwa.mech.sim.VirtualLab ../config/lab.xml");
     expect(unit("telerobot-proxy")).toContain("au.edu.uwa.mech.devices.robot.Server ../config/RobotProxy.properties");
     expect(unit("telerobot-gateway")).toContain(
-      "java -jar /var/lib/telerobot/lib/gateway.jar --port 8080 --mom-host 127.0.0.1 --mom-port 4444 --lab-admin-port 30564",
+      " -jar /var/lib/telerobot/lib/gateway.jar --port 8080 --mom-host 127.0.0.1 --mom-port 4444 --lab-admin-port 30564",
     );
   });
 
@@ -98,7 +144,7 @@ describe("user data", () => {
   });
 
   it("ships journald for the units to /telerobot/lab", () => {
-    const m = script.match(/<<'CWAGENT'\n([\s\S]*?)\nCWAGENT\n/);
+    const m = script.match(/<<'CWAGENT'[^\n]*\n([\s\S]*?)\nCWAGENT\n/);
     expect(m).not.toBeNull();
     const cfg = JSON.parse(m![1]);
     const entry = cfg.logs.logs_collected.journald.collect_list[0];
@@ -106,6 +152,11 @@ describe("user data", () => {
     expect(entry.units).toEqual(
       expect.arrayContaining(["telerobot-mom", "telerobot-lab", "telerobot-proxy", "telerobot-gateway"]),
     );
+  });
+
+  it("waits for ports from /proc/net/tcp, not netlink", () => {
+    expect(script).toContain("/proc/net/tcp /proc/net/tcp6");
+    expect(script).not.toMatch(/\bss -/);
   });
 
   it("has no unescaped template leftovers", () => {

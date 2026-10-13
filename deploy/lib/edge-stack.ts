@@ -1,4 +1,4 @@
-import { Stack, type StackProps } from "aws-cdk-lib";
+import { Stack, Tags, type StackProps } from "aws-cdk-lib";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import type { Construct } from "constructs";
 
@@ -8,6 +8,7 @@ export class EdgeStack extends Stack {
 
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, props);
+    Tags.of(this).add("project", "uwa-telerobot");
 
     const visibility = (metricName: string) => ({
       cloudWatchMetricsEnabled: true,
