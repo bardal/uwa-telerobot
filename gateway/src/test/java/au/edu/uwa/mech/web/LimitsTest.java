@@ -47,6 +47,42 @@ class LimitsTest {
     }
 
     @Test
+    void appletGeneratedAndHandWrittenScriptsAreAccepted() {
+        for (String s : new String[] {
+            "x10,y20,s0,t0,z5,gopen",
+            "x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90",
+            "gopen;gclosed", "gclose", "rz-20", "tf", "x10.5", "x10,,y20", "x10\ty20,z5\r\nx30",
+            "o;c", "g0 x10 g1"})
+            assertTrue(limits.checkScript(s).ok(), s + " -> " + limits.checkScript(s).reason());
+    }
+
+    @Test
+    void scriptsBuiltByTheAppletCodeAreAccepted() {
+        au.edu.uwa.mech.maths.Pose3d pose = new au.edu.uwa.mech.maths.Pose3d(120.4, 150.6, 60, -90, 15);
+        au.edu.uwa.mech.maths.Point3d pt = new au.edu.uwa.mech.maths.Point3d(10, -20, 30);
+        for (au.edu.uwa.mech.devices.robot.Gripper g : new au.edu.uwa.mech.devices.robot.Gripper[] {
+            au.edu.uwa.mech.devices.robot.Gripper.newOpen(), au.edu.uwa.mech.devices.robot.Gripper.newClosed()}) {
+            String state = au.edu.uwa.mech.devices.robot.MMoveCommand.stateAsGBHString(
+                new au.edu.uwa.mech.devices.robot.RobotState(pose, g));
+            assertTrue(limits.checkScript(state).ok(), state);
+            assertTrue(limits.checkScript(state + ";" + state).ok(), state);
+        }
+        String p = au.edu.uwa.mech.devices.robot.MMoveCommand.poseAsGBHString(pose);
+        String q = au.edu.uwa.mech.devices.robot.MMoveCommand.pointAsGBHString(pt);
+        assertTrue(limits.checkScript(p).ok(), p);
+        assertTrue(limits.checkScript(q).ok(), q);
+    }
+
+    @Test
+    void unknownTermsAreRefusedNamingTheTerm() {
+        assertTrue(limits.checkScript("x1;y2;foo").reason().contains("'foo'"));
+        assertTrue(limits.checkScript("<script>").reason().contains("'<script>'"));
+        assertFalse(limits.checkScript("X10").ok());
+        assertFalse(limits.checkScript("x").ok());
+        assertFalse(limits.checkScript("x10,q").ok());
+    }
+
+    @Test
     void chatLengthBoundaryAfterNfc() {
         assertTrue(limits.checkChat("a".repeat(300)).ok());
         assertFalse(limits.checkChat("a".repeat(301)).ok());

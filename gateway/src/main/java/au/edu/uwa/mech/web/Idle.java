@@ -37,7 +37,7 @@ public final class Idle {
     }
 
     public synchronized void opened(String id) {
-        sessions.put(id, new Entry(clock.getAsLong()));
+        sessions.putIfAbsent(id, new Entry(clock.getAsLong())); // re-open must not extend the 2 h cap
         stopped = false;
     }
 

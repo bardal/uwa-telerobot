@@ -19,6 +19,10 @@ public final class Limits {
     public static final int REJECTIONS_TO_CLOSE = 20;
     public static final long REJECTION_WINDOW_MILLIS = 60_000;
 
+    private static final Pattern TERM_SPLIT = Pattern.compile("[;, \t\r\n]+");
+    /** Terms PathScript understands: axis values (optionally relative), tilt presets, gripper words, bare o/c. */
+    private static final Pattern TERM = Pattern.compile(
+        "r?[xyzst][+-]?\\d+(\\.\\d+)?|t[fvb]|g[A-Za-z0-9]*|[oOcC]");
     private static final Pattern NICK = Pattern.compile("[A-Za-z0-9 _.-]{1,20}");
     private static final RobotPose ORIGIN = new RobotPose(0, 0, 0, 0, 0, true);
 
@@ -69,11 +73,10 @@ public final class Limits {
     public Verdict checkScript(String s) {
         if (s == null || s.isBlank()) return Verdict.refuse("script is empty");
         if (s.length() > MAX_SCRIPT_CHARS) return Verdict.refuse("script is longer than " + MAX_SCRIPT_CHARS + " characters");
-        // The 2000 parser ignores anything it does not recognise, so unknown characters would pass silently.
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (!"xyzstgocrfvbOC0123456789+-,; \r\n".contains(String.valueOf(c)))
-                return Verdict.refuse("script: unrecognised character '" + printable(c) + "' at " + (i + 1));
+        // PathScript ignores what it does not recognise, so check every term against the forms it accepts.
+        for (String term : TERM_SPLIT.split(s)) {
+            if (!term.isEmpty() && !TERM.matcher(term).matches())
+                return Verdict.refuse("script: unrecognised term '" + printable(term) + "'");
         }
         List<RobotPose> path;
         try {
@@ -86,8 +89,9 @@ public final class Limits {
         return Verdict.ok(s);
     }
 
-    private static String printable(char c) {
-        return Character.isISOControl(c) ? "?" : String.valueOf(c);
+    private static String printable(String t) {
+        String c = t.length() > 20 ? t.substring(0, 20) + "..." : t;
+        return c.replaceAll("\\p{Cntrl}", "?");
     }
 
     public Verdict checkChat(String s) {

@@ -47,6 +47,17 @@ class IdleTest {
     }
 
     @Test
+    void reopeningAnIdKeepsTheOriginalOpenTime() {
+        idle.opened("a");
+        now = 119 * MIN;
+        idle.touch("a");
+        idle.opened("a");
+        now = 120 * MIN;
+        assertEquals(List.of("a"), idle.expired());
+        assertEquals(1, idle.sessions());
+    }
+
+    @Test
     void touchOfUnknownSessionIsIgnored() {
         idle.touch("ghost");
         assertEquals(0, idle.sessions());
