@@ -71,7 +71,7 @@ public class VirtualLab
         Thread.sleep(3000);
       }
     }
-    System.out.println("VirtualLab: cameras " + defaultCameras().size() + " publishing via " + momURL);
+    System.out.println("VirtualLab: cameras " + defaultCameras().size() + " publishing via " + au.edu.uwa.mech.util.MomUrls.masked(momURL));
     server.runUntilShutdown();
   }
 
