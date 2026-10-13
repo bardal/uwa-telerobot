@@ -2,6 +2,7 @@ package au.edu.uwa.mech.web;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.function.LongSupplier;
@@ -24,8 +25,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The gateway's only network endpoint: {@code /healthz}, the {@code /ws} WebSocket and, in dev mode,
- * the static UI, {@code /api/status} and the public archive.
+ * The gateway's only network endpoint: {@code /healthz}, the {@code /ws} WebSocket and, in dev mode
+ * only, the static UI, stand-ins for the Lambda's {@code /api/status} and {@code /api/wake}, the
+ * public archive and {@code POST /dev/flush}. Without {@code --dev} each of those answers 404.
  */
 public final class GatewayServer {
     private static final Logger LOG = LoggerFactory.getLogger(GatewayServer.class);
@@ -53,6 +55,9 @@ public final class GatewayServer {
             return t;
         });
     private volatile Supplier<String> labState = () -> "ready";
+    private volatile Runnable devFlush = () -> { };
+    /** Where the dev fakeStatus sequence is: 0 stopped, 1 starting, 2 running. */
+    private final java.util.concurrent.atomic.AtomicInteger fakeStep = new java.util.concurrent.atomic.AtomicInteger();
 
     public GatewayServer(GatewayConfig config, SessionHandler handler, LongSupplier clockMillis) {
         this(config, handler, clockMillis, Timing.DEFAULT);
@@ -83,15 +88,43 @@ public final class GatewayServer {
         contexts.addHandler(ws);
 
         if (config.dev()) {
+            // dev-only routes: without --dev none of these exist, so each answers 404
             contexts.addHandler(context(new StatusHandler(), "/api/status"));
+            contexts.addHandler(context(new WakeHandler(), "/api/wake"));
+            contexts.addHandler(context(new FlushHandler(), "/dev/flush"));
             if (config.archiveDir() != null) {
-                contexts.addHandler(staticContext("/archive/public", config.archiveDir()));
+                // only the public half of the archive; private/ (the audit log) is never served
+                Path pub;
+                try {
+                    pub = realDir(Files.createDirectories(Path.of(config.archiveDir(), "public")));
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+                contexts.addHandler(staticContext("/archive/public", pub, null));
             }
             if (config.staticDir() != null) {
-                contexts.addHandler(staticContext("/", config.staticDir()));
+                Path ui = Path.of(config.staticDir());
+                if (Files.isDirectory(ui)) {
+                    ui = realDir(ui);
+                    contexts.addHandler(staticContext("/", ui, DevStatic.csp(ui)));
+                } else {
+                    LOG.warn("static directory {} does not exist; the UI is not served", ui.toAbsolutePath());
+                }
             }
         }
         server.setHandler(contexts);
+    }
+
+    /**
+     * The real path of a directory. Jetty serves nothing from a base that is an alias (a relative
+     * path, a junction, a differently cased or 8.3 Windows path): it only warns and answers 404.
+     */
+    private static Path realDir(Path dir) {
+        try {
+            return dir.toRealPath();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     private static ContextHandler context(Handler handler, String path) {
@@ -100,12 +133,12 @@ public final class GatewayServer {
         return c;
     }
 
-    private ContextHandler staticContext(String contextPath, String dir) {
+    private ContextHandler staticContext(String contextPath, Path dir, String csp) {
         ResourceHandler resources = new ResourceHandler();
-        resources.setBaseResource(ResourceFactory.of(server).newResource(Path.of(dir)));
+        resources.setBaseResource(ResourceFactory.of(server).newResource(dir));
         resources.setDirAllowed(false);
         resources.setWelcomeFiles(java.util.List.of("index.html"));
-        return context(resources, contextPath);
+        return context(new DevStatic(resources, csp), contextPath);
     }
 
     public void start() throws Exception {
@@ -142,6 +175,11 @@ public final class GatewayServer {
     /** Lets the lab bridge (Task 5) report its state in /healthz. */
     public void setLabState(Supplier<String> labState) {
         this.labState = labState;
+    }
+
+    /** What dev mode's {@code POST /dev/flush} runs (Main: the archive flush). */
+    public void setDevFlush(Runnable flush) {
+        this.devFlush = flush;
     }
 
     Admission admission() {
@@ -371,16 +409,107 @@ public final class GatewayServer {
         }
     }
 
-    private static final class StatusHandler extends Handler.Abstract {
+    /**
+     * Dev stand-in for the Lambda's {@code GET /api/status}: always running, except that
+     * {@code ?fakeStatus=stopped} walks stopped, starting, running (then round again) per process, so
+     * the waking page can be exercised.
+     */
+    private final class StatusHandler extends Handler.Abstract {
         @Override
         public boolean handle(Request request, Response response, Callback callback) {
-            writeJson(response, callback, "{\"state\":\"running\",\"healthy\":true}");
+            if (!"GET".equals(request.getMethod()) && !"HEAD".equals(request.getMethod())) {
+                Response.writeError(request, response, callback, 405);
+                return true;
+            }
+            String query = request.getHttpURI().getQuery();
+            boolean fake = query != null && java.util.Arrays.asList(query.split("&")).contains("fakeStatus=stopped");
+            int step = fake ? fakeStep.getAndUpdate(n -> (n + 1) % 3) : 2;
+            String body = switch (step) {
+                case 0 -> "{\"state\":\"stopped\",\"healthy\":false,\"commit\":null}";
+                case 1 -> "{\"state\":\"starting\",\"healthy\":false,\"commit\":null}";
+                default -> "{\"state\":\"running\",\"healthy\":true,\"commit\":" + quote(config.commit()) + "}";
+            };
+            writeJson(response, callback, body);
             return true;
         }
     }
 
+    /** Dev stand-in for the Lambda's {@code POST /api/wake}: accepted (the lab is already here). */
+    private static final class WakeHandler extends Handler.Abstract {
+        @Override
+        public boolean handle(Request request, Response response, Callback callback) {
+            if (!"POST".equals(request.getMethod())) {
+                Response.writeError(request, response, callback, 405);
+                return true;
+            }
+            writeJson(response, callback, 202, "{\"state\":\"starting\"}");
+            return true;
+        }
+    }
+
+    /** Dev only: {@code POST /dev/flush} writes the archive's day indexes now; 204. */
+    private final class FlushHandler extends Handler.Abstract {
+        @Override
+        public boolean handle(Request request, Response response, Callback callback) {
+            if (!"POST".equals(request.getMethod())) {
+                Response.writeError(request, response, callback, 405);
+                return true;
+            }
+            devFlush.run();
+            response.setStatus(204);
+            response.getHeaders().put(HttpHeader.CACHE_CONTROL, "no-store");
+            response.write(true, null, callback);
+            return true;
+        }
+    }
+
+    /**
+     * Dev static files: {@code X-Content-Type-Options: nosniff} on everything, the CSP from
+     * {@code csp.json} when there is one (the policy CloudFront sets in production), and
+     * {@code Cache-Control: no-cache} on {@code index.html} so a rebuilt UI is picked up.
+     */
+    static final class DevStatic extends Handler.Wrapper {
+        private final String csp;
+
+        DevStatic(Handler resources, String csp) {
+            super(resources);
+            this.csp = csp;
+        }
+
+        /** The policy in {@code dir/csp.json} ({@code {"csp":"..."}}), or null when there is no such file. */
+        static String csp(Path dir) {
+            Path f = dir.resolve("csp.json");
+            if (!Files.isRegularFile(f)) return null;
+            try {
+                com.fasterxml.jackson.databind.JsonNode j = Protocol.mapper().readTree(Files.readString(f));
+                com.fasterxml.jackson.databind.JsonNode p = j == null ? null : j.get("csp");
+                if (p == null || !p.isTextual() || p.asText().isBlank() || p.asText().matches("(?s).*[\\r\\n].*")) {
+                    throw new IllegalArgumentException(f + " must be {\"csp\":\"<one-line policy>\"}");
+                }
+                return p.asText();
+            } catch (java.io.IOException e) {
+                throw new IllegalArgumentException("cannot read " + f + ": " + e.getMessage(), e);
+            }
+        }
+
+        @Override
+        public boolean handle(Request request, Response response, Callback callback) throws Exception {
+            response.getHeaders().put("X-Content-Type-Options", "nosniff");
+            if (csp != null) response.getHeaders().put("Content-Security-Policy", csp);
+            String path = Request.getPathInContext(request);
+            if (path.isEmpty() || path.endsWith("/") || path.endsWith("/index.html")) {
+                response.getHeaders().put(HttpHeader.CACHE_CONTROL, "no-cache");
+            }
+            return super.handle(request, response, callback);
+        }
+    }
+
     private static void writeJson(Response response, Callback callback, String body) {
-        response.setStatus(200);
+        writeJson(response, callback, 200, body);
+    }
+
+    private static void writeJson(Response response, Callback callback, int status, String body) {
+        response.setStatus(status);
         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
         response.getHeaders().put(HttpHeader.CACHE_CONTROL, "no-store");
         response.write(true, ByteBuffer.wrap(body.getBytes(StandardCharsets.UTF_8)), callback);

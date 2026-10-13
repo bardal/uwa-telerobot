@@ -77,6 +77,11 @@ class GatewayConfigTest {
         assertThrows(IllegalArgumentException.class, () -> GatewayConfig.parse(new String[] {"--nope"}, Map.of()));
         assertThrows(IllegalArgumentException.class, () -> GatewayConfig.parse(new String[] {"--port"}, Map.of()));
         assertThrows(IllegalArgumentException.class, () -> GatewayConfig.parse(new String[] {"--port", "x"}, Map.of()));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> GatewayConfig.parse(new String[] {"--lab-in-process"}, Map.of()));
+        assertTrue(e.getMessage().contains("--dev"), e.getMessage());
+        assertTrue(GatewayConfig.parse(new String[] {"--dev", "--lab-in-process"}, Map.of()).labInProcess());
+        assertFalse(GatewayConfig.parse(new String[] {"--dev"}, Map.of()).labInProcess());
     }
 
     @Test
@@ -84,7 +89,8 @@ class GatewayConfigTest {
         Path ui = Files.createDirectories(tmp.resolve("ui"));
         Files.writeString(ui.resolve("index.html"), "<h1>hi</h1>");
         Path arch = Files.createDirectories(tmp.resolve("arch"));
-        Files.writeString(arch.resolve("a.txt"), "archived");
+        Files.createDirectories(arch.resolve("public"));
+        Files.writeString(arch.resolve("public/a.txt"), "archived");
 
         GatewayConfig dev = GatewayConfig.parse(new String[] {"--port", "0", "--dev", "--static-dir", ui.toString(),
             "--archive-dir", arch.toString()}, Map.of());
@@ -94,7 +100,7 @@ class GatewayConfigTest {
             assertEquals("<h1>hi</h1>", get(s, "/").body());
             assertEquals("<h1>hi</h1>", get(s, "/index.html").body());
             assertEquals("archived", get(s, "/archive/public/a.txt").body());
-            assertEquals("{\"state\":\"running\",\"healthy\":true}", get(s, "/api/status").body());
+            assertEquals("{\"state\":\"running\",\"healthy\":true,\"commit\":\"dev\"}", get(s, "/api/status").body());
             assertNotEquals(200, get(s, "/archive/public/../../ui/index.html").statusCode());
         } finally {
             s.stop();

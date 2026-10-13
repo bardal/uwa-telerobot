@@ -1,8 +1,8 @@
-package au.edu.uwa.mech.web;
+package au.edu.uwa.mech.web.cloud;
 
 import java.util.Optional;
 
-/** Named string parameters that outlive the process (SSM Parameter Store on AWS, Task 7). */
+/** Named string parameters that outlive the process: SSM Parameter Store on AWS, memory in dev. */
 public interface ParamStore {
     Optional<String> get(String name);
 

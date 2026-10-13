@@ -8,11 +8,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import au.edu.uwa.mech.sim.Block;
+import au.edu.uwa.mech.web.archive.Archive;
+import au.edu.uwa.mech.web.archive.FileArchiveStore;
+import au.edu.uwa.mech.web.archive.Keys;
+import au.edu.uwa.mech.web.cloud.MemoryParamStore;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -31,6 +39,8 @@ class BridgeIT {
 
     static LabFixture lab;
     static SessionRegistry registry;
+    static Path archiveDir;
+    static Archive archive;
 
     @BeforeAll
     static void startLab() throws Exception {
@@ -39,8 +49,10 @@ class BridgeIT {
             List.of("http://localhost"), null, true, null, null, null, List.of(), null, lab.gatewayPins(), null,
             false, "test", null, null, null);
         Auth auth = new Auth(cfg, (token, ip) -> true, null);
+        archiveDir = Files.createTempDirectory("telerobot-archive");
+        archive = new Archive(new FileArchiveStore(archiveDir), System::currentTimeMillis, 5L << 30);
         registry = new SessionRegistry(cfg, auth, new Bans(new MemoryParamStore()),
-            new Idle(System::currentTimeMillis, () -> {}), System::currentTimeMillis);
+            new Idle(System::currentTimeMillis, () -> {}), System::currentTimeMillis, archive);
     }
 
     @AfterAll
@@ -112,6 +124,46 @@ class BridgeIT {
         assertEquals("hi", chat.text());
         assertTrue(chat.time() > 0 && !chat.id().isEmpty());
 
+        // 6b. the archive: after the pick-and-place and a flush, the move with 6 JPEGs, and chat "hi"
+        Out.Archived moved = a.await(Out.Archived.class, x -> x.kind().equals("move"), 15_000);
+        archive.flush();
+        String moveId = moved.id();
+        List<Path> moveImages = files("public/moves").stream()
+            .filter(p -> p.getFileName().toString().startsWith(moveId + "-")).toList();
+        assertEquals(6, moveImages.size(), "before and after for 3 cameras: " + moveImages);
+        for (Path p : moveImages) {
+            byte[] jpg = Files.readAllBytes(p);
+            assertArrayEquals(new byte[] {(byte) 0xFF, (byte) 0xD8}, new byte[] {jpg[0], jpg[1]}, p.toString());
+        }
+        JsonNode day = dayIndex(moveId);
+        JsonNode move = entry(day, "move", moveId);
+        assertEquals("done", move.get("result").asText());
+        assertEquals(PICK_AND_PLACE, move.get("script").asText());
+        assertEquals("ann", move.get("nick").asText());
+        assertEquals(330, move.get("poseAfter").get("x").asDouble(), 1.5);
+        for (String cam : List.of("colour", "ycam", "zcam")) {
+            JsonNode f = move.get("frames").get(cam);
+            assertNotNull(f, cam + " in " + move);
+            assertTrue(f.get("before").asText().endsWith("-before.jpg") && f.get("after").asText().endsWith("-after.jpg"));
+            assertEquals(12, f.get("calibration").size());
+        }
+        boolean hi = false;
+        for (JsonNode e : day.get("entries")) {
+            hi |= e.get("kind").asText().equals("chat") && e.get("text").asText().equals("hi")
+                && e.get("nick").asText().equals("ann~2");
+        }
+        assertTrue(hi, "chat hi in " + day);
+        assertTrue(Files.readString(archiveDir.resolve(Keys.DAYS)).contains(Keys.day(Keys.idTime(moveId))));
+
+        // 6c. Archive Images: a snapshot of 3 images, announced with archived
+        b.in(new In.ArchiveImages());
+        Out.Archived snap = b.await(Out.Archived.class, x -> x.kind().equals("snapshot"), 10_000);
+        assertTrue(snap.url().startsWith("/archive/public/"), snap.url());
+        archive.flush();
+        assertEquals(3, files("public/snapshots").stream()
+            .filter(p -> p.getFileName().toString().startsWith(snap.id() + "-")).count());
+        assertNotNull(entry(dayIndex(snap.id()), "snapshot", snap.id()));
+
         // 7. registered C takes control from guest ann at once
         FakeConnection c = connect(new In.Hello("C", null, null, new In.Dev("c-sub", List.of())));
         assertEquals("registered", c.await(Out.Welcome.class, w -> true, 20_000).level());
@@ -151,6 +203,17 @@ class BridgeIT {
             if (System.currentTimeMillis() > until) fail("red not back at (120,150): " + red.getX() + "," + red.getY());
             Thread.sleep(50);
         }
+
+        // 9b. an admin deletes the snapshot: its images and its index entry go
+        int beforeDelete = d.size();
+        d.in(new In.Admin("deleteSnapshot", null, snap.id()));
+        d.awaitFrom(beforeDelete, Out.Console.class, x -> x.text().contains(snap.id()), 10_000);
+        assertEquals(0, files("public/snapshots").stream()
+            .filter(p -> p.getFileName().toString().startsWith(snap.id() + "-")).count());
+        assertEquals(null, entry(dayIndex(snap.id()), "snapshot", snap.id()));
+        int beforeMissing = d.size();
+        d.in(new In.Admin("deleteMove", null, "1760000000000-zzzz"));
+        d.awaitFrom(beforeMissing, Out.Error.class, x -> true, 5_000);
 
         // 10. the robot's own error text comes back in commandStatus
         int beforeBad = a.size();
@@ -218,6 +281,28 @@ class BridgeIT {
     }
 
     // ---- helpers -------------------------------------------------------------------------------
+
+    /** Every file under the archive's {@code prefix} directory. */
+    static List<Path> files(String prefix) throws Exception {
+        Path root = archiveDir.resolve(prefix);
+        if (!Files.isDirectory(root)) return List.of();
+        try (Stream<Path> s = Files.walk(root)) {
+            return s.filter(Files::isRegularFile).toList();
+        }
+    }
+
+    /** The stored day index holding the entry with this id. */
+    static JsonNode dayIndex(String id) throws Exception {
+        Path p = archiveDir.resolve(Keys.dayIndex(Keys.day(Keys.idTime(id))));
+        return Protocol.mapper().readTree(Files.readString(p));
+    }
+
+    static JsonNode entry(JsonNode day, String kind, String id) {
+        for (JsonNode e : day.get("entries")) {
+            if (e.get("kind").asText().equals(kind) && e.get("id").asText().equals(id)) return e;
+        }
+        return null;
+    }
 
     static In.Hello guest(String nick) {
         return new In.Hello(nick, "turnstile-ok", null, null);

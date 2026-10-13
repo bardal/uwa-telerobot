@@ -3,12 +3,19 @@ package au.edu.uwa.mech.web;
 import au.edu.uwa.mech.devices.camera.ImageData;
 import au.edu.uwa.mech.devices.robot.RobotState;
 import au.edu.uwa.mech.maths.Pose3d;
+import au.edu.uwa.mech.web.archive.Archive;
+import au.edu.uwa.mech.web.archive.Keys;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
@@ -32,6 +39,9 @@ public final class Session implements MomBridge.Listener {
     /** Tasks waiting on the serial queue before the session is considered stuck and closed. */
     static final int MAX_PENDING_TASKS = 200;
     private static final double MAX_COORDINATE = 10_000;
+    /** After a move: how long to wait for the arm to report it has stopped, then for fresh frames. */
+    static final long SETTLE_MILLIS = 30_000;
+    static final long AFTER_FRAMES_MILLIS = 3_000;
 
     private final SessionRegistry registry;
     private final ClientConnection conn;
@@ -51,6 +61,8 @@ public final class Session implements MomBridge.Listener {
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicInteger pendingPoints = new AtomicInteger();
     private final AtomicBoolean fetchingSettings = new AtomicBoolean();
+    /** Moves being archived, by command id: the archive move id, once startMove has run. */
+    private final Map<String, CompletableFuture<String>> moves = new ConcurrentHashMap<>();
 
     Session(SessionRegistry registry, ClientConnection conn, In.Hello hello, String id) {
         this.registry = registry;
@@ -198,10 +210,15 @@ public final class Session implements MomBridge.Listener {
      * the browser, stop acting on it, and start the shutdown now rather than when the socket ends.
      */
     void close(String code, String message, int wsCode) {
-        if (!closed) outbox.sendNow(new Out.Error(code, message));
+        end(new Out.Error(code, message), wsCode, code);
+    }
+
+    /** As {@link #close}, telling the browser {@code notice} (if not null) first. */
+    void end(Out notice, int wsCode, String reason) {
+        if (!closed && notice != null) outbox.sendNow(notice);
         closed = true;
         outbox.close();
-        conn.close(wsCode, code);
+        conn.close(wsCode, reason);
         beginShutdown();
     }
 
@@ -255,7 +272,7 @@ public final class Session implements MomBridge.Listener {
             case In.NewImage n -> knownCamera(b, n.camera()) && run(() -> b.newImage(n.camera()));
             case In.WorkspaceAdd w -> workspaceAdd(b, w);
             case In.WorkspaceDelete w -> workspaceDelete(b, w);
-            case In.ArchiveImages a -> true; // Task 6
+            case In.ArchiveImages a -> archiveImages(b);
             case In.Activity a -> allow("activity");
             case In.Admin a -> admin(a);
             case In.Hello h -> reject("bad-message", "second hello");
@@ -292,7 +309,10 @@ public final class Session implements MomBridge.Listener {
         if (!allow("chat")) return false;
         Limits.Verdict v = limits.checkChat(c.text());
         if (!v.ok()) return reject("bad-message", v.reason());
-        return run(() -> b.chat(v.text()));
+        return run(() -> {
+            b.chat(v.text());
+            archiveChat(v.text());
+        });
     }
 
     private boolean selectCamera(MomBridge b, In.SelectCamera s) {
@@ -426,7 +446,11 @@ public final class Session implements MomBridge.Listener {
 
     @Override
     public void commandStatus(String id, String state, String script, String text) {
-        if (state.equals("done") || state.equals("error")) commandDone();
+        if (state.equals("sent")) moveStarted(id, script);
+        if (state.equals("done") || state.equals("error")) {
+            commandDone();
+            moveFinished(id, state);
+        }
         outbox.emit(new Out.CommandStatus(id, state, script, text));
     }
 
@@ -465,6 +489,108 @@ public final class Session implements MomBridge.Listener {
     @Override
     public void lost() {
         close("lab-unavailable", "lost the connection to the lab", 1011);
+    }
+
+    // ---- archive -------------------------------------------------------------------------------
+
+    /** Where the browser finds an archived entry: the public index of its day. */
+    static String archiveUrl(String archiveId) {
+        return "/archive/" + Keys.dayIndex(Keys.day(Keys.idTime(archiveId)));
+    }
+
+    private boolean archiveImages(MomBridge b) {
+        Archive archive = registry.archive();
+        if (archive == null) return reject("lab-unavailable", "the archive is not available");
+        if (!allow("snapshot")) return false;
+        return run(() -> {
+            Optional<String> id = archive.snapshot(nick, identity, b.lastFrames(), b.lastState());
+            if (id.isPresent()) {
+                outbox.emit(new Out.Archived("snapshot", id.get(), archiveUrl(id.get())));
+            } else {
+                outbox.sendNow(new Out.Error("rate-limited", "not archived: at most 10 snapshots an hour, or the archive is full"));
+            }
+        });
+    }
+
+    /** On this session's queue, after the chat went to MOM: the sender's session archives it, once. */
+    private void archiveChat(String text) {
+        Archive archive = registry.archive();
+        if (archive == null) return;
+        try {
+            archive.chat(nick, identity, text);
+        } catch (RuntimeException e) {
+            LOG.warn("archiving chat failed", e);
+        }
+    }
+
+    /** A command of ours reached the robot: record it with the latest frames and the pose before it. */
+    private void moveStarted(String commandId, String script) {
+        Archive archive = registry.archive();
+        MomBridge b = bridge;
+        Identity who = identity;
+        String by = nick;
+        if (archive == null || b == null || who == null) return;
+        Map<String, ImageData> frames = b.lastFrames();
+        RobotState before = b.lastState();
+        try {
+            moves.put(commandId, CompletableFuture.supplyAsync(
+                () -> archive.startMove(by, who.level(), who, script, frames, before), registry.executor()));
+        } catch (RejectedExecutionException stopping) {
+            // the gateway is shutting down
+        }
+    }
+
+    /** The command ended (done or error): off the MOM thread, wait for the arm and fresh frames, then record. */
+    private void moveFinished(String commandId, String result) {
+        CompletableFuture<String> started = moves.remove(commandId);
+        if (started == null) return; // never reached the robot, or nothing is archived
+        try {
+            registry.executor().execute(() -> finishMove(started, result));
+        } catch (RejectedExecutionException stopping) {
+            // the gateway is shutting down; the move stays "pending" in the index
+        }
+    }
+
+    private void finishMove(CompletableFuture<String> started, String result) {
+        String moveId;
+        try {
+            moveId = started.get();
+        } catch (ExecutionException e) {
+            LOG.warn("archiving a move failed", e.getCause());
+            return;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        MomBridge b = bridge;
+        try {
+            long settle = System.nanoTime() + SETTLE_MILLIS * 1_000_000;
+            while (!closed && System.nanoTime() < settle) {
+                RobotState s = b.lastState();
+                if (s == null || !s.moving()) break;
+                Thread.sleep(50);
+            }
+            if (!closed) {
+                // a fresh photo from every camera, as the arm now stands
+                Map<String, ImageData> old = b.lastFrames();
+                List<String> cameras = b.cameraNames();
+                for (String camera : cameras) serial.execute(() -> b.newImage(camera));
+                long frames = System.nanoTime() + AFTER_FRAMES_MILLIS * 1_000_000;
+                while (!closed && System.nanoTime() < frames && !allFresh(old, b.lastFrames(), cameras)) Thread.sleep(50);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        registry.archive().finishMove(moveId, result, b.lastState(), b.lastFrames());
+        outbox.emit(new Out.Archived("move", moveId, archiveUrl(moveId)));
+    }
+
+    private static boolean allFresh(Map<String, ImageData> old, Map<String, ImageData> now, List<String> cameras) {
+        for (String c : cameras) {
+            ImageData n = now.get(c);
+            if (n == null || n == old.get(c)) return false;
+        }
+        return true;
     }
 
     // ---- serial queue --------------------------------------------------------------------------

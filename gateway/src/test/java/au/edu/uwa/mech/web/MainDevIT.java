@@ -1,0 +1,164 @@
+package au.edu.uwa.mech.web;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import org.eclipse.jetty.websocket.api.Callback;
+import org.eclipse.jetty.websocket.client.ClientUpgradeRequest;
+import org.eclipse.jetty.websocket.client.WebSocketClient;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/** The whole gateway as Main wires it, against the in-process lab: dev mode, then production mode. */
+@Tag("it")
+class MainDevIT {
+    static final String ORIGIN = "http://localhost";
+    static final String DEV_HELLO = "{\"t\":\"hello\",\"nick\":\"tess\",\"dev\":{\"sub\":\"t\",\"groups\":[]}}";
+    static final HttpClient HTTP = HttpClient.newHttpClient();
+
+    static LabFixture lab;
+    static WebSocketClient ws;
+
+    @TempDir Path tmp;
+
+    @BeforeAll
+    static void start() throws Exception {
+        lab = LabFixture.shared();
+        ws = new WebSocketClient();
+        ws.start();
+    }
+
+    @AfterAll
+    static void stop() throws Exception {
+        if (ws != null) ws.stop();
+    }
+
+    List<String> labArgs(String... more) {
+        List<String> a = new ArrayList<>(List.of("--port", "0", "--mom-port", Integer.toString(lab.momPort()),
+            "--lab-admin-port", Integer.toString(lab.adminPort()), "--allowed-origin", ORIGIN,
+            "--pin-registered", lab.gatewayPins().get(GatewayConfig.PIN_REGISTERED),
+            "--pin-admin", lab.gatewayPins().get(GatewayConfig.PIN_ADMIN)));
+        a.addAll(List.of(more));
+        return a;
+    }
+
+    @Test
+    void devModeWelcomesADevIdentityAndProductionRefusesIt() throws Exception {
+        Path archive = tmp.resolve("archive");
+        Main.Running dev = Main.start(labArgs("--dev", "--archive-dir", archive.toString()).toArray(String[]::new),
+            Map.of());
+        try {
+            JsonNode health = json(get(dev.port(), "/healthz"));
+            assertTrue(health.get("ok").asBoolean(), health.toString());
+            assertEquals("running", json(get(dev.port(), "/api/status")).get("state").asText());
+
+            JsonNode welcome = hello(dev.port(), null, "welcome");
+            assertEquals("registered", welcome.get("level").asText(), welcome.toString());
+            assertEquals(List.of("Colour", "YCam", "ZCam"),
+                List.of(welcome.get("cameras").get(0).asText(), welcome.get("cameras").get(1).asText(),
+                    welcome.get("cameras").get(2).asText()));
+
+            assertEquals(204, post(dev.port(), "/dev/flush").statusCode());
+            assertTrue(Files.isDirectory(archive.resolve("public")), "the dev archive lives in --archive-dir");
+        } finally {
+            dev.close();
+        }
+
+        Main.Running prod = Main.start(labArgs("--origin-secret", "s3cret", "--turnstile-secret", "test-secret",
+            "--no-self-stop").toArray(String[]::new), Map.of());
+        try {
+            assertEquals(200, get(prod.port(), "/healthz").statusCode());
+            JsonNode error = hello(prod.port(), "s3cret", "error");
+            assertEquals("unauthorised", error.get("code").asText(), error.toString());
+            assertEquals(404, get(prod.port(), "/api/status").statusCode());
+            assertEquals(404, post(prod.port(), "/dev/flush").statusCode());
+        } finally {
+            prod.close();
+        }
+    }
+
+    @Test
+    void labInProcessNeedsNoOtherSettings() throws Exception {
+        Path ui = Files.createDirectories(tmp.resolve("ui"));
+        Files.writeString(ui.resolve("index.html"), "<h1>telerobot</h1>");
+        Files.writeString(ui.resolve("csp.json"), "{\"csp\":\"default-src 'self'\"}");
+        // the JVM already has a lab (LabFixture): --lab-in-process uses it rather than a second one
+        Main.Running dev = Main.start(new String[] {"--dev", "--lab-in-process", "--port", "0", "--static-dir",
+            ui.toString(), "--archive-dir", tmp.resolve("archive").toString()}, Map.of());
+        try {
+            HttpResponse<String> index = get(dev.port(), "/");
+            assertEquals("<h1>telerobot</h1>", index.body());
+            assertEquals("default-src 'self'", index.headers().firstValue("Content-Security-Policy").orElse(null));
+            assertEquals(200, get(dev.port(), "/healthz").statusCode());
+            // no --allowed-origin: the page's own origin is allowed
+            JsonNode welcome = hello(dev.port(), null, "welcome", "http://localhost:" + dev.port());
+            assertEquals("registered", welcome.get("level").asText(), "the lab's own PINs reach the gateway");
+        } finally {
+            dev.close();
+        }
+    }
+
+    // ---- helpers -------------------------------------------------------------------------------
+
+    JsonNode hello(int port, String secret, String wanted) throws Exception {
+        return hello(port, secret, wanted, ORIGIN);
+    }
+
+    /** Says the dev hello and returns the first message of type {@code wanted}. */
+    JsonNode hello(int port, String secret, String wanted, String origin) throws Exception {
+        GatewayServerTest.Recorder r = new GatewayServerTest.Recorder();
+        ClientUpgradeRequest req = new ClientUpgradeRequest();
+        req.setHeader("Origin", origin);
+        if (secret != null) req.setHeader("X-Telerobot-Origin", secret);
+        ws.connect(r, URI.create("ws://127.0.0.1:" + port + "/ws"), req).get(5, TimeUnit.SECONDS);
+        r.session.sendText(DEV_HELLO, Callback.NOOP);
+        long end = System.currentTimeMillis() + 20_000;
+        List<String> seen = new ArrayList<>();
+        try {
+            while (System.currentTimeMillis() < end) {
+                String m = r.texts.poll(500, TimeUnit.MILLISECONDS);
+                if (m == null) continue;
+                seen.add(m);
+                JsonNode j = Protocol.mapper().readTree(m);
+                if (j.get("t").asText().equals(wanted)) return j;
+            }
+        } finally {
+            if (r.session.isOpen()) r.session.close();
+        }
+        fail("no " + wanted + "; got " + seen);
+        return null;
+    }
+
+    static HttpResponse<String> get(int port, String path) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).build(),
+            HttpResponse.BodyHandlers.ofString());
+    }
+
+    static HttpResponse<String> post(int port, String path) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+            .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    static JsonNode json(HttpResponse<String> r) throws Exception {
+        assertEquals(200, r.statusCode(), r.body());
+        JsonNode j = Protocol.mapper().readTree(r.body());
+        assertNotNull(j);
+        return j;
+    }
+}

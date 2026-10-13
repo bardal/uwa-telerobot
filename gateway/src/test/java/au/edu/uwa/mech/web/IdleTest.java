@@ -124,6 +124,43 @@ class IdleTest {
     }
 
     @Test
+    void endedAtIsZeroUntilASessionHasEnded() {
+        now = 5000;
+        idle.opened("a");
+        assertEquals(0, idle.endedAt(), "the heartbeat's lastSessionEnd is 0 before any session ended");
+        now = 6000;
+        idle.closed("a");
+        assertEquals(6000, idle.endedAt());
+    }
+
+    @Test
+    void expiryReasonsTellIdleFromTooOld() {
+        now = 100 * MIN;
+        idle.opened("old");
+        for (long t = 105 * MIN; t <= 220 * MIN; t += 5 * MIN) {
+            now = t;
+            idle.touch("old");
+            if (t == 200 * MIN) idle.opened("idle"); // then never touched
+        }
+        assertEquals(java.util.Map.of("idle", Idle.IDLE_MESSAGE, "old", Idle.MAX_AGE_MESSAGE), idle.expiredWithReasons());
+        assertEquals("Closed after 10 minutes without input", Idle.IDLE_MESSAGE);
+    }
+
+    @Test
+    void aFailedStopIsTriedAgainOnTheNextTick() {
+        AtomicInteger attempts = new AtomicInteger();
+        Idle flaky = new Idle(() -> now, () -> {
+            if (attempts.incrementAndGet() == 1) throw new IllegalStateException("EC2 said no");
+        });
+        now = 15 * MIN;
+        assertThrows(IllegalStateException.class, flaky::tick);
+        flaky.tick();
+        assertEquals(2, attempts.get());
+        flaky.tick();
+        assertEquals(2, attempts.get(), "stopped once it worked");
+    }
+
+    @Test
     void noSessionEverStillStopsFifteenMinutesAfterStart() {
         now = 100 * MIN;
         Idle fresh = new Idle(() -> now, stops::incrementAndGet);
