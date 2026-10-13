@@ -69,6 +69,15 @@ describe("user data", () => {
     expect(mom).toContain("After=telerobot-fetch.service");
   });
 
+  it("makes run/logs, where MOM and RobotProxy open their logs at start, on every boot", () => {
+    // MOMServer opens logs/users.log and RobotProxy logs/RobotCommands.log
+    // relative to WorkingDirectory=run; without the directory both exit.
+    const fetchScript = script.slice(script.indexOf("cat > /usr/local/bin/telerobot-fetch"), script.indexOf("\nFETCH\n"));
+    expect(fetchScript).toContain("install -d -o telerobot -g telerobot -m 0750 /var/lib/telerobot/run /var/lib/telerobot/run/logs\n");
+    expect(unit("telerobot-mom")).toContain("WorkingDirectory=/var/lib/telerobot/run\n");
+    expect(unit("telerobot-proxy")).toContain("WorkingDirectory=/var/lib/telerobot/run\n");
+  });
+
   it("writes users.ini with the five accounts and drops team", () => {
     for (const [user, level] of [
       ["guest", "Guest"],

@@ -174,6 +174,8 @@ ALLOWED_ORIGIN=$allowed_origin
 COGNITO_CLIENT_IDS=$client_ids
 GATEWAY
 
+# MOMServer and RobotProxy open logs/*.log in their working directory at start.
+install -d -o telerobot -g telerobot -m 0750 ${HOME}/run ${HOME}/run/logs
 install -o root -g telerobot -m 0640 "$STAGE/config/MOM.xml" "$CFG/MOM.xml"
 install -o root -g telerobot -m 0640 "$STAGE/lab.xml" "$CFG/lab.xml"
 install -o root -g telerobot -m 0640 "$STAGE/RobotProxy.properties" "$CFG/RobotProxy.properties"
