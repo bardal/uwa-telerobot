@@ -135,7 +135,14 @@ public final class GatewayServer {
     }
 
     private ContextHandler staticContext(String contextPath, Path dir, String csp) {
-        ResourceHandler resources = new ResourceHandler();
+        ResourceHandler resources = new ResourceHandler() {
+            // Jetty's default factory caches content and revalidates it at most once a second, so a
+            // day index rewritten by a flush could be served stale. Dev serving is small: read it fresh.
+            @Override
+            protected org.eclipse.jetty.http.content.HttpContent.Factory newHttpContentFactory() {
+                return new org.eclipse.jetty.http.content.ResourceHttpContentFactory(getBaseResource(), getMimeTypes());
+            }
+        };
         resources.setBaseResource(ResourceFactory.of(server).newResource(dir));
         resources.setDirAllowed(false);
         resources.setWelcomeFiles(java.util.List.of("index.html"));

@@ -194,6 +194,23 @@ class DevRoutesTest {
         }
     }
 
+    /** After a flush the browser reads the new index at once (Jetty's content cache revalidates only once a second). */
+    @Test
+    void aRewrittenArchiveIndexIsServedAtOnce() throws Exception {
+        Path arch = archive();
+        GatewayServer s = server("--port", "0", "--dev", "--archive-dir", arch.toString());
+        try {
+            Path day = arch.resolve("public/index/2026-10-13.json");
+            for (int i = 0; i < 5; i++) {
+                String body = "{\"entries\":[" + "{},".repeat(i) + "{}]}";
+                Files.writeString(day, body);
+                assertEquals(body, get(s, "/archive/public/index/2026-10-13.json").body(), "rewrite " + i);
+            }
+        } finally {
+            s.stop();
+        }
+    }
+
     @Test
     void theArchiveServesPublicOnlyNeverPrivate() throws Exception {
         Path arch = archive();
