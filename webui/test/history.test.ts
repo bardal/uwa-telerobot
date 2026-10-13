@@ -53,6 +53,21 @@ describe('History page', () => {
     expect(page.list.textContent).toContain('hello there');
   });
 
+  it('thumbnails have a fixed 120x90 size before they load, so the list does not jump', async () => {
+    const { page } = make({ [DAYS]: () => json({ days: ['2026-10-13'] }), [DAY]: () => json(day) });
+    await page.load();
+    const thumbs = [...page.list.querySelectorAll('img')];
+    expect(thumbs).toHaveLength(9);
+    for (const img of thumbs) {
+      expect(img.getAttribute('width')).toBe('120');
+      expect(img.getAttribute('height')).toBe('90');
+      expect(img.classList.contains('history-thumb')).toBe(true);
+    }
+    (thumbs[0] as HTMLImageElement).click();
+    const full = page.el.querySelector('.history-viewer img')!;
+    expect(full.hasAttribute('width') || full.hasAttribute('height')).toBe(false); // the viewer is unchanged
+  });
+
   it('clicking a thumbnail shows it full size; clicking again closes', async () => {
     const { page } = make({ [DAYS]: () => json({ days: ['2026-10-13'] }), [DAY]: () => json(day) });
     await page.load();

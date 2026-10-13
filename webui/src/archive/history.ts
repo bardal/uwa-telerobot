@@ -12,6 +12,9 @@ const CAMERAS = ['colour', 'ycam', 'zcam'];
 export const NOTHING = 'Nothing archived on this day';
 export const DELETED = 'Deleted — the history updates within a minute';
 const FETCH_TIMEOUT_MS = 10000;
+/** Thumbnail size: the cameras' 400x300 at 120 wide. */
+export const THUMB_WIDTH = 120;
+export const THUMB_HEIGHT = 90;
 const MISSING = Symbol('missing');
 const FAILED = Symbol('failed');
 
@@ -173,7 +176,11 @@ export class HistoryPage {
       const url = imageUrl(key);
       if (!url) continue;
       const label = which ? `${cam} ${which}` : cam;
-      const img = h('img', { src: url, alt: label, title: label, loading: 'lazy', class: 'history-thumb' });
+      // a fixed 120x90 box (the cameras' 4:3), so the layout holds still while each JPEG loads
+      const img = h('img', {
+        src: url, alt: label, title: label, loading: 'lazy', class: 'history-thumb',
+        width: THUMB_WIDTH, height: THUMB_HEIGHT,
+      });
       img.addEventListener('click', () => this.openViewer(url, label));
       box.appendChild(img);
     }
