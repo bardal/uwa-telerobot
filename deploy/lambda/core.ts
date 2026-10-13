@@ -95,6 +95,31 @@ export async function status(deps: Deps): Promise<StatusResult> {
   return { state, healthy, commit: hb?.commit ?? null };
 }
 
+/** How long a warm container reuses a computed /api/status (spec). */
+export const STATUS_CACHE_MS = 2_000;
+
+/**
+ * /api/status memoised for STATUS_CACHE_MS on deps.now(), so a burst of
+ * polls (every waking page polls) costs one EC2 and one SSM call per 2 s per
+ * warm container instead of queueing at reserved concurrency 2. Failures are
+ * never cached; invalidate() after a wake so the next poll sees "starting".
+ */
+export function cachedStatus(ttlMs = STATUS_CACHE_MS) {
+  let cached: { at: number; value: StatusResult } | null = null;
+  return {
+    async get(deps: Deps): Promise<StatusResult> {
+      const now = deps.now();
+      if (cached && now >= cached.at && now - cached.at < ttlMs) return { ...cached.value };
+      const value = await status(deps);
+      cached = { at: now, value };
+      return { ...value };
+    },
+    invalidate(): void {
+      cached = null;
+    },
+  };
+}
+
 export function checkOrigin(
   deps: Pick<Deps, "originSecret">,
   headers: Record<string, string | undefined>,

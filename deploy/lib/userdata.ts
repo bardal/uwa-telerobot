@@ -64,17 +64,31 @@ const LOOPBACK_ONLY = "IPAddressDeny=any\nIPAddressAllow=localhost";
 function service(o: {
   name: string;
   description: string;
-  after: string;
+  /** Units this one needs started first (Requires= + After=). */
+  requires?: string[];
+  /**
+   * Units this one is bound to (BindsTo= + After=): when one of them restarts
+   * (Restart=on-failure, an OOM exit) this unit restarts with it, and when one
+   * stops for good this unit stops too, rather than keep dead MOM sessions.
+   */
+  bindsTo?: string[];
   /** Local ports that must be listening before this unit starts. */
   ports?: string;
   execStart: string;
   extra?: string;
 }): string {
+  const svc = (names: string[]) => names.map((n) => `${n}.service`).join(" ");
+  const bindsTo = o.bindsTo ?? [];
+  const requires = o.requires ?? [];
+  const lines = [
+    ...(bindsTo.length ? [`BindsTo=${svc(bindsTo)}`] : []),
+    ...(requires.length ? [`Requires=${svc(requires)}`] : []),
+    `After=${svc([...bindsTo, ...requires])}`,
+  ];
   return `cat > /etc/systemd/system/telerobot-${o.name}.service <<'UNIT'
 [Unit]
 Description=${o.description}
-Requires=${o.after}.service
-After=${o.after}.service
+${lines.join("\n")}
 StartLimitIntervalSec=0
 
 [Service]
@@ -285,14 +299,14 @@ UNIT
 ${service({
   name: "mom",
   description: "Telerobot MOM server",
-  after: "telerobot-fetch",
+  requires: ["telerobot-fetch"],
   extra: LOOPBACK_ONLY,
   execStart: `${java("128m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.mom.server.MOMServer ../config/MOM.xml`,
 })}
 ${service({
   name: "lab",
   description: "Telerobot VirtualLab (simulated robot and cameras)",
-  after: "telerobot-mom",
+  bindsTo: ["telerobot-mom"],
   ports: "4444",
   extra: LOOPBACK_ONLY,
   execStart: `${java("384m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.sim.VirtualLab ../config/lab.xml`,
@@ -300,7 +314,8 @@ ${service({
 ${service({
   name: "proxy",
   description: "Telerobot RobotProxy",
-  after: "telerobot-lab",
+  // MOM for its session, the lab for the robot server's ports
+  bindsTo: ["telerobot-mom", "telerobot-lab"],
   ports: "4444 30562 30563",
   extra: LOOPBACK_ONLY,
   execStart: `${java("96m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.devices.robot.Server ../config/RobotProxy.properties`,
@@ -308,7 +323,10 @@ ${service({
 ${service({
   name: "gateway",
   description: "Telerobot web gateway",
-  after: "telerobot-proxy",
+  // MOM for its sessions, the lab for the admin port; the proxy reconnects
+  // through MOM on its own, so it is only required, not bound.
+  bindsTo: ["telerobot-mom", "telerobot-lab"],
+  requires: ["telerobot-proxy"],
   ports: "4444 30564",
   // Needs AWS endpoints and IMDS, so no IPAddressDeny.
   extra: "EnvironmentFile=/etc/telerobot/telerobot.env\nEnvironmentFile=/etc/telerobot/gateway.env",

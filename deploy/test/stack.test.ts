@@ -196,6 +196,16 @@ describe("telerobot stack", () => {
     expect(all.some((s) => actions(s).includes("ssmmessages:OpenDataChannel"))).toBe(true);
   });
 
+  it("grants the instance no CloudWatch metric reads (the gateway never reads CloudWatch)", () => {
+    const lab = Object.entries(main.findResources("AWS::IAM::Policy"))
+      .filter(([id]) => id.startsWith("LabRole"))
+      .flatMap(([, p]) => p.Properties.PolicyDocument.Statement);
+    expect(lab.length).toBeGreaterThan(0);
+    for (const s of lab) {
+      for (const a of actions(s)) expect(a.startsWith("cloudwatch:"), a).toBe(false);
+    }
+  });
+
   it("uses standard CPU credits", () => {
     const [, lt] = only(main, "AWS::EC2::LaunchTemplate");
     expect(lt.LaunchTemplateData.CreditSpecification).toEqual({ CpuCredits: "standard" });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkOrigin, reap, status, wake, type Deps } from "./core";
+import { STATUS_CACHE_MS, cachedStatus, checkOrigin, reap, status, wake, type Deps } from "./core";
 
 const NOW = Date.UTC(2026, 9, 13, 12, 0, 0);
 const HOUR = 3_600_000;
@@ -83,6 +83,79 @@ describe("status", () => {
     const { deps, store } = makeDeps({ state: "running" });
     store["/telerobot/heartbeat"] = "not json";
     expect(await status(deps)).toEqual({ state: "running", healthy: false, commit: null });
+  });
+});
+
+describe("cachedStatus", () => {
+  // A fake clock: deps.now() reads `t`.
+  function clocked(state = "running") {
+    let t = NOW;
+    const made = makeDeps({ state });
+    const deps: Deps = { ...made.deps, now: () => t };
+    return { ...made, deps, advance: (ms: number) => (t += ms) };
+  }
+
+  it("serves the same status for 2 s without asking EC2 or SSM again", async () => {
+    const { deps, ec2, ssm, advance } = clocked();
+    const cache = cachedStatus();
+    const first = await cache.get(deps);
+    advance(1_000);
+    expect(await cache.get(deps)).toEqual(first);
+    advance(999);
+    expect(await cache.get(deps)).toEqual(first);
+    expect(ec2.describeState).toHaveBeenCalledTimes(1);
+    expect(ssm.get).toHaveBeenCalledTimes(1);
+  });
+
+  it("recomputes once 2 s have passed", async () => {
+    const { deps, ec2, advance } = clocked();
+    const cache = cachedStatus();
+    await cache.get(deps);
+    advance(2_000);
+    await cache.get(deps);
+    expect(ec2.describeState).toHaveBeenCalledTimes(2);
+  });
+
+  it("sees a state change after the 2 s", async () => {
+    const { deps, ec2, advance } = clocked("stopped");
+    const cache = cachedStatus();
+    expect((await cache.get(deps)).state).toBe("stopped");
+    ec2.describeState.mockResolvedValue({ state: "pending", launchTime: NOW });
+    advance(500);
+    expect((await cache.get(deps)).state).toBe("stopped");
+    advance(1_500);
+    expect((await cache.get(deps)).state).toBe("starting");
+  });
+
+  it("invalidate() forces the next call to recompute (after a wake)", async () => {
+    const { deps, ec2 } = clocked();
+    const cache = cachedStatus();
+    await cache.get(deps);
+    cache.invalidate();
+    await cache.get(deps);
+    expect(ec2.describeState).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a failure", async () => {
+    const { deps, ec2 } = clocked();
+    const cache = cachedStatus();
+    ec2.describeState.mockRejectedValueOnce(new Error("throttled"));
+    await expect(cache.get(deps)).rejects.toThrow("throttled");
+    expect((await cache.get(deps)).state).toBe("running");
+    expect(ec2.describeState).toHaveBeenCalledTimes(2);
+  });
+
+  it("recomputes if the clock goes backwards", async () => {
+    const { deps, ec2, advance } = clocked();
+    const cache = cachedStatus();
+    await cache.get(deps);
+    advance(-5_000);
+    await cache.get(deps);
+    expect(ec2.describeState).toHaveBeenCalledTimes(2);
+  });
+
+  it("defaults to the spec's 2 s", () => {
+    expect(STATUS_CACHE_MS).toBe(2_000);
   });
 });
 

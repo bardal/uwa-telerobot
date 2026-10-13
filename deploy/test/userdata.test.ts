@@ -133,9 +133,33 @@ describe("user data", () => {
   });
 
   it("orders the units mom -> lab -> proxy -> gateway", () => {
-    expect(unit("telerobot-lab")).toMatch(/Requires=telerobot-mom\.service\nAfter=telerobot-mom\.service/);
-    expect(unit("telerobot-proxy")).toMatch(/Requires=telerobot-lab\.service\nAfter=telerobot-lab\.service/);
-    expect(unit("telerobot-gateway")).toMatch(/Requires=telerobot-proxy\.service\nAfter=telerobot-proxy\.service/);
+    const after = (name: string) => unit(name).match(/^After=(.*)$/m)![1].split(" ");
+    expect(after("telerobot-mom")).toEqual(["telerobot-fetch.service"]);
+    expect(after("telerobot-lab")).toEqual(["telerobot-mom.service"]);
+    expect(after("telerobot-proxy")).toEqual(["telerobot-mom.service", "telerobot-lab.service"]);
+    expect(after("telerobot-gateway")).toEqual(["telerobot-mom.service", "telerobot-lab.service", "telerobot-proxy.service"]);
+    expect(unit("telerobot-gateway")).toMatch(/^Requires=telerobot-proxy\.service$/m);
+  });
+
+  it("binds the lab, proxy and gateway to MOM (and the lab), so a MOM restart restarts them", () => {
+    // BindsTo= + After=: a MOM restart (Restart=on-failure, ExitOnOutOfMemoryError)
+    // restarts every bound unit, and MOM going down for good stops them,
+    // instead of leaving them holding dead MOM sessions.
+    const bindsTo = (name: string) => (unit(name).match(/^BindsTo=(.*)$/m)?.[1] ?? "").split(" ").filter(Boolean);
+    expect(bindsTo("telerobot-mom")).toEqual([]);
+    expect(bindsTo("telerobot-lab")).toEqual(["telerobot-mom.service"]);
+    expect(bindsTo("telerobot-proxy")).toEqual(["telerobot-mom.service", "telerobot-lab.service"]);
+    expect(bindsTo("telerobot-gateway")).toEqual(["telerobot-mom.service", "telerobot-lab.service"]);
+    // every BindsTo= target is also ordered After= (the strong form)
+    for (const name of ["telerobot-lab", "telerobot-proxy", "telerobot-gateway"]) {
+      const after = unit(name).match(/^After=(.*)$/m)![1].split(" ");
+      for (const b of bindsTo(name)) expect(after, `${name} after ${b}`).toContain(b);
+      // no Requires= duplicating a BindsTo=
+      const requires = (unit(name).match(/^Requires=(.*)$/m)?.[1] ?? "").split(" ");
+      for (const b of bindsTo(name)) expect(requires).not.toContain(b);
+    }
+    // MOM still needs this boot's fetch
+    expect(unit("telerobot-mom")).toMatch(/^Requires=telerobot-fetch\.service$/m);
   });
 
   it("gives the gateway its environment", () => {

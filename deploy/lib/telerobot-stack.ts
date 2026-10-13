@@ -249,7 +249,6 @@ export class TelerobotStack extends Stack {
     role.addToPolicy(
       new iam.PolicyStatement({ actions: ["ec2:StopInstances"], resources: [instanceArn], conditions: onlyTagged }),
     );
-    role.addToPolicy(new iam.PolicyStatement({ actions: ["cloudwatch:GetMetricStatistics"], resources: ["*"] }));
 
     // ---- status / wake / reap Lambda ----
     const fn = new NodejsFunction(this, "Api", {

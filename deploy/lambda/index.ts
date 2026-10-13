@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/client-ec2";
 import { GetParameterCommand, ParameterNotFound, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
-import { checkOrigin, reap, status, wake, type Deps } from "./core";
+import { cachedStatus, checkOrigin, reap, wake, type Deps } from "./core";
 import { cachedValue, isReapEvent } from "./params";
 
 interface FunctionUrlEvent {
@@ -119,6 +119,9 @@ function json(statusCode: number, body: unknown) {
   };
 }
 
+// Lives as long as the warm container.
+const statusCache = cachedStatus();
+
 export async function handler(event: FunctionUrlEvent) {
   const deps = buildDeps();
 
@@ -136,13 +139,14 @@ export async function handler(event: FunctionUrlEvent) {
   }
 
   if (method === "GET" && path === "/api/status") {
-    return json(200, await status(deps));
+    return json(200, await statusCache.get(deps));
   }
   if (method === "POST" && path === "/api/wake") {
     const raw = event.isBase64Encoded && event.body
       ? Buffer.from(event.body, "base64").toString("utf8")
       : event.body;
     const r = await wake(deps, raw, headers);
+    if (r.status >= 200 && r.status < 300) statusCache.invalidate();
     return json(r.status, r.body);
   }
   return json(404, { error: "not found" });
