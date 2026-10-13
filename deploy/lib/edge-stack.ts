@@ -1,4 +1,4 @@
-import { Stack, Tags, type StackProps } from "aws-cdk-lib";
+import { CfnOutput, Stack, Tags, type StackProps } from "aws-cdk-lib";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import type { Construct } from "constructs";
 
@@ -64,5 +64,7 @@ export class EdgeStack extends Stack {
     });
 
     this.webAclArn = acl.attrArn;
+    // deploy.ps1 reads it for the CloudFront flat-rate plan subscription.
+    new CfnOutput(this, "WebAclArn", { value: acl.attrArn });
   }
 }

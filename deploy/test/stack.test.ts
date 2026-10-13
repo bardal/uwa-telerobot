@@ -77,6 +77,11 @@ describe("edge stack", () => {
       FieldToMatch: { UriPath: {} },
     });
   });
+
+  it("outputs the web ACL ARN (deploy.ps1 needs it for the flat-rate plan)", () => {
+    const [id] = only(edge, "AWS::WAFv2::WebACL");
+    edge.hasOutput("WebAclArn", { Value: { "Fn::GetAtt": [id, "Arn"] } });
+  });
 });
 
 describe("telerobot stack", () => {
