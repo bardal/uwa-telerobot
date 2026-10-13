@@ -77,9 +77,9 @@ function service(o: {
    */
   bindsTo?: string[];
   /**
-   * Units this one pulls in whenever it starts (Wants=). MOM wants the bound
-   * units: a MOM crash stops them and its restart job only try-restarts them,
-   * so without this they stayed down after MOM came back.
+   * Units this one pulls in whenever it starts (Wants=; no ordering). Each unit
+   * wants the units behind it: a crash stops its dependants and its restart job
+   * only try-restarts them, so without this they stayed down after it came back.
    */
   wants?: string[];
   /** Local ports that must be listening before this unit starts. */
@@ -319,6 +319,8 @@ ${service({
   name: "lab",
   description: "Telerobot VirtualLab (simulated robot and cameras)",
   bindsTo: ["telerobot-mom"],
+  // a lab crash stops the proxy and gateway (bound to it): its restart brings them back
+  wants: ["telerobot-proxy", "telerobot-gateway"],
   ports: "4444",
   extra: LOOPBACK_ONLY,
   execStart: `${java("384m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.sim.VirtualLab ../config/lab.xml`,
@@ -328,6 +330,8 @@ ${service({
   description: "Telerobot RobotProxy",
   // MOM for its session, the lab for the robot server's ports
   bindsTo: ["telerobot-mom", "telerobot-lab"],
+  // a proxy failure leaves the gateway (which requires it) down: its restart brings it back
+  wants: ["telerobot-gateway"],
   ports: "4444 30562 30563",
   extra: LOOPBACK_ONLY,
   execStart: `${java("96m")} ${LAB_FLAGS} -cp ${LAB_JAR} au.edu.uwa.mech.devices.robot.Server ../config/RobotProxy.properties`,

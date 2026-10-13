@@ -169,8 +169,21 @@ describe("user data", () => {
     expect(unit("telerobot-mom")).toMatch(
       /^Wants=telerobot-lab\.service telerobot-proxy\.service telerobot-gateway\.service$/m,
     );
-    for (const name of ["telerobot-lab", "telerobot-proxy", "telerobot-gateway"]) {
-      expect(unit(name)).not.toMatch(/^Wants=/m);
+  });
+
+  it("brings the units behind the lab and the proxy back when either restarts alone", () => {
+    // A lab crash stops the proxy and gateway (BindsTo= the lab); a proxy
+    // failure leaves the gateway (Requires= the proxy) down. Each one's
+    // Wants= pulls the units behind it in on its own restart. Wants= carries
+    // no ordering, so the After= chain mom -> lab -> proxy -> gateway is unchanged.
+    const wants = (name: string) => (unit(name).match(/^Wants=(.*)$/m)?.[1] ?? "").split(" ").filter(Boolean);
+    expect(wants("telerobot-lab")).toEqual(["telerobot-proxy.service", "telerobot-gateway.service"]);
+    expect(wants("telerobot-proxy")).toEqual(["telerobot-gateway.service"]);
+    expect(wants("telerobot-gateway")).toEqual([]);
+    // every unit a unit wants is ordered after it, never before (no cycle)
+    for (const name of ["telerobot-mom", "telerobot-lab", "telerobot-proxy"]) {
+      const after = unit(name).match(/^After=(.*)$/m)![1].split(" ");
+      for (const w of wants(name)) expect(after, `${name} must not be After= ${w}`).not.toContain(w);
     }
   });
 
