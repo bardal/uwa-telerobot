@@ -46,7 +46,6 @@ class CloudConfigTest {
         GatewayConfig c = GatewayConfig.parse(UNIT_ARGS, unitEnv());
         assertTrue(CloudConfig.onAws(c));
         assertTrue(c.instanceStop(), "self-stop is on by default outside dev");
-        assertFalse(CloudConfig.onAws(GatewayConfig.parse(new String[] {"--dev"}, unitEnv())), "never in dev");
         assertFalse(CloudConfig.onAws(GatewayConfig.parse(new String[0], Map.of())));
         assertFalse(GatewayConfig.parse(new String[] {"--no-self-stop"}, unitEnv()).instanceStop());
         assertFalse(GatewayConfig.parse(new String[] {"--dev"}, Map.of()).instanceStop());
@@ -107,13 +106,27 @@ class CloudConfigTest {
         assertTrue(e.getMessage().contains("TURNSTILE_SECRET_PARAM"), e.getMessage());
     }
 
-    @Test
-    void anUnreadableByteCounterStartsAtZero() {
+    @ParameterizedTest
+    @ValueSource(strings = {"ORIGIN_SECRET_PARAM", "TURNSTILE_SECRET_PARAM", "ARCHIVE_BUCKET", "COGNITO_ISSUER"})
+    void devRefusesToStartInTheAwsEnvironment(String var) {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> GatewayConfig.parse(new String[] {"--dev"}, Map.of(var, "x")));
+        assertTrue(e.getMessage().contains(var) && e.getMessage().contains("--dev"), e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> GatewayConfig.parse(new String[] {"--dev"}, unitEnv()));
+        assertTrue(GatewayConfig.parse(new String[] {"--dev"}, Map.of(var, " ")).dev(), "blank counts as unset");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"lots", "-5", "12.5", ""})
+    void anUnreadableByteCounterStopsTheGateway(String value) {
         MemoryParamStore s = fullStore();
-        s.put("/telerobot/archive-bytes", "lots");
-        assertEquals(0, CloudConfig.archiveBytes(s));
-        s.put("/telerobot/archive-bytes", "-5");
-        assertEquals(0, CloudConfig.archiveBytes(s));
+        s.put("/telerobot/archive-bytes", value);
+        GatewayConfig c = GatewayConfig.parse(UNIT_ARGS, unitEnv());
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> CloudConfig.load(c, s));
+        assertTrue(e.getMessage().contains("/telerobot/archive-bytes"), e.getMessage());
+        if (!value.isEmpty()) assertThrows(IllegalStateException.class, () -> CloudConfig.archiveBytes(s));
+        s.put("/telerobot/archive-bytes", " 42 ");
+        assertEquals(42, CloudConfig.archiveBytes(s));
     }
 
     private static MemoryParamStore withRemoved(String name) {

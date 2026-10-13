@@ -113,6 +113,40 @@ class DevRoutesTest {
     }
 
     @Test
+    void symlinksOutOfTheDirectoryAreNotFollowed() throws Exception {
+        Path ui = ui(true);
+        Path outside = Files.writeString(tmp.resolve("outside.txt"), "private stuff");
+        try {
+            Files.createSymbolicLink(ui.resolve("link.txt"), outside);
+        } catch (Exception e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "cannot make symlinks here: " + e);
+        }
+        GatewayServer s = server("--port", "0", "--dev", "--static-dir", ui.toString());
+        try {
+            HttpResponse<String> r = get(s, "/link.txt");
+            assertEquals(404, r.statusCode());
+            assertFalse(r.body().contains("private stuff"));
+            assertEquals(200, get(s, "/app.js").statusCode());
+        } finally {
+            s.stop();
+        }
+    }
+
+    @Test
+    void aliasedRequestsAreRefused() throws Exception {
+        // where symlinks need privileges (Windows), a differently cased name is the alias to try
+        Path ui = ui(true);
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.exists(ui.resolve("APP.JS")), "a case-insensitive file system");
+        GatewayServer s = server("--port", "0", "--dev", "--static-dir", ui.toString());
+        try {
+            assertEquals(404, get(s, "/APP.JS").statusCode());
+            assertEquals(200, get(s, "/app.js").statusCode());
+        } finally {
+            s.stop();
+        }
+    }
+
+    @Test
     void withoutCspJsonThereIsNoCspHeader() throws Exception {
         GatewayServer s = server("--port", "0", "--dev", "--static-dir", ui(false).toString());
         try {

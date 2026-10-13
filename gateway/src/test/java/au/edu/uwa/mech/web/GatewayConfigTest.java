@@ -57,7 +57,7 @@ class GatewayConfigTest {
             "--port", "9", "--mom-host", "h", "--mom-port", "5", "--lab-admin-port", "6",
             "--allowed-origin", "https://c.example", "--allowed-origin", "https://d.example",
             "--cognito-client-id", "x", "--cognito-client-id", "y", "--cognito-issuer", "https://i2",
-            "--origin-secret", "flag", "--commit", "deadbeef", "--dev", "--static-dir", "s", "--archive-dir", "a"}, env);
+            "--origin-secret", "flag", "--commit", "deadbeef", "--static-dir", "s", "--archive-dir", "a"}, env);
         assertEquals(9, f.port());
         assertEquals("h", f.momUrlHost());
         assertEquals(5, f.momPort());
@@ -67,9 +67,33 @@ class GatewayConfigTest {
         assertEquals("https://i2", f.cognitoIssuer());
         assertEquals("flag", f.originSecret());
         assertEquals("deadbeef", f.commit());
-        assertTrue(f.dev());
+        assertFalse(f.dev(), "--dev with this AWS-like env is refused: see CloudConfigTest");
         assertEquals("s", f.staticDir());
         assertEquals("a", f.archiveDir());
+    }
+
+    @Test
+    void devListensOnLoopbackOnlyUnlessToldOtherwise() throws Exception {
+        assertEquals("127.0.0.1", GatewayConfig.parse(new String[] {"--dev"}, Map.of()).bind());
+        assertEquals("0.0.0.0", GatewayConfig.parse(new String[] {"--dev", "--bind", "0.0.0.0"}, Map.of()).bind());
+        assertNull(GatewayConfig.parse(new String[0], Map.of()).bind(), "production: every interface");
+        GatewayConfig dev = GatewayConfig.parse(new String[] {"--dev", "--port", "0"}, Map.of());
+        GatewayServer s = new GatewayServer(dev, new StubSessionHandler(dev), System::currentTimeMillis);
+        s.start();
+        try {
+            assertEquals("127.0.0.1", s.host());
+            assertEquals(200, get(s, "/healthz").statusCode());
+        } finally {
+            s.stop();
+        }
+        GatewayConfig prod = GatewayConfig.parse(new String[] {"--port", "0", "--origin-secret", "x"}, Map.of());
+        GatewayServer p = new GatewayServer(prod, new StubSessionHandler(prod), System::currentTimeMillis);
+        p.start();
+        try {
+            assertNull(p.host());
+        } finally {
+            p.stop();
+        }
     }
 
     @Test

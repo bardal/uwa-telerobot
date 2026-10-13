@@ -500,7 +500,10 @@ public final class Session implements MomBridge.Listener {
 
     private boolean archiveImages(MomBridge b) {
         Archive archive = registry.archive();
-        if (archive == null) return reject("lab-unavailable", "the archive is not available");
+        if (archive == null) {
+            outbox.sendNow(new Out.Error("lab-unavailable", "the archive is not available")); // not the user's fault: no rejection
+            return false;
+        }
         if (!allow("snapshot")) return false;
         return run(() -> {
             Optional<String> id = archive.snapshot(nick, identity, b.lastFrames(), b.lastState());
@@ -581,8 +584,12 @@ public final class Session implements MomBridge.Listener {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        registry.archive().finishMove(moveId, result, b.lastState(), b.lastFrames());
-        outbox.emit(new Out.Archived("move", moveId, archiveUrl(moveId)));
+        try {
+            registry.archive().finishMove(moveId, result, b.lastState(), b.lastFrames());
+            outbox.emit(new Out.Archived("move", moveId, archiveUrl(moveId)));
+        } catch (RuntimeException e) {
+            LOG.warn("archiving move {} failed", moveId, e);
+        }
     }
 
     private static boolean allFresh(Map<String, ImageData> old, Map<String, ImageData> now, List<String> cameras) {

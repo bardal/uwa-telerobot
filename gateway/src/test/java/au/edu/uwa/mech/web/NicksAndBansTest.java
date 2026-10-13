@@ -48,4 +48,15 @@ class NicksAndBansTest {
         store.put(Bans.PARAM, "not json");
         assertFalse(new Bans(store).banned(ann), "an unreadable list is ignored, not fatal");
     }
+
+    @Test
+    void anUnreadableStoredListIsNeverOverwritten() {
+        MemoryParamStore store = new MemoryParamStore();
+        store.put(Bans.PARAM, "[\"kept-ban\", oops");
+        Bans bans = new Bans(store);
+        Identity bob = new Identity("bob", Identity.Level.REGISTERED, "h1");
+        bans.ban(bob);
+        assertTrue(bans.banned(bob), "the ban holds in memory");
+        assertEquals("[\"kept-ban\", oops", store.get(Bans.PARAM).orElseThrow(), "the stored list is left for a human");
+    }
 }

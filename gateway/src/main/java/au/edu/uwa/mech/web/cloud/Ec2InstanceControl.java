@@ -29,13 +29,15 @@ public final class Ec2InstanceControl implements InstanceControl {
 
     private final String imds;
     private final Function<String, Ec2Client> clients;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
+    // IMDS speaks HTTP/1.1; no h2c upgrade attempt
+    private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(TIMEOUT).build();
 
     public Ec2InstanceControl() {
         this(IMDS, region -> Ec2Client.builder()
             .region(Region.of(region))
             .credentialsProvider(DefaultCredentialsProvider.create())
             .httpClientBuilder(UrlConnectionHttpClient.builder())
+            .overrideConfiguration(AwsClients.overrides())
             .build());
     }
 

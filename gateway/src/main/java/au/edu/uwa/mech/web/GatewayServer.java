@@ -69,6 +69,7 @@ public final class GatewayServer {
         this.timing = timing;
         this.admission = new Admission(config, clockMillis, timing.leaseMillis());
         connector.setPort(config.port());
+        connector.setHost(config.bind()); // null: every interface (production: CloudFront reaches it over the EIP)
         connector.setIdleTimeout(IDLE_TIMEOUT.toMillis());
         server.addConnector(connector);
 
@@ -138,7 +139,9 @@ public final class GatewayServer {
         resources.setBaseResource(ResourceFactory.of(server).newResource(dir));
         resources.setDirAllowed(false);
         resources.setWelcomeFiles(java.util.List.of("index.html"));
-        return context(new DevStatic(resources, csp), contextPath);
+        ContextHandler c = context(new DevStatic(resources, csp), contextPath);
+        c.clearAliasChecks(); // no alias is served: no symlink is followed out of the directory
+        return c;
     }
 
     public void start() throws Exception {
@@ -160,6 +163,11 @@ public final class GatewayServer {
     public void stop() throws Exception {
         timers.shutdownNow();
         server.stop();
+    }
+
+    /** The address listened on, or null for every interface. */
+    public String host() {
+        return connector.getHost();
     }
 
     /** The bound port (useful when configured with 0). */

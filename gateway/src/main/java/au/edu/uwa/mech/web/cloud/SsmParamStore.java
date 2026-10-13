@@ -27,6 +27,7 @@ public final class SsmParamStore implements ParamStore {
             .region(Region.of(region))
             .credentialsProvider(DefaultCredentialsProvider.create())
             .httpClientBuilder(UrlConnectionHttpClient.builder())
+            .overrideConfiguration(AwsClients.overrides())
             .build());
     }
 

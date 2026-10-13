@@ -6,8 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The AWS start-up configuration. The systemd unit's environment carries the plain settings
@@ -17,8 +15,6 @@ import org.slf4j.LoggerFactory;
  * missing stops the gateway at start with a message naming it.
  */
 public final class CloudConfig {
-    private static final Logger LOG = LoggerFactory.getLogger(CloudConfig.class);
-
     public static final String PIN_REGISTERED = "/telerobot/pins/registered";
     public static final String PIN_ADMIN = "/telerobot/pins/admin";
     public static final String ARCHIVE_BYTES = "/telerobot/archive-bytes";
@@ -55,25 +51,34 @@ public final class CloudConfig {
         String registered = read(ssm, PIN_REGISTERED, missing);
         String admin = read(ssm, PIN_ADMIN, missing);
         read(ssm, Bans.PARAM, missing); // pre-created as [] by the deploy script; Bans reads it
-        read(ssm, ARCHIVE_BYTES, missing); // pre-created as 0; the byte counter's seed
+        String bytes = read(ssm, ARCHIVE_BYTES, missing); // pre-created as 0; the byte counter's seed
 
         if (!missing.isEmpty()) {
             throw new IllegalStateException("cannot start on AWS, missing or blank: " + String.join(", ", missing));
         }
+        if (bytes != null) parseBytes(bytes); // a corrupt counter would silently lift the archive cap
         return c.withSecrets(origin, turnstile,
             Map.of(GatewayConfig.PIN_REGISTERED, registered, GatewayConfig.PIN_ADMIN, admin));
     }
 
-    /** The archive byte counter's stored value; 0 if absent or unreadable. */
+    /**
+     * The archive byte counter's stored value; 0 if absent.
+     *
+     * @throws IllegalStateException if it is not a whole number of bytes
+     */
     public static long archiveBytes(ParamStore ssm) {
         Optional<String> v = ssm.get(ARCHIVE_BYTES);
-        if (v.isEmpty()) return 0;
+        return v.isEmpty() ? 0 : parseBytes(v.get());
+    }
+
+    private static long parseBytes(String v) {
         try {
-            return Math.max(0, Long.parseLong(v.get().trim()));
+            long n = Long.parseLong(v.trim());
+            if (n >= 0) return n;
         } catch (NumberFormatException e) {
-            LOG.warn("{} is not a number; counting from 0", ARCHIVE_BYTES);
-            return 0;
+            // reported below
         }
+        throw new IllegalStateException("SSM parameter " + ARCHIVE_BYTES + " must be a whole number of bytes, not \"" + v + "\"");
     }
 
     private static String read(ParamStore ssm, String name, List<String> missing) {

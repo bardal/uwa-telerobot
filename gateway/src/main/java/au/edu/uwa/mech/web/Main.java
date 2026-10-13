@@ -194,11 +194,9 @@ public final class Main {
         private final Archive archive;
         private final S3ArchiveStore s3;
         private final Idle idle;
-        private final ScheduledExecutorService timers = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "gateway-cron");
-            t.setDaemon(true);
-            return t;
-        });
+        private final ScheduledExecutorService timers = daemonScheduler("gateway-cron");
+        /** Its own thread, so a slow S3 flush or persist cannot delay the heartbeat. */
+        private final ScheduledExecutorService heartbeats = daemonScheduler("gateway-heartbeat");
         private final AtomicBoolean closed = new AtomicBoolean();
 
         Running(GatewayConfig config, GatewayServer server, SessionRegistry registry, Archive archive,
@@ -219,10 +217,10 @@ public final class Main {
         public Archive archive() { return archive; }
 
         private void schedule(Heartbeat heartbeat) {
-            every(HEARTBEAT_TICK_SECONDS, "heartbeat", heartbeat::tick);
-            every(IDLE_TICK_SECONDS, "idle", this::idleTick);
-            if (archive != null) every(FLUSH_SECONDS, "archive flush", archive::flush);
-            if (s3 != null) every(PERSIST_SECONDS, "archive byte counter", s3::persist);
+            every(heartbeats, HEARTBEAT_TICK_SECONDS, "heartbeat", heartbeat::tick);
+            every(timers, IDLE_TICK_SECONDS, "idle", this::idleTick);
+            if (archive != null) every(timers, FLUSH_SECONDS, "archive flush", archive::flush);
+            if (s3 != null) every(timers, PERSIST_SECONDS, "archive byte counter", s3::persist);
         }
 
         /** Closes timed-out sessions, then stops the instance if it has been idle 15 minutes. */
@@ -231,8 +229,16 @@ public final class Main {
             idle.tick();
         }
 
-        private void every(long seconds, String what, Runnable task) {
-            timers.scheduleWithFixedDelay(() -> {
+        private static ScheduledExecutorService daemonScheduler(String name) {
+            return Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, name);
+                t.setDaemon(true);
+                return t;
+            });
+        }
+
+        private static void every(ScheduledExecutorService on, long seconds, String what, Runnable task) {
+            on.scheduleWithFixedDelay(() -> {
                 try {
                     task.run();
                 } catch (RuntimeException e) { // an escaping exception would silently end the schedule
@@ -243,16 +249,20 @@ public final class Main {
 
         /**
          * The shutdown: {@code lab stopping} to every session, the archive flushed, the sessions and
-         * their bridges closed, the archive byte counter persisted, then the server stopped. Each
-         * step runs even if an earlier one failed. Idempotent.
+         * their bridges closed, the archive flushed again (moves that finished while the sessions
+         * closed), the archive byte counter persisted, then the server stopped. Each step runs even if
+         * an earlier one failed. Idempotent.
          */
         @Override
         public void close() {
             if (!closed.compareAndSet(false, true)) return;
             timers.shutdownNow();
+            heartbeats.shutdownNow();
             step("lab stopping", () -> registry.broadcast(new Out.Lab("stopping", "The lab is stopping")));
             if (archive != null) step("archive flush", archive::flush);
             step("closing sessions", registry::shutdown);
+            // closing ends the waits of moves still being recorded, which then finish: write them too
+            if (archive != null) step("final archive flush", archive::flush);
             if (s3 != null) step("archive byte counter", s3::persist);
             step("server stop", () -> {
                 try {

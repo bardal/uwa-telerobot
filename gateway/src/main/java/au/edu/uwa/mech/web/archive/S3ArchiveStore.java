@@ -53,6 +53,7 @@ public final class S3ArchiveStore implements ArchiveStore {
                 .region(Region.of(r))
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .overrideConfiguration(au.edu.uwa.mech.web.cloud.AwsClients.overrides())
                 .build();
         return new S3ArchiveStore(c, bucket, seed, persist);
     }

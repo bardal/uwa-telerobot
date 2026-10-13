@@ -18,6 +18,8 @@ public final class Bans {
 
     private final ParamStore store;
     private final Set<String> banned = new TreeSet<>();
+    /** The stored list could not be read: never overwrite it (that would drop every ban in it). */
+    private boolean storedUnreadable;
 
     public Bans(ParamStore store) {
         this.store = store;
@@ -25,8 +27,10 @@ public final class Bans {
             try {
                 banned.addAll(Protocol.mapper().readValue(json, new TypeReference<List<String>>() {}));
             } catch (Exception e) {
-                // an unreadable list must not stop the gateway; it is rewritten on the next ban
-                LOG.warn("ignoring unreadable {}: {}", PARAM, e.getClass().getSimpleName());
+                // an unreadable list must not stop the gateway, but it must not be overwritten either
+                storedUnreadable = true;
+                LOG.error("{} is unreadable ({}); bans made now last only until restart, fix the parameter",
+                    PARAM, e.getClass().getSimpleName());
             }
         });
     }
@@ -38,6 +42,10 @@ public final class Bans {
     public synchronized void ban(Identity id) {
         banned.add(id.sub());
         if (id.ipHash() != null) banned.add(id.ipHash());
+        if (storedUnreadable) {
+            LOG.error("not saving the ban: {} is unreadable and would be overwritten", PARAM);
+            return;
+        }
         store.put(PARAM, Out.json(List.copyOf(banned)));
     }
 

@@ -114,6 +114,54 @@ class MainDevIT {
         }
     }
 
+    @Test
+    void aMoveFinishingDuringShutdownIsStillWritten() throws Exception {
+        Path archive = tmp.resolve("archive");
+        Main.Running dev = Main.start(labArgs("--dev", "--archive-dir", archive.toString()).toArray(String[]::new),
+            Map.of());
+        GatewayServerTest.Recorder r = new GatewayServerTest.Recorder();
+        try {
+            ClientUpgradeRequest req = new ClientUpgradeRequest();
+            req.setHeader("Origin", ORIGIN);
+            ws.connect(r, URI.create("ws://127.0.0.1:" + dev.port() + "/ws"), req).get(5, TimeUnit.SECONDS);
+            r.session.sendText("{\"t\":\"hello\",\"nick\":\"mover\",\"dev\":{\"sub\":\"mv\",\"groups\":[]}}", Callback.NOOP);
+            await(r, m -> m.get("t").asText().equals("welcome"));
+            r.session.sendText("{\"t\":\"takeControl\"}", Callback.NOOP);
+            await(r, m -> m.get("t").asText().equals("controller") && m.get("nick").asText().equals("mover"));
+            r.session.sendText("{\"t\":\"command\",\"script\":\"z110\"}", Callback.NOOP);
+            await(r, m -> m.get("t").asText().equals("commandStatus") && m.get("state").asText().equals("done"));
+        } finally {
+            // at once: the move is still waiting for the arm to settle and for fresh frames
+            dev.close();
+        }
+        JsonNode stopping = await(r, m -> m.get("t").asText().equals("lab"));
+        assertEquals("stopping", stopping.get("state").asText());
+
+        JsonNode days = Protocol.mapper().readTree(Files.readString(archive.resolve("public/index/days.json")));
+        JsonNode day = Protocol.mapper().readTree(
+            Files.readString(archive.resolve("public/index/" + days.get("days").get(0).asText() + ".json")));
+        JsonNode move = null;
+        for (JsonNode e : day.get("entries")) {
+            if (e.get("kind").asText().equals("move") && e.get("nick").asText().equals("mover")) move = e;
+        }
+        assertNotNull(move, day.toString());
+        assertEquals("done", move.get("result").asText(), "finished during the shutdown, then flushed: " + move);
+    }
+
+    static JsonNode await(GatewayServerTest.Recorder r, java.util.function.Predicate<JsonNode> p) throws Exception {
+        long end = System.currentTimeMillis() + 30_000;
+        List<String> seen = new ArrayList<>();
+        while (System.currentTimeMillis() < end) {
+            String m = r.texts.poll(200, TimeUnit.MILLISECONDS);
+            if (m == null) continue;
+            seen.add(m);
+            JsonNode j = Protocol.mapper().readTree(m);
+            if (p.test(j)) return j;
+        }
+        fail("not seen; got " + seen);
+        return null;
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     JsonNode hello(int port, String secret, String wanted) throws Exception {

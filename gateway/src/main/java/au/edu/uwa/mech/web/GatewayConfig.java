@@ -28,12 +28,18 @@ public record GatewayConfig(
     String awsRegion,
     String originSecretParam,
     String turnstileSecretParam,
-    boolean labInProcess) {
+    boolean labInProcess,
+    String bind) {
 
     public static final String DEFAULT_COMMIT = "dev";
     /** Keys of {@link #pins()}: the MOM PINs of the {@code registered} and {@code admin} service accounts. */
     public static final String PIN_REGISTERED = "registered";
     public static final String PIN_ADMIN = "admin";
+    /** Dev mode listens on loopback only unless {@code --bind} says otherwise. */
+    public static final String DEV_BIND = "127.0.0.1";
+    /** Environment variables only the AWS unit sets; {@code --dev} refuses to start with any of them. */
+    public static final List<String> AWS_ONLY_ENV =
+        List.of("ORIGIN_SECRET_PARAM", "TURNSTILE_SECRET_PARAM", "ARCHIVE_BUCKET", "COGNITO_ISSUER");
 
     public GatewayConfig {
         allowedOrigins = List.copyOf(allowedOrigins);
@@ -49,7 +55,7 @@ public record GatewayConfig(
                          String originSecretParam, String turnstileSecretParam) {
         this(port, momUrlHost, momPort, labAdminPort, allowedOrigins, originSecret, dev, staticDir, archiveDir,
             cognitoIssuer, cognitoClientIds, turnstileSecret, pins, archiveBucket, instanceStop, commit, awsRegion,
-            originSecretParam, turnstileSecretParam, false);
+            originSecretParam, turnstileSecretParam, false, null);
     }
 
     public static GatewayConfig parse(String[] args, Map<String, String> env) {
@@ -67,6 +73,7 @@ public record GatewayConfig(
         String turnstile = blankToNull(env.get("TURNSTILE_SECRET"));
         boolean noSelfStop = false;
         boolean labInProcess = false;
+        String bind = null;
         String commit = null;
         String pinRegistered = blankToNull(env.get("PIN_REGISTERED"));
         String pinAdmin = blankToNull(env.get("PIN_ADMIN"));
@@ -79,6 +86,7 @@ public record GatewayConfig(
                 case "--dev" -> dev = true;
                 case "--no-self-stop" -> noSelfStop = true;
                 case "--lab-in-process" -> labInProcess = true;
+                case "--bind" -> bind = value(args, ++i);
                 case "--port" -> port = parseInt(a, value(args, ++i));
                 case "--mom-host" -> momHost = value(args, ++i);
                 case "--mom-port" -> momPort = parseInt(a, value(args, ++i));
@@ -108,6 +116,15 @@ public record GatewayConfig(
         if (!clientIdsFromFlags && clientIds.isEmpty()) clientIds.addAll(split(env.get("COGNITO_CLIENT_IDS")));
 
         if (labInProcess && !dev) throw new IllegalArgumentException("--lab-in-process needs --dev");
+        if (dev) {
+            // an AWS environment with --dev would run the instance with dev identities and no origin secret
+            for (String v : AWS_ONLY_ENV) {
+                if (blankToNull(env.get(v)) != null) {
+                    throw new IllegalArgumentException("--dev cannot be used with " + v + " set (that is the AWS environment)");
+                }
+            }
+            if (bind == null) bind = DEV_BIND;
+        }
         if (commit == null) commit = manifestCommit();
         Map<String, String> pins = new java.util.HashMap<>();
         if (pinRegistered != null) pins.put(PIN_REGISTERED, pinRegistered);
@@ -115,28 +132,28 @@ public record GatewayConfig(
         return new GatewayConfig(port, momHost, momPort, labAdminPort, origins, originSecret, dev, staticDir,
             archiveDir, issuer, clientIds, turnstile, pins, blankToNull(env.get("ARCHIVE_BUCKET")), !dev && !noSelfStop,
             commit, blankToNull(env.get("AWS_REGION")), blankToNull(env.get("ORIGIN_SECRET_PARAM")),
-            blankToNull(env.get("TURNSTILE_SECRET_PARAM")), labInProcess);
+            blankToNull(env.get("TURNSTILE_SECRET_PARAM")), labInProcess, bind);
     }
 
     /** A copy with the secrets and PINs replaced (loaded from SSM on AWS). */
     public GatewayConfig withSecrets(String originSecret, String turnstileSecret, Map<String, String> pins) {
         return new GatewayConfig(port, momUrlHost, momPort, labAdminPort, allowedOrigins, originSecret, dev, staticDir,
             archiveDir, cognitoIssuer, cognitoClientIds, turnstileSecret, pins, archiveBucket, instanceStop, commit,
-            awsRegion, originSecretParam, turnstileSecretParam, labInProcess);
+            awsRegion, originSecretParam, turnstileSecretParam, labInProcess, bind);
     }
 
     /** A copy pointing at another lab (the in-process one). */
     public GatewayConfig withLab(String momHost, int momPort, int labAdminPort) {
         return new GatewayConfig(port, momHost, momPort, labAdminPort, allowedOrigins, originSecret, dev, staticDir,
             archiveDir, cognitoIssuer, cognitoClientIds, turnstileSecret, pins, archiveBucket, instanceStop, commit,
-            awsRegion, originSecretParam, turnstileSecretParam, labInProcess);
+            awsRegion, originSecretParam, turnstileSecretParam, labInProcess, bind);
     }
 
     /** A copy with the listening port, allowed origins and dev directories replaced. */
     public GatewayConfig withServing(int port, List<String> allowedOrigins, String staticDir, String archiveDir) {
         return new GatewayConfig(port, momUrlHost, momPort, labAdminPort, allowedOrigins, originSecret, dev, staticDir,
             archiveDir, cognitoIssuer, cognitoClientIds, turnstileSecret, pins, archiveBucket, instanceStop, commit,
-            awsRegion, originSecretParam, turnstileSecretParam, labInProcess);
+            awsRegion, originSecretParam, turnstileSecretParam, labInProcess, bind);
     }
 
     /** The shade plugin stamps Implementation-Version with the build's git commit; "dev" when run from classes. */
