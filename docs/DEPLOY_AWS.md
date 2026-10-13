@@ -181,6 +181,23 @@ web ACL to the `CloudFront` `FREE` tier, which activates at once. If that
 fails (an account can hold only three Free-plan distributions) it prints the
 reason, and the distribution stays on pay-as-you-go.
 
+On the first deploy (2026-10-13) the API refused the subscription:
+`ValidationException: The following resources are not eligible for this
+subscription tier` (both the distribution and the web ACL). The CloudFront
+guide's feature table lists, as Business-tier and above only, two things this
+distribution depends on:
+
+* **custom response header policies:** the CSP, HSTS, Permissions-Policy and
+  COOP headers (`SecurityHeaders`, `ArchiveHeaders`);
+* **custom origin request policies:** `GatewayRequest`, which forwards
+  `CloudFront-Viewer-Address` so the gateway's per-IP connection cap sees the
+  real client.
+
+The guide also lists WAF "Rule Groups" as unsupported on every plan. Getting
+onto the Free plan would mean giving up the security headers and the per-IP
+cap, so the distribution stays on pay-as-you-go (about $9 a month for the web
+ACL).
+
 ## Stopping and tearing down
 
 * Stop the lab now: `aws ec2 stop-instances --region eu-west-2 --instance-ids <InstanceId>`.
