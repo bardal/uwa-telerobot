@@ -44,38 +44,14 @@ public class SerialFilterTest
     });
   }
 
-  private static Class<?> named(String name) throws ClassNotFoundException
-  {
-    return Class.forName(name, false, SerialFilterTest.class.getClassLoader());
-  }
-
   @Test
   public void gadgetClassesAreRejected() throws Exception
   {
-    for (String n : new String[] {"javax.management.BadAttributeValueExpException", "java.net.URL"})
-      assertEquals(n, Status.REJECTED, check(named(n)));
-    // not on the classpath (and not meant to be), so these are checked by name
-    assertEquals(Status.REJECTED, checkName("java.rmi.server.UnicastRef"));
-    assertEquals(Status.REJECTED, checkName("org.apache.commons.collections.functors.InvokerTransformer"));
-    assertEquals(Status.REJECTED, checkName("sun.reflect.annotation.AnnotationInvocationHandler"));
-  }
-
-  /** Check a class by name: through the real filter if it is loadable, else by the pattern's allow rules. */
-  private Status checkName(String name)
-  {
-    try {
-      return check(Class.forName(name, false, SerialFilterTest.class.getClassLoader()));
-    } catch (ClassNotFoundException e) {
-      for (String rule : SerialFilter.PATTERN.split(";")) {
-        if (rule.startsWith("!"))
-          continue;
-        String prefix = rule.endsWith("**") ? rule.substring(0, rule.length() - 2)
-                      : rule.endsWith("*") ? rule.substring(0, rule.length() - 1) : null;
-        if (name.equals(rule) || (prefix != null && name.startsWith(prefix) && !prefix.isEmpty()))
-          return Status.ALLOWED;
-      }
-      return Status.REJECTED;
-    }
+    // InvokerTransformer is a stub in the test sources; the others are real JDK classes
+    for (String n : new String[] {"org.apache.commons.collections.functors.InvokerTransformer",
+                                  "javax.management.BadAttributeValueExpException", "java.net.URL",
+                                  "sun.rmi.server.UnicastRef", "sun.reflect.annotation.AnnotationInvocationHandler"})
+      assertEquals(n, Status.REJECTED, check(Class.forName(n, false, ClassLoader.getSystemClassLoader())));
   }
 
   @Test

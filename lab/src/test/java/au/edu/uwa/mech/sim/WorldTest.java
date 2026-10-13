@@ -118,6 +118,44 @@ public class WorldTest
   }
 
   @Test
+  public void resetAbortsAMoveInProgress() throws Exception
+  {
+    World w = World.withDefaultBlocks();
+    VirtualRobotServer robot = new VirtualRobotServer(w);
+    double oldSpeed = VirtualRobotServer.SPEED_MM_PER_S, oldGrip = VirtualRobotServer.GRIPPER_SECONDS;
+    VirtualRobotServer.SPEED_MM_PER_S = 100;
+    VirtualRobotServer.GRIPPER_SECONDS = 0.05;
+    try {
+      String[] reply = new String[1];
+      // a long script: pick up red, then wander for about ten seconds more
+      Thread mover = new Thread(() -> reply[0] = robot.execute(
+          "gbh move x120,y150,z60,s-90,t0,g0;z15;g1;z80;x500,y500;x0,y0;x500,y500"));
+      mover.start();
+      Thread.sleep(2500);   // mid-script, red in hand or on its way
+      assertTrue(mover.isAlive());
+      long t0 = System.nanoTime();
+      robot.resetWorld();
+      assertTrue("reset must not wait for the script", (System.nanoTime() - t0) / 1e9 < 2);
+      mover.join(5000);
+      assertTrue(!mover.isAlive());
+      assertTrue(reply[0], reply[0].startsWith("4 9 "));
+      assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
+      assertTrue(w.getPose().open);
+      assertEquals(World.OPEN_GAP, w.snapshot().fingerGap, 0);
+      Block red = find(w, "red");
+      assertEquals(120, red.getX(), 0);
+      assertEquals(150, red.getY(), 0);
+      assertEquals(0, red.getZ(), 0);
+      Thread.sleep(300);   // and nothing moves it afterwards
+      assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
+      assertEquals(120, find(w, "red").getX(), 0);
+    } finally {
+      VirtualRobotServer.SPEED_MM_PER_S = oldSpeed;
+      VirtualRobotServer.GRIPPER_SECONDS = oldGrip;
+    }
+  }
+
+  @Test
   public void adminPortResetsTheWorld() throws Exception
   {
     World w = World.withDefaultBlocks();

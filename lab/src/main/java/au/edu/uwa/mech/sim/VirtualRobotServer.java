@@ -35,6 +35,32 @@ public class VirtualRobotServer
   private final World world;
   private final Object motionLock = new Object();
   private InetAddress bound;
+  /** Set by {@link #resetWorld()} to make a move in progress stop where it is. */
+  private volatile boolean abort;
+
+  private static final class MoveAborted extends RuntimeException
+  {
+    MoveAborted() { super("move aborted", null, false, false); }
+  }
+
+  private void checkAbort()
+  {
+    if (abort)
+      throw new MoveAborted();
+  }
+
+  /**
+   * Stop any move in progress (it replies with an error) and put the world back to the
+   * start. Does not wait for the rest of a long script, only for the current step to stop.
+   */
+  public void resetWorld()
+  {
+    abort = true;
+    synchronized (motionLock) {
+      abort = false;
+      world.reset();
+    }
+  }
 
   /** The address the servers listen on: -Dtelerobot.bind, default loopback only. */
   static InetAddress bindAddress() throws IOException
@@ -84,7 +110,7 @@ public class VirtualRobotServer
       while ((line = in.readLine()) != null) {
         line = line.trim();
         if (line.equals("reset")) {
-          world.reset();
+          resetWorld();
           System.out.println("VirtualRobot: world reset");
           out.write("ok\n".getBytes(StandardCharsets.ISO_8859_1));
         } else if (!line.isEmpty()) {
@@ -182,6 +208,8 @@ public class VirtualRobotServer
           moveTo(p);
       } catch (InterruptedException e) {
         return "4 3 \"move interrupted\"";
+      } catch (MoveAborted e) {
+        return "4 9 \"Move aborted by lab reset\"";
       } finally {
         world.setPose(world.getPose(), false);
       }
@@ -209,6 +237,7 @@ public class VirtualRobotServer
     double duration = Math.max(Math.max(dist / SPEED_MM_PER_S, rot / ROTATION_DEG_PER_S), 0.3);
     long t0 = System.nanoTime();
     while (true) {
+      checkAbort();
       double f = Math.min((System.nanoTime() - t0) / 1e9 / duration, 1);
       double e = f * f * (3 - 2 * f); // ease in and out
       world.setPose(new RobotPose(lerp(start.x, target.x, e), lerp(start.y, target.y, e), lerp(start.z, target.z, e),
@@ -230,12 +259,14 @@ public class VirtualRobotServer
     double to = open ? World.OPEN_GAP : world.closedGap();
     long t0 = System.nanoTime();
     while (true) {
+      checkAbort();
       double f = Math.min((System.nanoTime() - t0) / 1e9 / GRIPPER_SECONDS, 1);
       world.setFingerGap(lerp(from, to, f));
       if (f >= 1)
         break;
       Thread.sleep(40);
     }
+    checkAbort();
     world.setPose(p.withGripper(open), true);
     if (!open)
       world.closed();
