@@ -1,0 +1,14 @@
+{
+  "poses": [
+    {"in": [149.6, 349.2, 39.4, -90.0, 0.0], "pose": "x150,y349,s-90,t0,z39", "point": "x150,y349,z39", "stateOpen": "x150,y349,s-90,t0,z39,gopen", "stateClosed": "x150,y349,s-90,t0,z39,gclosed"},
+    {"in": [250.0, 250.0, 100.0, -90.0, 0.0], "pose": "x250,y250,s-90,t0,z100", "point": "x250,y250,z100", "stateOpen": "x250,y250,s-90,t0,z100,gopen", "stateClosed": "x250,y250,s-90,t0,z100,gclosed"},
+    {"in": [120.0, 150.0, 60.0, -90.0, 0.0], "pose": "x120,y150,s-90,t0,z60", "point": "x120,y150,z60", "stateOpen": "x120,y150,s-90,t0,z60,gopen", "stateClosed": "x120,y150,s-90,t0,z60,gclosed"},
+    {"in": [330.5, 120.5, 90.5, 44.5, -44.5], "pose": "x331,y121,s45,t-44,z91", "point": "x331,y121,z91", "stateOpen": "x331,y121,s45,t-44,z91,gopen", "stateClosed": "x331,y121,s45,t-44,z91,gclosed"},
+    {"in": [-2.5, -0.5, 0.49999, -45.5, 45.5], "pose": "x-2,y0,s-45,t46,z0", "point": "x-2,y0,z0", "stateOpen": "x-2,y0,s-45,t46,z0,gopen", "stateClosed": "x-2,y0,s-45,t46,z0,gclosed"},
+    {"in": [499.99, 0.01, 250.5, 12.345, -7.89], "pose": "x500,y0,s12,t-8,z251", "point": "x500,y0,z251", "stateOpen": "x500,y0,s12,t-8,z251,gopen", "stateClosed": "x500,y0,s12,t-8,z251,gclosed"},
+    {"in": [0.0, 0.0, 0.0, 0.0, 0.0], "pose": "x0,y0,s0,t0,z0", "point": "x0,y0,z0", "stateOpen": "x0,y0,s0,t0,z0,gopen", "stateClosed": "x0,y0,s0,t0,z0,gclosed"},
+    {"in": [1.0E-9, -1.0E-9, 15.0, -89.5, 0.5], "pose": "x0,y0,s-89,t1,z15", "point": "x0,y0,z15", "stateOpen": "x0,y0,s-89,t1,z15,gopen", "stateClosed": "x0,y0,s-89,t1,z15,gclosed"},
+    {"in": [372.123456, 18.987654, 77.7, 30.000001, -29.999999], "pose": "x372,y19,s30,t-30,z78", "point": "x372,y19,z78", "stateOpen": "x372,y19,s30,t-30,z78,gopen", "stateClosed": "x372,y19,s30,t-30,z78,gclosed"},
+    {"in": [200.4999999, 360.5000001, 15.5, -0.5, -0.4999], "pose": "x200,y361,s0,t0,z16", "point": "x200,y361,z16", "stateOpen": "x200,y361,s0,t0,z16,gopen", "stateClosed": "x200,y361,s0,t0,z16,gclosed"}
+  ]
+}

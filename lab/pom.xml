@@ -59,13 +59,14 @@
         </configuration>
       </plugin>
       <plugin>
-        <!-- GeometryFixtures does not end in Test but must run: it writes webui/test/fixtures/camera.json -->
+        <!-- GeometryFixtures and PathscriptFixtures do not end in Test but must run: they write webui/test/fixtures/*.json -->
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <includes>
             <include>**/*Test.java</include>
             <include>**/GeometryFixtures.java</include>
+            <include>**/PathscriptFixtures.java</include>
           </includes>
         </configuration>
       </plugin>
