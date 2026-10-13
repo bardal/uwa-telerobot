@@ -40,6 +40,8 @@ import java.util.function.LongSupplier;
  */
 public final class Archive {
     static final int SNAPSHOTS_PER_HOUR = 10;
+    /** Chat entries archived per UTC day; past it chat still flows live but is not archived. */
+    public static final int CHATS_PER_DAY = 5000;
     static final long HOUR_MS = 3_600_000L;
     static final long MIN_ID_TIME = 1_577_836_800_000L; // 2020-01-01
     static final long MAX_ID_TIME = 4_102_444_800_000L; // 2100-01-01
@@ -62,6 +64,8 @@ public final class Archive {
     private final Map<String, StringBuilder> auditPending = new HashMap<>(); // day -> jsonl lines
     private final Map<String, Deque<Long>> snapshotTimes = new HashMap<>(); // sub -> recent snapshot times
     private final Map<String, ObjectNode> openMoves = new HashMap<>(); // moveId -> index entry
+    private final Map<String, Integer> chatsPerDay = new HashMap<>(); // day -> chat entries (stored and new)
+    private final Set<String> chatCapLogged = new HashSet<>(); // days whose chat cap has been logged
     private TreeSet<String> knownDays; // loaded from days.json; null until it has loaded
     private final Set<String> daysToAdd = new HashSet<>(); // days whose index is written but not yet in days.json
 
@@ -190,11 +194,26 @@ public final class Archive {
 
     // ---- chat ----
 
+    /**
+     * Archives a chat message; null (nothing archived) once the day holds {@value #CHATS_PER_DAY}
+     * chat entries. The chat itself still goes to everyone live; the first refusal each day is logged.
+     */
     public String chat(String nick, Identity id, String text) {
         long time = clock.getAsLong();
         String day = Keys.day(time);
         ensureLoaded(day);
         synchronized (lock) {
+            chatsPerDay.keySet().removeIf(d -> d.compareTo(day) < 0); // only today's count is needed
+            int chats = chatsPerDay.getOrDefault(day, 0);
+            if (chats >= CHATS_PER_DAY) {
+                if (chatCapLogged.add(day)) {
+                    chatCapLogged.removeIf(d -> d.compareTo(day) < 0);
+                    LOG.log(System.Logger.Level.WARNING, "archive: " + CHATS_PER_DAY + " chat messages on " + day
+                        + "; later chat that day is not archived");
+                }
+                return null;
+            }
+            chatsPerDay.put(day, chats + 1);
             String chatId = newId(time);
             ObjectNode e = MAPPER.createObjectNode();
             e.put("kind", "chat").put("id", chatId).put("time", time).put("nick", nick == null ? "" : nick);
@@ -434,6 +453,10 @@ public final class Archive {
         if (loaded == null) return;
         synchronized (lock) {
             if (days.containsKey(day)) return;
+            // chat already stored for the day (from before a restart) counts toward its cap
+            int stored = 0;
+            for (JsonNode e : loaded.get("entries")) if ("chat".equals(e.path("kind").asText())) stored++;
+            if (stored > 0) chatsPerDay.merge(day, stored, Integer::sum);
             List<ObjectNode> buffered = pending.remove(day);
             if (buffered != null) {
                 ArrayNode entries = (ArrayNode) loaded.get("entries");

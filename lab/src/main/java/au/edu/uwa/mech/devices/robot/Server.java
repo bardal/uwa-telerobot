@@ -371,7 +371,7 @@ public class Server implements MessageEventListener , TokenEventListener, PeerEv
       Server.Robotserver_Port= Integer.parseInt((String)properties.get("ControlPort"));
       Server.Position_Port    = Integer.parseInt((String)properties.get("PositionPort"));
       
-      System.out.println("Starting server with url "+url);
+      System.out.println("Starting server with url "+au.edu.uwa.mech.util.MomUrls.masked(url));
       Server server=new Server(url);
     }
     catch(Exception e){

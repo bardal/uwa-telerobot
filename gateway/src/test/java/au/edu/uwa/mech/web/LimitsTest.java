@@ -74,6 +74,39 @@ class LimitsTest {
     }
 
     @Test
+    void runTogetherTermsAsTheAppletsAppendsMakeThemAreAccepted() {
+        // Robot > Comand from cursor appends with no separator, as SimpleCommandPanel.appendTextCommand does
+        String live = "x200,y300,z60,s-90,t0,g0;z20;g1;z120x379,y430,s-90,t0,z100";
+        for (String s : new String[] {live, "z120x379", "x1y2z3", "rx10ry-5", "tfx10", "x1.5y2", "gopenx10"}) {
+            Limits.Verdict v = limits.checkScript(s);
+            assertTrue(v.ok(), s + " -> " + v.reason());
+        }
+        // what PathScript makes of the live string: the appended pose joins the last waypoint
+        java.util.List<au.edu.uwa.mech.sim.RobotPose> path = au.edu.uwa.mech.sim.PathScript.parse(live,
+            new au.edu.uwa.mech.sim.RobotPose(0, 0, 0, 0, 0, true));
+        assertEquals(4, path.size());
+        assertEquals(379, path.get(3).x, 1e-9);
+
+        // the applet's own builders, appended one after another to whatever is already there
+        au.edu.uwa.mech.maths.Pose3d pose = new au.edu.uwa.mech.maths.Pose3d(379.4, 430.2, 100, -90, 0);
+        String appended = "x120,y150,z60;g1" + au.edu.uwa.mech.devices.robot.MMoveCommand.poseAsGBHString(pose)
+            + au.edu.uwa.mech.devices.robot.MMoveCommand.pointAsGBHString(new au.edu.uwa.mech.maths.Point3d(10, -20, 30))
+            + au.edu.uwa.mech.devices.robot.MMoveCommand.stateAsGBHString(
+                new au.edu.uwa.mech.devices.robot.RobotState(pose, au.edu.uwa.mech.devices.robot.Gripper.newClosed()))
+            + "gclose" + "gopen";
+        assertTrue(limits.checkScript(appended).ok(), appended + " -> " + limits.checkScript(appended).reason());
+    }
+
+    @Test
+    void theScannerRefusesWhatPathScriptWouldIgnore() {
+        for (String s : new String[] {"X10", "x", "x+", "x1.", "r", "rg1", "O", "x10.5.3", "z120x379q", "x1&y2", "é"}) {
+            assertFalse(limits.checkScript(s).ok(), s);
+        }
+        assertEquals("z120x379q", Limits.unrecognisedTerm("x1;z120x379q;y2"));
+        assertNull(Limits.unrecognisedTerm("x1;z120x379;y2"));
+    }
+
+    @Test
     void unknownTermsAreRefusedNamingTheTerm() {
         assertTrue(limits.checkScript("x1;y2;foo").reason().contains("'foo'"));
         assertTrue(limits.checkScript("<script>").reason().contains("'<script>'"));
@@ -156,6 +189,20 @@ class LimitsTest {
         now += 1;
         assertTrue(limits.allow("snapshot"));
         assertFalse(limits.allow("snapshot"));
+    }
+
+    @Test
+    void cameraRequestsAreOneASecondWithABurstOfThree() {
+        for (int i = 0; i < 3; i++) assertTrue(limits.allow("camera"), "burst " + i);
+        assertFalse(limits.allow("camera"));
+        now += 999;
+        assertFalse(limits.allow("camera"));
+        now += 1;
+        assertTrue(limits.allow("camera"));
+        assertFalse(limits.allow("camera"));
+        now += 10_000; // refills to the burst, no further
+        for (int i = 0; i < 3; i++) assertTrue(limits.allow("camera"), "refilled " + i);
+        assertFalse(limits.allow("camera"));
     }
 
     @Test

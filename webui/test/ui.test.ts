@@ -224,6 +224,85 @@ describe('menus', () => {
     expect(document.querySelector('.awt-dialog')).toBeNull();
   });
 
+  describe('Admin menu', () => {
+    const adminTitle = (root: HTMLElement) =>
+      [...root.querySelectorAll('.menu-title')].find((t) => t.textContent === 'Admin') as HTMLElement;
+    const button = (label: string) =>
+      [...document.querySelectorAll('.awt-dialog button')].find((b) => b.textContent === label) as HTMLButtonElement;
+
+    it('is hidden before welcome and for guests and registered users', () => {
+      for (const level of ['guest', 'registered'] as const) {
+        const { p } = page();
+        expect(p.menuBar.labels()).not.toContain('Admin');
+        expect(adminTitle(p.el).closest('.menu')!.hasAttribute('hidden')).toBe(true);
+        p.handle({ ...welcome, level } as Out);
+        expect(p.menuBar.labels(), level).toEqual(['Connection', 'Robot', 'Images', 'Workspace', 'Help']);
+        expect(adminTitle(p.el).closest('.menu')!.hasAttribute('hidden')).toBe(true);
+        p.dispose();
+        document.body.replaceChildren();
+      }
+    });
+
+    it('shows for an admin, and goes again if a later welcome is not an admin', () => {
+      const { p } = page();
+      p.handle({ ...welcome, level: 'admin' } as Out);
+      expect(p.menuBar.labels()).toEqual(['Connection', 'Robot', 'Images', 'Workspace', 'Help', 'Admin']);
+      expect(menuLabels(p.el, 'Admin')).toEqual(['Kick user…', 'Ban user…', 'Reset lab']);
+      p.handle({ ...welcome, level: 'guest' } as Out);
+      expect(p.menuBar.labels()).not.toContain('Admin');
+    });
+
+    it('Kick and Ban ask for a nick in a page dialog and send it; a bad nick is refused in the dialog', () => {
+      const { p, sent } = page();
+      const prompt = vi.fn();
+      vi.stubGlobal('prompt', prompt); // never used: the dialog is in the page (CSP-safe, no window.prompt)
+      p.handle({ ...welcome, level: 'admin' } as Out);
+      sent.length = 0;
+
+      menuItem(p.el, 'Admin', 'Kick user…').click();
+      const field = document.querySelector('.awt-dialog input[aria-label="nickname of user"]') as HTMLInputElement;
+      expect(document.querySelector('.awt-dialog')!.textContent).toContain('Kick user');
+      field.value = '<script>';
+      button('Kick').click();
+      expect(sent).toEqual([]);
+      expect(document.querySelector('.awt-dialog [role="alert"]')!.textContent).toMatch(/1 to 20/);
+      field.value = '  ann~2 ';
+      button('Kick').click();
+      expect(sent).toEqual([{ t: 'admin', action: 'kick', nick: 'ann~2' }]);
+      expect(document.querySelector('.awt-dialog')).toBeNull();
+
+      menuItem(p.el, 'Admin', 'Ban user…').click();
+      (document.querySelector('.awt-dialog input') as HTMLInputElement).value = 'bob the builder';
+      button('Ban').click();
+      expect(sent.at(-1)).toEqual({ t: 'admin', action: 'ban', nick: 'bob the builder' });
+
+      menuItem(p.el, 'Admin', 'Ban user…').click();
+      (document.querySelector('.awt-dialog input') as HTMLInputElement).value = 'a'.repeat(21);
+      button('Ban').click();
+      expect(sent).toHaveLength(2);
+      button('Cancel').click();
+      expect(document.querySelector('.awt-dialog')).toBeNull();
+      expect(sent).toHaveLength(2);
+      expect(prompt).not.toHaveBeenCalled();
+    });
+
+    it('Reset lab asks first, then sends reset; the results are console lines', () => {
+      const { p, sent } = page();
+      p.handle({ ...welcome, level: 'admin' } as Out);
+      sent.length = 0;
+      menuItem(p.el, 'Admin', 'Reset lab').click();
+      expect(document.querySelector('.awt-dialog')!.textContent).toContain('Really reset the lab?');
+      button('No').click();
+      expect(sent).toEqual([]);
+      menuItem(p.el, 'Admin', 'Reset lab').click();
+      button('Yes').click();
+      expect(sent).toEqual([{ t: 'admin', action: 'reset' }]);
+      p.handle({ t: 'console', text: 'The lab has been reset' });
+      p.handle({ t: 'error', code: 'bad-message', message: 'no such user' });
+      expect(p.console.text()).toContain('The lab has been reset\nno such user\n');
+    });
+  });
+
   it('the popup robot moves are enabled only in control', () => {
     const { p, sent } = page();
     expect(p.popup.title).toBe('Robot <-> Cursor');

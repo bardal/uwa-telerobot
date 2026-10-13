@@ -122,6 +122,10 @@ public final class Session implements MomBridge.Listener {
                     refuse("unauthorised", "you are banned");
                     return;
                 }
+                if (id.level() != Identity.Level.ADMIN && Nicks.reserved(wanted)) {
+                    refuse("bad-message", "That nickname is reserved");
+                    return;
+                }
                 String pin = registry.pin(id.level());
                 if (pin == null) {
                     LOG.warn("no MOM PIN configured for {}", MomBridge.account(id.level()));
@@ -267,9 +271,10 @@ public final class Session implements MomBridge.Listener {
             case In.TakeControl t -> run(b::takeControl);
             case In.Release r -> run(b::release);
             case In.Chat c -> chat(b, c);
-            case In.SelectCamera s -> selectCamera(b, s);
-            case In.CameraSettings s -> cameraSettings(b, s);
-            case In.NewImage n -> knownCamera(b, n.camera()) && run(() -> b.newImage(n.camera()));
+            // each of these makes the camera server work (a photo, new settings, a settings fetch)
+            case In.SelectCamera s -> allow("camera") && selectCamera(b, s);
+            case In.CameraSettings s -> allow("camera") && cameraSettings(b, s);
+            case In.NewImage n -> allow("camera") && knownCamera(b, n.camera()) && run(() -> b.newImage(n.camera()));
             case In.WorkspaceAdd w -> workspaceAdd(b, w);
             case In.WorkspaceDelete w -> workspaceDelete(b, w);
             case In.ArchiveImages a -> archiveImages(b);

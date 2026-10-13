@@ -19,10 +19,6 @@ public final class Limits {
     public static final int REJECTIONS_TO_CLOSE = 20;
     public static final long REJECTION_WINDOW_MILLIS = 60_000;
 
-    private static final Pattern TERM_SPLIT = Pattern.compile("[;, \t\r\n]+");
-    /** Terms PathScript understands: axis values (optionally relative), tilt presets, gripper words, bare o/c. */
-    private static final Pattern TERM = Pattern.compile(
-        "r?[xyzst][+-]?\\d+(\\.\\d+)?|t[fvb]|g[A-Za-z0-9]*|[oOcC]");
     private static final Pattern NICK = Pattern.compile("[A-Za-z0-9 _.-]{1,20}");
     private static final RobotPose ORIGIN = new RobotPose(0, 0, 0, 0, 0, true);
 
@@ -39,6 +35,7 @@ public final class Limits {
         "command", new Spec(10, 5 / 1000.0),             // 5 a second, burst of 10
         "activity", new Spec(2, 2 / 1000.0),             // 2 a second
         "snapshot", new Spec(10, 10 / 3_600_000.0),      // 10 an hour
+        "camera", new Spec(3, 1 / 1000.0),               // newImage, cameraSettings, selectCamera: 1 a second, burst of 3
         "any", new Spec(60, 30 / 1000.0));               // backstop for every message
 
     private static final class Bucket {
@@ -73,11 +70,9 @@ public final class Limits {
     public Verdict checkScript(String s) {
         if (s == null || s.isBlank()) return Verdict.refuse("script is empty");
         if (s.length() > MAX_SCRIPT_CHARS) return Verdict.refuse("script is longer than " + MAX_SCRIPT_CHARS + " characters");
-        // PathScript ignores what it does not recognise, so check every term against the forms it accepts.
-        for (String term : TERM_SPLIT.split(s)) {
-            if (!term.isEmpty() && !TERM.matcher(term).matches())
-                return Verdict.refuse("script: unrecognised term '" + printable(term) + "'");
-        }
+        // PathScript ignores what it does not recognise, so every character must belong to a term it reads.
+        String bad = unrecognisedTerm(s);
+        if (bad != null) return Verdict.refuse("script: unrecognised term '" + printable(bad) + "'");
         List<RobotPose> path;
         try {
             path = PathScript.parse(s, ORIGIN);
@@ -87,6 +82,92 @@ public final class Limits {
         if (path.isEmpty()) return Verdict.refuse("script has no waypoints");
         if (path.size() > MAX_WAYPOINTS) return Verdict.refuse("script has more than " + MAX_WAYPOINTS + " waypoints");
         return Verdict.ok(s);
+    }
+
+    /**
+     * Scans a script with PathScript's grammar and returns the first term it would not read (from
+     * the bad character's term start to the next separator), or null when every term is one it acts
+     * on. Terms may run together, as the applet's appends make them ({@code z120x379}):
+     * <ul>
+     *   <li>separators: {@code ; , space tab CR LF};</li>
+     *   <li>{@code r} (relative) before an axis {@code x y z s t};</li>
+     *   <li>{@code x y z s}: an optional sign, digits, an optional decimal fraction;</li>
+     *   <li>{@code t}: {@code f}, {@code v} or {@code b}, or a number as above;</li>
+     *   <li>{@code g}, or a bare {@code o} or {@code c}, then any letters and digits (gopen, g0, close),
+     *       which PathScript skips just as it does.</li>
+     * </ul>
+     */
+    static String unrecognisedTerm(String s) {
+        int n = s.length();
+        int termStart = 0;
+        for (int i = 0; i < n; ) {
+            char c = s.charAt(i);
+            if (SEPARATORS.indexOf(c) >= 0) {
+                i++;
+                termStart = i;
+                continue;
+            }
+            int end = term(s, i);
+            if (end < 0) {
+                int stop = termStart;
+                while (stop < n && SEPARATORS.indexOf(s.charAt(stop)) < 0) stop++;
+                return s.substring(termStart, stop);
+            }
+            i = end;
+        }
+        return null;
+    }
+
+    private static final String SEPARATORS = ";, \t\r\n";
+
+    /** The end of the term starting at {@code i}, or -1 if PathScript would not read one there. */
+    private static int term(String s, int i) {
+        int n = s.length();
+        char c = s.charAt(i);
+        if (c == 'r') {
+            i++;
+            if (i >= n || "xyzst".indexOf(s.charAt(i)) < 0) return -1;
+            c = s.charAt(i);
+        }
+        switch (c) {
+            case 'x', 'y', 'z', 's' -> {
+                return number(s, i + 1);
+            }
+            case 't' -> {
+                if (i + 1 < n && "fvb".indexOf(s.charAt(i + 1)) >= 0) return i + 2;
+                return number(s, i + 1);
+            }
+            case 'g', 'o', 'c' -> {
+                i++;
+                while (i < n && isAsciiLetterOrDigit(s.charAt(i))) i++;
+                return i;
+            }
+            default -> {
+                return -1;
+            }
+        }
+    }
+
+    /** An optional sign, at least one digit, then an optional {@code .digits}; the end, or -1. */
+    private static int number(String s, int i) {
+        int n = s.length();
+        if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-')) i++;
+        int digits = i;
+        while (i < n && isAsciiDigit(s.charAt(i))) i++;
+        if (i == digits) return -1;
+        if (i + 1 < n && s.charAt(i) == '.' && isAsciiDigit(s.charAt(i + 1))) {
+            i++;
+            while (i < n && isAsciiDigit(s.charAt(i))) i++;
+        }
+        return i;
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    private static boolean isAsciiLetterOrDigit(char c) {
+        return isAsciiDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
     }
 
     private static String printable(String t) {

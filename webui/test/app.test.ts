@@ -66,6 +66,8 @@ function deps(extra: Partial<AppDeps> = {}): AppDeps {
     storage: () => ({ getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }) as unknown as Storage,
     turnstileToken: async () => 'tok',
     makeGateway: (u, hl, o) => new FakeGateway(u, hl, o),
+    // no real requests: apps from earlier tests still follow hashchange (e.g. to #/history)
+    fetchImpl: (async () => new Response('', { status: 404 })) as unknown as typeof fetch,
     ensureAwake: async (getProof, onProgress) => {
       await getProof();
       onProgress(wakeResult);
@@ -214,6 +216,30 @@ describe('app flow', () => {
     expect(app.login.console.text()).toContain('Turnstile check failed');
   });
 
+  it('a kicked or banned session goes back to the login page and does not reconnect', async () => {
+    const { app, g } = await loggedIn();
+    g.emit(welcome('ann'));
+    g.emit({ t: 'error', code: 'unauthorised', message: 'removed by an administrator' });
+    g.opts.onClose!();
+    await flush();
+    expect(app.view()).toBe('login');
+    expect(g.closed).toBe(true);
+    expect(g.reconnects).toBe(0);
+    expect(app.login.console.text()).toContain('removed by an administrator');
+  });
+
+  it('an unauthorised refusal that does not close the socket is only a console line', async () => {
+    const { app, g } = await loggedIn();
+    g.emit(welcome('ann'));
+    g.emit({ t: 'error', code: 'unauthorised', message: 'that point is not yours' });
+    g.emit({ t: 'users', nicks: ['ann'] });
+    expect(app.view()).toBe('control');
+    g.opts.onClose!(); // a later, unrelated drop: the usual wake and reconnect
+    await flush();
+    expect(app.view()).not.toBe('login');
+    expect(g.reconnects).toBe(1);
+  });
+
   it('Logout returns to the login page', async () => {
     const { app, g } = await loggedIn();
     g.emit(welcome('ann'));
@@ -225,13 +251,17 @@ describe('app flow', () => {
   });
 
   it('routes #/history to the History page', async () => {
+    // History fetches its index: a stub, so no real request goes out
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ days: [] }))) as unknown as typeof fetch;
     const root = document.createElement('div');
-    const app = startApp(root, deps());
+    const app = startApp(root, deps({ fetchImpl }));
     await app.ready;
     globalThis.location.hash = '#/history';
     globalThis.dispatchEvent(new Event('hashchange'));
     expect(app.view()).toBe('history');
     expect(root.querySelector('.history-page')).not.toBeNull();
+    await flush();
+    expect(fetchImpl).toHaveBeenCalled();
   });
 
   it('History reads static files only: no wake, no gateway, no Delete when logged out', async () => {

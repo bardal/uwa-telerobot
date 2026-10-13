@@ -144,6 +144,31 @@ class ArchiveTest {
     }
 
     @Test
+    void atMost5000ChatsADayAreArchivedThenTheNextDayStartsAfresh() throws IOException {
+        for (int i = 0; i < Archive.CHATS_PER_DAY; i++) {
+            assertNotNull(archive.chat("ann", ann, "c" + i), "chat " + i);
+            now += 1;
+        }
+        assertNull(archive.chat("ann", ann, "one too many"), "the 5001st is not archived");
+        assertNull(archive.chat("ann", ann, "nor the next"));
+        // moves and snapshots are not chat: they are still archived
+        assertTrue(archive.snapshot("ann", ann, Map.of(), new RobotState()).isPresent());
+        archive.flush();
+        JsonNode entries = readJson("public/index/2026-10-13.json").get("entries");
+        long chats = 0;
+        for (JsonNode e : entries) if ("chat".equals(e.get("kind").asText())) chats++;
+        assertEquals(Archive.CHATS_PER_DAY, chats);
+
+        // a restarted gateway counts the day's stored chat
+        Archive again = new Archive(store, () -> now, 5_000_000_000L, new Random(7));
+        assertNull(again.chat("ann", ann, "after a restart"), "the stored 5000 count toward the cap");
+
+        now = OCT_13 + 24 * HOUR; // the next UTC day
+        assertNotNull(archive.chat("ann", ann, "a new day"));
+        assertNotNull(again.chat("ann", ann, "a new day, too"));
+    }
+
+    @Test
     void hostileNickAndScriptLeaveNoTraceInKeys() throws IOException {
         String id = archive.startMove("../../x", Level.GUEST, ann, "a/b/../c", three(5), new RobotState());
         archive.finishMove(id, "done", new RobotState(), three(5));

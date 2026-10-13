@@ -91,12 +91,15 @@ public final class Idle {
         return sessions.size();
     }
 
-    /** When the idle timer started: the last session's end, or construction if none has ended. */
+    /**
+     * When the idle timer started: the last session's end, or construction if none has ended (the
+     * heartbeat's {@code lastSessionEnd}, so the reaper measures from this boot).
+     */
     public synchronized long lastSessionEnd() {
         return lastSessionEnd;
     }
 
-    /** When the last session ended, or 0 if none has (the heartbeat's {@code lastSessionEnd}). */
+    /** When the last session ended, or 0 if none has. */
     public synchronized long endedAt() {
         return anyEnded ? lastSessionEnd : 0;
     }

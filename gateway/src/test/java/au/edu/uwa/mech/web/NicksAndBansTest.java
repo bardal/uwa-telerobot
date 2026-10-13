@@ -24,6 +24,18 @@ class NicksAndBansTest {
     }
 
     @Test
+    void reservedNicksIgnoreCaseSpacesDotsUnderscoresAndDashes() {
+        for (String n : List.of("admin", "Administrator", "BARNEY", "robot", "camera", "team", "guest", "registered",
+            "system", "moderator", "Ad.Min", "ro_bot", "sys tem", "-camera-", "M.O.D.E.R.A.T.O.R", " admin ")) {
+            assertTrue(Nicks.reserved(n), n);
+        }
+        for (String n : List.of("admin2", "robots", "barney d", "alice", "team~2x", "")) {
+            assertFalse(Nicks.reserved(n), n);
+        }
+        assertFalse(Nicks.reserved(null));
+    }
+
+    @Test
     void chatIdsAreTheSameInEverySession() {
         assertEquals(Session.chatId("ann", "hi", 1000), Session.chatId("ann", "hi", 1000));
         assertTrue(Session.chatId("ann", "hi", 1000).matches("1000-[0-9a-z]{4}"));

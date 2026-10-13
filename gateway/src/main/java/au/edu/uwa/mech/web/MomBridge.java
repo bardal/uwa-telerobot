@@ -660,6 +660,12 @@ public final class MomBridge {
             sendAndReceive(getPacketFactory().existsRequest(SYNC), SYNC_MILLIS);
         }
 
+        /** Whether MOM has a context at this full path (one bounded round trip). */
+        boolean exists(ContextURL context) throws MOMException {
+            Object reply = sendAndReceive(getPacketFactory().existsRequest(context), SYNC_MILLIS);
+            return reply instanceof MOMPacket p && p.getArg() != null;
+        }
+
         void forceDisconnect() {
             try {
                 connection.disconnect();

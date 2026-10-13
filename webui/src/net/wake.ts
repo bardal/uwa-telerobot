@@ -48,12 +48,13 @@ async function getStatus(fetchImpl: typeof fetch): Promise<StatusBody | null> {
   }
 }
 
+/** The gateway is up and its lab is ready for sessions (MOM, the robot proxy and the cameras). */
 async function healthy(fetchImpl: typeof fetch): Promise<boolean> {
   try {
     const res = await timedFetch(fetchImpl, '/healthz', { cache: 'no-store' });
     if (!res.ok) return false;
-    const b = (await res.json()) as { ok?: unknown };
-    return b.ok === true;
+    const b = (await res.json()) as { ok?: unknown; lab?: unknown };
+    return b.ok === true && b.lab === 'ready';
   } catch {
     return false;
   }

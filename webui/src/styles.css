@@ -351,23 +351,31 @@ textarea[readonly] {
   display: block;
 }
 
+/* on, width, height, zoom, quality, fixed and the buttons: one line down to a 700 px window;
+   narrower, the settings wrap as a group beside "on" (never "on" alone on a line) */
 .camera-controls {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: 2px 6px;
+  flex-wrap: nowrap;
+  gap: 2px 4px;
   padding-top: 4px;
   flex: 0 0 auto;
 }
 
 .cam-settings {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
   align-items: flex-end;
   gap: 2px;
   min-width: 0;
+}
+
+@media (max-width: 699px) {
+  .cam-settings {
+    flex-wrap: wrap;
+  }
 }
 
 .cam-cell {
@@ -378,7 +386,7 @@ textarea[readonly] {
 }
 
 .cam-cell .num-field {
-  width: 5em;
+  width: 3.6em; /* "4096" and "0.75" fit */
 }
 
 .cam-buttons {
@@ -586,7 +594,7 @@ a.back-link {
 .history-nick { font-weight: bold; }
 .history-text { overflow-wrap: anywhere; white-space: pre-wrap; }
 .history-thumbs { display: inline-flex; gap: 4px; margin: 4px 8px 0 0; }
-.history-thumb { width: 120px; height: auto; border: 1px solid #000; cursor: zoom-in; background: #000; }
+.history-thumb { width: 120px; height: 90px; object-fit: contain; border: 1px solid #000; cursor: zoom-in; background: #c0c0c0; }
 .history-viewer { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.8); cursor: zoom-out; z-index: 20; }
 .history-viewer[hidden] { display: none; }
 .history-full { max-width: 96vw; max-height: 96vh; }

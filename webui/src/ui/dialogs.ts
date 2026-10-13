@@ -28,6 +28,41 @@ export function confirmDialog(message: string, yes: () => void, no: () => void =
   return d.el;
 }
 
+/** A nickname as the gateway accepts it, or as it de-duplicates one ("ann~2"). */
+export const TARGET_NICK = /^[A-Za-z0-9 _.-]{1,20}(~\d{1,4})?$/;
+
+/**
+ * Asks for the nick of a user to act on (the Admin menu's Kick and Ban). An invalid nick keeps the
+ * dialog open with a note; OK with a valid one closes it and calls {@code ok} with the trimmed nick.
+ */
+export function nickDialog(title: string, okLabel: string, ok: (nick: string) => void): HTMLElement {
+  const nickF = h('input', { type: 'text', class: 'awt-text', size: 20, maxlength: 25, 'aria-label': 'nickname of user' });
+  const note = h('span', { class: 'awt-label dialog-note', role: 'alert' });
+  let d: { el: HTMLElement; close: () => void } | null = null;
+  const submit = () => {
+    const nick = nickF.value.trim();
+    if (!TARGET_NICK.test(nick)) {
+      note.textContent = 'A nickname is 1 to 20 letters, digits, spaces, _ . or -';
+      nickF.focus();
+      return;
+    }
+    d?.close();
+    ok(nick);
+  };
+  const bOk = button(okLabel, submit);
+  const bCancel = button('Cancel', () => d?.close());
+  nickF.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+  });
+  d = modal(
+    title,
+    h('div', { class: 'dialog-row' }, h('span', { class: 'awt-label', text: 'nickname' }), nickF, bOk, bCancel),
+    h('div', { class: 'dialog-row' }, note),
+  );
+  nickF.focus();
+  return d.el;
+}
+
 function intField(value: string, label: string, size = 5): HTMLInputElement {
   return h('input', { type: 'text', class: 'awt-text', size, value, 'aria-label': label, inputmode: 'numeric' });
 }

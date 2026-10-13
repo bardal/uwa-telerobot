@@ -95,6 +95,43 @@ class LeaseAndDeadlineTest {
         assertFalse(r.closed.isDone());
     }
 
+    /** Counts the server's pings and answers each with a pong, as browsers do. */
+    public static class PingRecorder extends GatewayServerTest.Recorder {
+        final java.util.concurrent.atomic.AtomicInteger pings = new java.util.concurrent.atomic.AtomicInteger();
+
+        @Override public void onWebSocketPing(java.nio.ByteBuffer payload) {
+            pings.incrementAndGet();
+            session.sendPong(payload, org.eclipse.jetty.websocket.api.Callback.NOOP);
+        }
+    }
+
+    @Test
+    void everyOpenSocketIsPingedOnTheIntervalAndThePongsAreHarmless() throws Exception {
+        start(new GatewayServer.Timing(10_000, 15_000, 1_000, 150));
+        PingRecorder r = new PingRecorder();
+        java.util.concurrent.atomic.AtomicInteger pings = r.pings;
+        ClientUpgradeRequest req = new ClientUpgradeRequest();
+        req.setHeader("Origin", ORIGIN);
+        req.setHeader("X-Telerobot-Origin", SECRET);
+        client.connect(r, URI.create("ws://127.0.0.1:" + server.port() + "/ws"), req).get(5, TimeUnit.SECONDS);
+        r.session.sendText("{\"t\":\"hello\",\"nick\":\"bob\"}", org.eclipse.jetty.websocket.api.Callback.NOOP);
+        assertNotNull(r.texts.poll(5, TimeUnit.SECONDS));
+        Thread.sleep(1_000);
+        assertTrue(pings.get() >= 4, "about one ping every 150 ms: " + pings.get());
+        assertFalse(r.closed.isDone(), "pongs do not upset the session");
+        assertEquals(1, server.sessions());
+        r.session.close();
+        awaitSessions(0);
+        int after = pings.get();
+        Thread.sleep(500);
+        assertEquals(after, pings.get(), "no pings once the socket is closed");
+    }
+
+    @Test
+    void theDefaultPingIntervalIsThirtySeconds() {
+        assertEquals(30_000, GatewayServer.Timing.DEFAULT.pingMillis());
+    }
+
     @Test
     void refusalBodiesNameNoCheck() throws Exception {
         start(GatewayServer.Timing.DEFAULT);

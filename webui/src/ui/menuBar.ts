@@ -8,10 +8,13 @@ import { buildMenuList, type MenuItemHandle, type MenuItemSpec } from './popupMe
 export interface MenuSpec {
   label: string;
   items: MenuItemSpec[];
+  /** Start hidden (shown later with setVisible). */
+  hidden?: boolean;
 }
 
 interface Menu {
   label: string;
+  wrap: HTMLElement;
   title: HTMLElement;
   list: HTMLElement;
   handles: MenuItemHandle[];
@@ -31,7 +34,8 @@ export class MenuBar {
       list.setAttribute('aria-label', spec.label);
       list.hidden = true;
       const wrap = h('div', { class: 'menu' }, title, list);
-      const menu: Menu = { label: spec.label, title, list, handles };
+      wrap.hidden = spec.hidden === true;
+      const menu: Menu = { label: spec.label, wrap, title, list, handles };
       title.addEventListener('click', (e) => {
         e.stopPropagation();
         if (this.open === menu) this.close();
@@ -55,9 +59,16 @@ export class MenuBar {
     if (e.key === 'Escape') this.close();
   };
 
-  /** Menu titles, left to right. */
+  /** Titles of the menus shown, left to right. */
   labels(): string[] {
-    return this.menus.map((m) => m.label);
+    return this.menus.filter((m) => !m.wrap.hidden).map((m) => m.label);
+  }
+
+  /** Shows or hides a whole menu (its title and drop-down). */
+  setVisible(label: string, visible: boolean): void {
+    const m = this.menu(label);
+    if (!visible && this.open === m) this.close();
+    m.wrap.hidden = !visible;
   }
 
   /** The items of a menu, in order (separators left out). */

@@ -1,5 +1,6 @@
 package au.edu.uwa.mech.web;
 
+import au.edu.uwa.mech.sim.VirtualLab;
 import au.edu.uwa.mech.util.SerialFilter;
 import au.edu.uwa.mech.web.archive.Archive;
 import au.edu.uwa.mech.web.archive.ArchiveStore;
@@ -140,13 +141,26 @@ public final class Main {
         SessionRegistry registry = new SessionRegistry(config, auth, new Bans(params), idle, clock, archive);
         GatewayServer server = new GatewayServer(config, registry, clock);
         if (archive != null) server.setDevFlush(archive::flush);
-        Heartbeat heartbeat = new Heartbeat(params, clock, idle::sessions, idle::endedAt, config.commit());
+        LabProbe labProbe = new LabProbe(LabProbe.mom(config.momUrlHost(), config.momPort(),
+            VirtualLab.defaultCameras().stream().map(c -> c.name).toList()));
+        server.setLabState(labProbe::state);
+        Heartbeat heartbeat = heartbeat(params, clock, idle, config.commit());
 
         server.start();
+        labProbe.start();
         heartbeat.tick(); // once at start, then every 60 s
-        Running running = new Running(config, server, registry, archive, s3, idle);
+        Running running = new Running(config, server, registry, archive, s3, idle, labProbe);
         running.schedule(heartbeat);
         return running;
+    }
+
+    /**
+     * The heartbeat as Main wires it: {@code lastSessionEnd} is when Idle's timer started, the last
+     * session's end or, before any has ended, the gateway's start. So after a reboot the reaper
+     * measures idleness from this boot, never from a session that ended before it (or from 0).
+     */
+    static Heartbeat heartbeat(ParamStore params, LongSupplier clock, Idle idle, String commit) {
+        return new Heartbeat(params, clock, idle::sessions, idle::lastSessionEnd, commit);
     }
 
     /** Dev mode's defaults for whatever was not given. */
@@ -194,13 +208,15 @@ public final class Main {
         private final Archive archive;
         private final S3ArchiveStore s3;
         private final Idle idle;
+        private final LabProbe labProbe;
         private final ScheduledExecutorService timers = daemonScheduler("gateway-cron");
         /** Its own thread, so a slow S3 flush or persist cannot delay the heartbeat. */
         private final ScheduledExecutorService heartbeats = daemonScheduler("gateway-heartbeat");
         private final AtomicBoolean closed = new AtomicBoolean();
 
         Running(GatewayConfig config, GatewayServer server, SessionRegistry registry, Archive archive,
-                S3ArchiveStore s3, Idle idle) {
+                S3ArchiveStore s3, Idle idle, LabProbe labProbe) {
+            this.labProbe = labProbe;
             this.config = config;
             this.server = server;
             this.registry = registry;
@@ -258,6 +274,7 @@ public final class Main {
             if (!closed.compareAndSet(false, true)) return;
             timers.shutdownNow();
             heartbeats.shutdownNow();
+            step("lab probe", labProbe::close);
             step("lab stopping", () -> registry.broadcast(new Out.Lab("stopping", "The lab is stopping")));
             if (archive != null) step("archive flush", archive::flush);
             step("closing sessions", registry::shutdown);

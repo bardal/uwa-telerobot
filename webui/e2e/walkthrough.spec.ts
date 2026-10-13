@@ -59,6 +59,17 @@ test('walkthrough: guest login, images, control, cursor drag, command from curso
   await expect.poll(() => positionLine(page)).toEqual({ moving: false, x: 330, y: 120, z: 90 });
   await shot(page, 'walkthrough-6-pick-and-place');
 
+  // Comand from cursor appends to the script with no separator, as the applet does
+  // ("...;z90x320,y180,..."): the gateway accepts the run-together terms and the arm goes there
+  await menu(page, 'Robot', 'Comand from cursor');
+  await expect(page.getByLabel('Command editor')).toHaveValue(/z90x\d+,y\d+,s-?\d+,t-?\d+,z\d+$/);
+  await runScript(page);
+  await expect.poll(async () => {
+    const s = await robotState(page);
+    return s && !s.moving ? dist(s, cursor) : Infinity;
+  }, { timeout: 60_000 }).toBeLessThan(3);
+  await shot(page, 'walkthrough-7-appended-command');
+
   await release(page);
   // the whole journey, Turnstile included, ran inside the policy
   expect(await cspViolations(page)).toEqual([]);

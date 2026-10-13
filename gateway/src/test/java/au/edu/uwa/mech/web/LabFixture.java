@@ -33,6 +33,11 @@ public final class LabFixture {
 
     public World world() { return lab.world(); }
 
+    /** One of the simulated cameras, as the camera server sees it: every photo it takes reaches its image listeners. */
+    public au.edu.uwa.mech.devices.camera.Camera camera(String name) throws Exception {
+        return lab.cameras().getCamera(name);
+    }
+
     /** PINs of the registered and admin accounts, keyed as {@link GatewayConfig#pins()}. */
     public Map<String, String> gatewayPins() { return lab.gatewayPins(); }
 

@@ -46,7 +46,7 @@ class GatewayServerTest {
     }
 
     /** Collects what the server sends. */
-    public static final class Recorder implements Session.Listener.AutoDemanding {
+    public static class Recorder implements Session.Listener.AutoDemanding {
         final BlockingQueue<String> texts = new LinkedBlockingQueue<>();
         final CompletableFuture<Integer> closed = new CompletableFuture<>();
         volatile Session session;

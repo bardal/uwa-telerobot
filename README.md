@@ -20,13 +20,16 @@ drive the 2000 interface again.
 You need **JDK 8** (the last JDK with `appletviewer`) and **Maven**.
 
 ```sh
-mvn package          # builds lab/target/telerobot.jar and runs the tests
+mvn package          # on JDK 8: builds lab/target/telerobot.jar and runs the tests
 ./start.sh           # or .\start.ps1 on Windows; stop with ./stop.sh / .\stop.ps1
 ```
 
 The repository is a Maven multi-module build: `lab` holds the original code, the
 simulator and the tests (it builds on JDK 8 and produces `lab/target/telerobot.jar`),
-and `gateway` is the web gateway (JDK 21). All the servers listen on `127.0.0.1`
+and `gateway` is the web gateway, which needs JDK 21. The gateway module joins the
+build only on JDK 21 or later (the root pom's `gateway` profile), so `mvn package`
+on JDK 8 builds the lab and the local applet, and on JDK 21 it builds everything,
+`gateway/target/gateway.jar` included. All the servers listen on `127.0.0.1`
 only; set `-Dtelerobot.bind=<address>` to listen elsewhere. The virtual lab also
 has an admin port (30564, same address) where the line `reset` puts the arm
 and blocks back to the start.

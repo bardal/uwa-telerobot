@@ -65,7 +65,7 @@ public class Server implements StateListener//, LoginEventListener
     try{
       ConfigFile config = new XMLConfigFile(configFile);
       momURL=config.getString("MOM", "url", defaultmomURL);
-      System.out.println(momURL);
+      System.out.println(au.edu.uwa.mech.util.MomUrls.masked(momURL));
     } catch (Exception e){
       e.printStackTrace();
       momURL=defaultmomURL;

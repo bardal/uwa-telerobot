@@ -61,6 +61,8 @@ describe('auth', () => {
     expect(u.searchParams.get('code_challenge_method')).toBe('S256');
     expect(u.searchParams.get('client_id')).toBe('cid');
     expect(u.searchParams.get('redirect_uri')).toBe('https://site.example/');
+    // exactly what the Cognito web client allows (openid and email); anything more is refused
+    expect(u.searchParams.get('scope')).toBe('openid email');
     const verifier = storage.getItem('telerobot.auth.verifier')!;
     expect(u.searchParams.get('code_challenge')).toBe(await challengeFor(verifier));
     expect(u.searchParams.get('state')).toBe(storage.getItem('telerobot.auth.state'));

@@ -92,7 +92,7 @@ export function createAuth(deps: AuthDeps) {
         response_type: 'code',
         client_id: c.clientId,
         redirect_uri: redirectUri(c),
-        scope: 'openid email profile',
+        scope: 'openid email', // the Cognito web client allows only these two
         state,
         code_challenge_method: 'S256',
         code_challenge: await challengeFor(verifier),

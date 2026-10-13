@@ -8,6 +8,43 @@ async function scaleOf(page: Page): Promise<number> {
   return (await page.evaluate((c) => window.__telerobot.cameraScale(c), COLOUR))!;
 }
 
+/**
+ * The shown camera's settings row: whether on, width, height, zoom, quality, fixed and the two
+ * buttons share one line, and whether the row stays inside the Cameras border.
+ */
+async function settingsRow(page: Page): Promise<{ oneLine: boolean; inside: boolean; detail: string }> {
+  return page.evaluate(() => {
+    const row = [...document.querySelectorAll<HTMLElement>('.camera-controls')].find((e) => e.offsetParent !== null)!;
+    const parts = [...row.querySelectorAll<HTMLElement>('.cam-cell, .cam-buttons')].map((e) => e.getBoundingClientRect());
+    const tops = parts.map((r) => Math.round(r.top));
+    const bottoms = parts.map((r) => Math.round(r.bottom));
+    const border = row.closest('.cameras-border')!.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    // one line: every part overlaps the vertical span of every other (bottom-aligned cells)
+    const oneLine = Math.max(...tops) < Math.min(...bottoms);
+    const inside = parts.every((r) => r.left >= border.left - 0.5 && r.right <= border.right + 0.5);
+    return { oneLine, inside, detail: `row ${Math.round(box.width)} px in ${Math.round(border.width)} px; tops ${tops.join(',')}` };
+  });
+}
+
+test('resize: the camera settings row stays on one line down to 700 px wide', async ({ page }) => {
+  await devLogin(page, 'rowcheck');
+  await waitForImage(page, COLOUR);
+  for (const [w, h] of [[1280, 900], [760, 560], [700, 500]] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    await settled(page, COLOUR);
+    const r = await settingsRow(page);
+    expect(r.oneLine, `at ${w}x${h}: ${r.detail}`).toBe(true);
+    expect(r.inside, `at ${w}x${h}: ${r.detail}`).toBe(true);
+    await shot(page, `resize-settings-row-${w}x${h}`);
+  }
+  // narrower still, the row wraps as a group but stays inside the border
+  await page.setViewportSize({ width: 640, height: 500 });
+  await settled(page, COLOUR);
+  const narrow = await settingsRow(page);
+  expect(narrow.inside, `at 640x500: ${narrow.detail}`).toBe(true);
+});
+
 test('resize: the canvas scales and drags still land within 3 mm', async ({ page }) => {
   await devLogin(page, 'resizer');
   await waitForImage(page, COLOUR);
