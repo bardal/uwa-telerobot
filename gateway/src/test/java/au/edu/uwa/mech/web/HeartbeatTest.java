@@ -57,6 +57,28 @@ class HeartbeatTest {
     }
 
     @Test
+    void mainReportsTheGatewayStartUntilASessionEndsThenThatEnd() throws Exception {
+        long start = now;
+        MemoryParamStore store = new MemoryParamStore();
+        Idle idle = new Idle(() -> now, () -> { });
+        Heartbeat hb = Main.heartbeat(store, () -> now, idle, "c");
+
+        now = start + 5_000;
+        assertTrue(hb.tick());
+        JsonNode j = Protocol.mapper().readTree(store.get(Heartbeat.PARAM).orElseThrow());
+        assertEquals(start, j.get("lastSessionEnd").asLong(), "no session yet: idle since the gateway started, not 0");
+
+        idle.opened("s1");
+        now = start + 70_000;
+        idle.closed("s1");
+        now = start + 130_000;
+        assertTrue(hb.tick());
+        j = Protocol.mapper().readTree(store.get(Heartbeat.PARAM).orElseThrow());
+        assertEquals(start + 70_000, j.get("lastSessionEnd").asLong(), "then the last session's end");
+        assertEquals(0, j.get("sessions").asInt());
+    }
+
+    @Test
     void aFailedWriteIsRetriedOnTheNextTick() {
         List<String> writes = new ArrayList<>();
         boolean[] fail = {true};

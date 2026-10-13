@@ -66,6 +66,13 @@ class MainDevIT {
         try {
             JsonNode health = json(get(dev.port(), "/healthz"));
             assertTrue(health.get("ok").asBoolean(), health.toString());
+            // the probe finds the robot and the cameras in MOM within a check or two
+            long end = System.currentTimeMillis() + 20_000;
+            while (!"ready".equals(health.get("lab").asText()) && System.currentTimeMillis() < end) {
+                Thread.sleep(100);
+                health = json(get(dev.port(), "/healthz"));
+            }
+            assertEquals("ready", health.get("lab").asText(), health.toString());
             assertEquals("running", json(get(dev.port(), "/api/status")).get("state").asText());
 
             JsonNode welcome = hello(dev.port(), null, "welcome");

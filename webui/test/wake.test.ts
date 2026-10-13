@@ -47,6 +47,23 @@ describe('ensureAwake', () => {
     expect(seen.at(-1)).toEqual({ kind: 'running' });
   });
 
+  it('a gateway whose lab is still starting is not running yet', async () => {
+    let polls = 0;
+    const { f } = fakeFetch((url) => {
+      if (url === '/api/status') return json({ state: 'running', healthy: false, commit: 'a' });
+      polls++;
+      if (polls === 1) return json({ ok: true, sessions: 0, commit: 'a', lab: 'starting' });
+      if (polls === 2) return json({ ok: true, sessions: 0, commit: 'a' }); // no lab field: not ready either
+      return healthzOk();
+    });
+    const seen: WakeState[] = [];
+    const p = ensureAwake(f, proof, (s) => seen.push(s));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await p).toEqual({ kind: 'running' });
+    expect(polls).toBe(3);
+    expect(seen.filter((s) => s.kind === 'running')).toHaveLength(1);
+  });
+
   it('sends the idToken when that is the proof', async () => {
     const { f, calls } = fakeFetch((url) => {
       if (url === '/api/status') return json({ state: 'stopped', healthy: false, commit: null });
