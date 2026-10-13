@@ -2,7 +2,6 @@ package au.edu.uwa.mech.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
@@ -226,12 +225,32 @@ class HostileIT {
         return o;
     }
 
+    /**
+     * The server closed a flooding client. The close frame it sends can be lost to a TCP reset when the client
+     * is still writing (the client then reports 1006 instead of 1008), so accept either code and confirm on
+     * the server side that the session is really gone.
+     */
+    static void assertClosedByServer(Peer p, String nick) throws Exception {
+        int code = p.awaitClose(10_000);
+        assertTrue(code == 1008 || code == 1006, "closed by the server (1008, or 1006 when the reset beat the close frame): " + code);
+        long end = System.currentTimeMillis() + 10_000;
+        while (registry.byNick(nick).isPresent() && System.currentTimeMillis() < end) Thread.sleep(20);
+        assertTrue(registry.byNick(nick).isEmpty(), "the gateway no longer has a session for " + nick);
+    }
+
     // ---- 1. a thousand random text frames ----------------------------------------------------
 
     @Test
     void aThousandRandomTextFramesAreRefusedAndTheSessionIsClosedAfter20() throws Exception {
         Peer hostile = guest("noisy");
-        Peer good = guest("fine");
+        Peer good = controller("fine");
+        // the well-behaved session watches a non-default camera while its robot moves
+        good.send(msg("selectCamera").put("camera", "ZCam"));
+        good.await(n -> "image".equals(n.path("t").asText()) && "ZCam".equals(n.path("camera").asText()), 20_000);
+        good.send(msg("command").put("script", "x200,y250,z100;x330,y250,z100;x200,y250,z100"));
+        good.await(n -> "commandStatus".equals(n.path("t").asText()) && "queued".equals(n.path("state").asText()), 10_000);
+        int before = good.binaries.size();
+
         Random rnd = new Random(20261013);
         for (int i = 0; i < 1000 && hostile.session.isOpen(); i++) {
             byte[] raw = new byte[1 + rnd.nextInt(200)];
@@ -239,20 +258,26 @@ class HostileIT {
             // any byte value, as a text frame: each byte becomes one char (valid UTF-8 on the wire)
             if (raw[0] == '{') raw[0] = '!'; // a lone "{" prefix is no more valid, but keep it plainly garbage
             hostile.send(new String(raw, java.nio.charset.StandardCharsets.ISO_8859_1));
+            if (i % 4 == 0) good.send(msg("newImage").put("camera", "ZCam")); // the good session keeps asking, mid-flood
         }
-        assertEquals(1008, hostile.awaitClose(10_000), "closed with policy violation");
-        assertTrue(hostile.count("error", "bad-message") >= 1, hostile.texts.toString());
+        assertClosedByServer(hostile, "noisy");
         assertEquals(20, hostile.count("error", "bad-message"), "refused one by one until the 20th closes it");
         assertEquals(0, hostile.count("error", null) - hostile.count("error", "bad-message") - hostile.count("error", "rate-limited"),
             "only bad-message and the final rate-limited close: " + hostile.texts);
 
-        // a second, well-behaved session is unaffected: it still gets images
-        good.send(msg("selectCamera").put("camera", "Colour"));
-        JsonNode image = good.await(n -> "image".equals(n.path("t").asText()), 20_000);
-        assertEquals("Colour", image.get("camera").asText());
-        long end = System.currentTimeMillis() + 10_000;
-        while (good.binaries.isEmpty() && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertFalse(good.binaries.isEmpty(), "the JPEG follows");
+        // the good session got camera frames during and after the flood, and was never closed or refused
+        long end = System.currentTimeMillis() + 20_000;
+        while (good.binaries.size() <= before && System.currentTimeMillis() < end) Thread.sleep(20);
+        assertTrue(good.binaries.size() > before, "ZCam frames kept arriving during the flood: " + good.binaries.size()
+            + " vs " + before);
+        good.send(msg("newImage").put("camera", "ZCam"));
+        int mark = good.binaries.size();
+        end = System.currentTimeMillis() + 20_000;
+        while (good.binaries.size() <= mark && System.currentTimeMillis() < end) Thread.sleep(20);
+        assertTrue(good.binaries.size() > mark, "and a request after the flood is still answered");
+        assertTrue(good.binaries.stream().allMatch(b -> b.length > 2 && b[0] == (byte) 0xFF && b[1] == (byte) 0xD8),
+            "every binary frame is a JPEG");
+        assertEquals(0, good.count("error", null), "the good session was never refused: " + good.texts);
         assertEquals(-1, good.closeCode);
         good.leave();
     }
@@ -261,12 +286,13 @@ class HostileIT {
 
     /** Counts every decision the JDK's serialization filter logs ({@code java.io.serialization}). */
     static final class FilterTap extends Handler {
-        final AtomicInteger records = new AtomicInteger();
+        final List<String> all = new CopyOnWriteArrayList<>();
         final List<String> rejected = new CopyOnWriteArrayList<>();
 
         @Override public void publish(LogRecord r) {
-            records.incrementAndGet();
-            String m = r.getMessage() == null ? "" : r.getMessage();
+            String m = (r.getMessage() == null ? "" : r.getMessage()) + " "
+                + (r.getParameters() == null ? "" : java.util.Arrays.toString(r.getParameters()));
+            all.add(m);
             if (m.contains("REJECTED")) rejected.add(m);
         }
 
@@ -277,12 +303,14 @@ class HostileIT {
 
     @Test
     void aSerializedGadgetNeverReachesAnObjectInputStream() throws Exception {
+        // java.io.File is NOT on the allowlist (java.util.HashMap would be allowed, which proves nothing)
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ObjectOutputStream out = new ObjectOutputStream(bos)) {
-            out.writeObject(new java.util.HashMap<>());
+            out.writeObject(new java.io.File("/etc/passwd"));
         }
         byte[] gadget = bos.toByteArray();
         assertEquals((byte) 0xAC, gadget[0]);
+        assertEquals((byte) 0xED, gadget[1]);
 
         java.util.logging.Logger filterLog = java.util.logging.Logger.getLogger("java.io.serialization");
         FilterTap tap = new FilterTap();
@@ -290,42 +318,47 @@ class HostileIT {
         filterLog.setLevel(Level.ALL);
         filterLog.addHandler(tap);
         try {
-            // quiet the lab first: nothing else of ours is talking to MOM
-            Thread.sleep(1500);
+            // control 1: under the installed filter this gadget IS rejected, and the tap sees that
+            assertThrows(java.io.InvalidClassException.class,
+                () -> new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(gadget)).readObject());
+            assertTrue(tap.rejected.stream().anyMatch(m -> m.contains("java.io.File")),
+                "the tap records a rejected java.io.File: " + tap.rejected);
+            // control 2: MOM traffic of a harmless message is visible too (the lab also chatters on its own:
+            // robot and camera polling, so the total count cannot be expected to stand still)
+            Peer control = guest("control");
+            int beforeChat = tap.all.size();
+            control.send(msg("chat").put("text", "harmless"));
+            control.await(n -> "chat".equals(n.path("t").asText()), 10_000);
+            assertTrue(tap.all.size() > beforeChat, "the tap sees MOM deserialising a chat");
+
             Peer text = guest("gadgettext");
-            Thread.sleep(1500);
-            int quiet = tap.records.get();
-
-            // base64 and raw bytes (as chars), as text, before and after MOM's login
-            text.send(Base64.getEncoder().encodeToString(gadget));
-            text.awaitError("bad-message");
-            text.send(new String(gadget, java.nio.charset.StandardCharsets.ISO_8859_1));
-            text.awaitError("bad-message");
-            // the stream sits inside a JSON string field: it is only a string, and no object is read
-            text.send(msg("chat").put("text", Base64.getEncoder().encodeToString(gadget)));
-
-            // raw, as binary: refused and closed
             Peer binary = guest("gadgetbin");
-            Thread.sleep(1500);
-            int quietBinary = tap.records.get();
+            Peer early = connect(); // no hello yet
+            Thread.sleep(2000);
+            int mark = tap.all.size();
+            int rejectedMark = tap.rejected.size();
+
+            // every shape of the gadget
+            text.send(Base64.getEncoder().encodeToString(gadget));
+            text.send(new String(gadget, java.nio.charset.StandardCharsets.ISO_8859_1));
             binary.session.sendBinary(ByteBuffer.wrap(gadget), Callback.NOOP);
-            assertEquals(1003, binary.awaitClose(10_000));
-
-            // and before hello
-            Peer early = connect();
             early.session.sendBinary(ByteBuffer.wrap(gadget), Callback.NOOP);
-            assertEquals(1003, early.awaitClose(10_000));
-            early.session.sendText(Base64.getEncoder().encodeToString(gadget), Callback.NOOP);
 
-            Thread.sleep(1500);
-            assertTrue(text.count("error", "bad-message") >= 2, text.texts.toString());
-            assertEquals(0, text.count("error", "unauthorised"));
-            // no ObjectInputStream anywhere in the JVM (gateway and lab share it) read a thing from the gadget
-            assertTrue(tap.records.get() > 0, "control: the filter log is wired (the harmless chat above did reach MOM)");
-            assertEquals(List.of(), tap.rejected, "nothing was refused by the serial filter: it never got there");
-            // the only filter traffic is the chat echo to MOM, which carries a string and no gadget
-            assertTrue(tap.records.get() - quietBinary <= tap.records.get() - quiet);
+            assertEquals(1003, binary.awaitClose(10_000), "binary: closed as unsupported data");
+            assertEquals(1003, early.awaitClose(10_000), "binary before hello: closed as unsupported data");
+            long end = System.currentTimeMillis() + 10_000;
+            while (text.count("error", "bad-message") < 2 && System.currentTimeMillis() < end) Thread.sleep(20);
+            assertEquals(2, text.count("error", "bad-message"), text.texts.toString());
+            assertEquals(-1, text.closeCode, "two refusals do not close a text session");
+            Thread.sleep(3000); // time for any (wrongly) forwarded packet to reach MOM and be logged
+
+            List<String> window = new ArrayList<>(tap.all.subList(mark, tap.all.size()));
+            assertEquals(rejectedMark, tap.rejected.size(), "nothing was rejected by the serial filter");
+            assertTrue(window.stream().noneMatch(m -> m.contains("java.io.File") || m.contains("REJECTED")),
+                "no packet carrying the gadget was ever deserialised (the window holds only the lab's own "
+                    + window.size() + " routine records): " + window.stream().distinct().limit(8).toList());
             text.leave();
+            control.leave();
         } finally {
             filterLog.removeHandler(tap);
             filterLog.setLevel(before);
@@ -376,12 +409,29 @@ class HostileIT {
     void a100ChatMessagesInASecondAreRateLimitedAndTheSessionIsClosed() throws Exception {
         Peer p = guest("chatty");
         Peer listener = guest("listener");
+        // positive control: one ordinary chat from the same peer is delivered
+        p.send(msg("chat").put("text", "hello before the flood"));
+        listener.await(n -> "chat".equals(n.path("t").asText())
+            && "hello before the flood".equals(n.path("text").asText()), 10_000);
+
         for (int i = 0; i < 100 && p.session.isOpen(); i++) p.send(msg("chat").put("text", "spam " + i));
-        assertEquals(1008, p.awaitClose(10_000));
+        assertClosedByServer(p, "chatty");
+        p.awaitError("rate-limited");
         assertTrue(p.count("error", "rate-limited") >= 20, p.texts.toString());
-        Thread.sleep(500);
-        long delivered = listener.texts.stream().filter(n -> "chat".equals(n.path("t").asText())).count();
-        assertTrue(delivered <= 6, "burst of 5 (and at most one refill) got through, not 100: " + delivered);
+        // deliveries settle: no new chat for a full second
+        long last = -1;
+        long stableSince = System.currentTimeMillis();
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (System.currentTimeMillis() < deadline && System.currentTimeMillis() - stableSince < 1000) {
+            long now = listener.count("chat", null);
+            if (now != last) {
+                last = now;
+                stableSince = System.currentTimeMillis();
+            }
+            Thread.sleep(20);
+        }
+        assertTrue(last <= 6, "burst of 5 (the control used one) and at most one refill got through, not 100: " + last);
+        assertTrue(last >= 2, "some of the burst was delivered, so the flood really reached the chat path: " + last);
         listener.leave();
     }
 
@@ -417,26 +467,53 @@ class HostileIT {
 
     // ---- 7. admin from a guest -----------------------------------------------------------------
 
+    /** The robot pose and every block position, as one comparable string. */
+    static String worldKey() {
+        var snap = lab.world().snapshot();
+        StringBuilder sb = new StringBuilder("pose " + snap.pose.x + "," + snap.pose.y + "," + snap.pose.z);
+        for (var b : snap.blocks) sb.append(' ').append(b.name).append(' ').append(b.getX()).append(',')
+            .append(b.getY()).append(',').append(b.getZ());
+        return sb.toString();
+    }
+
     @Test
     void anAdminMessageFromAGuestIsRefused() throws Exception {
-        Peer victim = guest("bystander");
+        // the victim moves the robot away from its start position, so a world "reset" would be visible
+        Peer victim = controller("bystander");
+        victim.send(msg("command").put("script", "x300,y250,z120"));
+        victim.await(n -> "commandStatus".equals(n.path("t").asText()) && "done".equals(n.path("state").asText()), 60_000);
+        long settle = System.currentTimeMillis() + 15_000;
+        while (lab.world().snapshot().moving && System.currentTimeMillis() < settle) Thread.sleep(50);
+        String world = worldKey();
+        assertTrue(world.startsWith("pose 300.0,250.0,120.0"), "the robot is away from its start: " + world);
+
         Peer p = guest("sneaky");
         p.send(msg("admin").put("action", "kick").put("nick", "bystander"));
         assertEquals("admins only", p.awaitError("unauthorised").get("message").asText());
         p.send(msg("admin").put("action", "ban").put("nick", "bystander"));
         p.send(msg("admin").put("action", "reset"));
-        Thread.sleep(800);
+        long end = System.currentTimeMillis() + 10_000;
+        while (p.count("error", "unauthorised") < 3 && System.currentTimeMillis() < end) Thread.sleep(20);
+        assertEquals(3, p.count("error", "unauthorised"), "each of the three attempts was refused: " + p.texts);
         assertEquals(-1, victim.closeCode, "the victim was not kicked");
         assertEquals(-1, p.closeCode, "three refusals are not 20");
+        assertEquals(world, worldKey(), "the lab was not reset");
+        // the ban did not take: the victim can still do things
+        victim.send(msg("activity"));
+        victim.send(msg("chat").put("text", "still here"));
+        victim.await(n -> "chat".equals(n.path("t").asText()) && "still here".equals(n.path("text").asText()), 10_000);
 
         // a registered (not admin) user is refused the same way
         Peer reg = connect();
         reg.send(helloToken("regular", jwt(key, List.of("students"))));
         assertEquals("registered", reg.awaitType("welcome").get("level").asText());
         reg.send(msg("admin").put("action", "kick").put("nick", "bystander"));
-        reg.awaitError("unauthorised");
-        Thread.sleep(300);
+        reg.send(msg("admin").put("action", "reset"));
+        end = System.currentTimeMillis() + 10_000;
+        while (reg.count("error", "unauthorised") < 2 && System.currentTimeMillis() < end) Thread.sleep(20);
+        assertEquals(2, reg.count("error", "unauthorised"), reg.texts.toString());
         assertEquals(-1, victim.closeCode);
+        assertEquals(world, worldKey());
         reg.leave();
         p.leave();
         victim.leave();
@@ -467,21 +544,49 @@ class HostileIT {
 
     // ---- 10. 61 sessions -----------------------------------------------------------------------
 
+    /** A hand-written upgrade request; returns the raw HTTP response (status line, headers, body). */
+    static String rawUpgrade() throws Exception {
+        try (Socket s = new Socket("127.0.0.1", server.port())) {
+            s.setSoTimeout(3000);
+            String req = "GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nOrigin: " + ORIGIN + "\r\n"
+                + Admission.SECRET_HEADER + ": " + SECRET + "\r\n" + Admission.VIEWER_ADDRESS_HEADER + ": "
+                + nextViewer() + "\r\n\r\n";
+            s.getOutputStream().write(req.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            java.io.ByteArrayOutputStream got = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            try {
+                int n;
+                while ((n = s.getInputStream().read(buf)) > 0) got.write(buf, 0, n);
+            } catch (java.net.SocketTimeoutException done) {
+                // the server may keep the connection open after its answer
+            }
+            return got.toString(java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
     @Test
     void the61stSessionIsRefusedAsTooMany() throws Exception {
+        long drain = System.currentTimeMillis() + 15_000;
+        while (server.sessions() != 0 && System.currentTimeMillis() < drain) Thread.sleep(50);
+        assertEquals(0, server.sessions(), "start from an empty gateway");
         List<Peer> peers = new ArrayList<>();
         try {
-            int already = server.sessions();
-            for (int i = 0; i < Admission.MAX_VIEWERS - already; i++) {
+            for (int i = 0; i < Admission.MAX_VIEWERS; i++) {
                 Peer p = connect();
                 peers.add(p);
                 p.send(hello("crowd " + i));
             }
             assertEquals(Admission.MAX_VIEWERS, server.sessions());
+            Thread.sleep(1200); // the handshake-rate window is clear
+            String response = rawUpgrade();
+            assertTrue(response.startsWith("HTTP/1.1 429"), response);
+            assertTrue(response.contains("<title>Error 429 too many</title>") && response.contains("<td>too many</td>"),
+                "the page says only the generic too many: " + response);
+            assertFalse(response.contains("viewer"), "the reason is not spelled out: " + response);
             ExecutionException ex = assertThrows(ExecutionException.class, HostileIT::connect);
-            UpgradeException up = (UpgradeException) ex.getCause();
-            assertEquals(429, up.getResponseStatusCode());
-            // the one that did not get in did not use up a slot
+            assertEquals(429, ((UpgradeException) ex.getCause()).getResponseStatusCode());
+            // the ones that did not get in did not use up a slot
             assertEquals(Admission.MAX_VIEWERS, server.sessions());
         } finally {
             peers.forEach(Peer::leave);
@@ -528,27 +633,109 @@ class HostileIT {
             }
         }
         assumeFalse(others.isEmpty(), "this host has no non-loopback address");
+
+        // Two controls decide which addresses can say anything. On a usable address (a) a socket bound to
+        // 0.0.0.0 IS reachable, and (b) a port nobody listens on is actively REFUSED (a firewall that drops
+        // silently would make every probe time out, which proves nothing).
+        int closedPort;
+        try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
+            closedPort = probe.getLocalPort();
+        }
+        List<InetAddress> reachable = new ArrayList<>();
+        try (java.net.ServerSocket anyBound = new java.net.ServerSocket(0, 50, InetAddress.getByName("0.0.0.0"))) {
+            for (InetAddress a : others) {
+                boolean listensReachable;
+                try (Socket s = new Socket()) {
+                    s.connect(new InetSocketAddress(a, anyBound.getLocalPort()), 1000);
+                    listensReachable = true;
+                } catch (IOException cannotReachEvenThat) {
+                    listensReachable = false;
+                }
+                boolean refusesClosed;
+                try (Socket s = new Socket()) {
+                    s.connect(new InetSocketAddress(a, closedPort), 1000);
+                    refusesClosed = false;
+                } catch (java.net.ConnectException refused) {
+                    refusesClosed = true;
+                } catch (IOException timedOut) {
+                    refusesClosed = false;
+                }
+                if (listensReachable && refusesClosed) reachable.add(a);
+            }
+        }
+        assumeFalse(reachable.isEmpty(), "no non-loopback address of this host both accepts a socket bound to "
+            + "0.0.0.0 and visibly refuses a closed port, so a refusal on the lab ports would prove nothing");
+
         java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(16);
         try {
             List<java.util.concurrent.Future<String>> probes = new ArrayList<>();
-            for (InetAddress a : others) {
+            for (InetAddress a : reachable) {
                 for (int port : ports) {
                     probes.add(pool.submit(() -> {
                         try (Socket s = new Socket()) {
-                            s.connect(new InetSocketAddress(a, port), 1000);
-                            return a + ":" + port;
-                        } catch (IOException refusedOrTimedOut) {
-                            return null;
+                            s.connect(new InetSocketAddress(a, port), 2000);
+                            return a + ":" + port + " is reachable";
+                        } catch (java.net.ConnectException refused) {
+                            return null; // actively refused: nothing listens on that address
+                        } catch (IOException other) {
+                            return a + ":" + port + " gave " + other + " (not a refusal)";
                         }
                     }));
                 }
             }
             for (java.util.concurrent.Future<String> f : probes) {
-                assertEquals(null, f.get(30, TimeUnit.SECONDS), "reachable on a non-loopback address");
+                assertEquals(null, f.get(30, TimeUnit.SECONDS), "lab port on a non-loopback address");
             }
         } finally {
             pool.shutdownNow();
         }
-        assertNotNull(lab.world());
+    }
+
+    /** Local addresses the OS reports listening sockets on, by port (from {@code netstat -an}). */
+    static java.util.Map<Integer, java.util.Set<String>> listeners() throws Exception {
+        Process p = new ProcessBuilder("netstat", "-an").redirectErrorStream(true).start();
+        java.util.Map<Integer, java.util.Set<String>> out = new java.util.HashMap<>();
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (!line.contains("LISTEN")) continue;
+                for (String token : line.trim().split(" +")) {
+                    int colon = token.lastIndexOf(':');
+                    if (colon > 0 && token.substring(colon + 1).matches("[0-9]+")) {
+                        out.computeIfAbsent(Integer.parseInt(token.substring(colon + 1)), k -> new java.util.HashSet<>())
+                            .add(token.substring(0, colon));
+                        break; // the first address:port is the local one
+                    }
+                }
+            }
+        }
+        p.waitFor(20, TimeUnit.SECONDS);
+        return out;
+    }
+
+    @Test
+    void theOperatingSystemShowsTheLabPortsListeningOnLoopbackOnly() throws Exception {
+        java.util.Map<Integer, java.util.Set<String>> listening;
+        try {
+            listening = listeners();
+        } catch (IOException noNetstat) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "netstat is not available: " + noNetstat);
+            return;
+        }
+        // control: the gateway itself listens on every interface, and the parser sees that
+        java.util.Set<String> gateway = listening.get(server.port());
+        assertTrue(gateway != null && gateway.stream().anyMatch(a -> a.equals("0.0.0.0") || a.equals("[::]")
+            || a.equals("::") || a.equals("*")), "control: the gateway's wildcard bind is visible: " + gateway);
+        // the lab: MOM, its bulk port, the lab admin port, the robot's control and position ports
+        int[] ports = {lab.momPort(), lab.momPort() + 1, lab.adminPort(), lab.ports().control(),
+            lab.ports().position()};
+        for (int port : ports) {
+            java.util.Set<String> addresses = listening.get(port);
+            assertTrue(addresses != null && !addresses.isEmpty(), "port " + port + " is listening: " + listening.keySet());
+            for (String a : addresses) {
+                assertTrue(a.equals("127.0.0.1") || a.equals("[::1]") || a.equals("::1"),
+                    "port " + port + " listens on " + a + ", not loopback only");
+            }
+        }
     }
 }
