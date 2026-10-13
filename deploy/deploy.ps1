@@ -12,9 +12,10 @@
     4. runs the pre-flight checks, then `cdk deploy --all` from the clone's
        deploy/ (after npm ci, test and tsc there; never the working tree);
     5. activates the `project` cost-allocation tag;
-    6. uploads the jars and config templates to artifacts/<sha>/, points
-       /telerobot/commit at <sha>, reboots the instance if it is running,
-       syncs the UI and invalidates it;
+    6. uploads the jars and config templates to artifacts/<sha>/ and points
+       /telerobot/commit at <sha> (before step 4 when the stack exists, so an
+       instance the deploy replaces boots straight into <sha>), reboots a
+       surviving running instance, syncs the UI and invalidates it;
     7. tries the CloudFront flat-rate Free plan;
     8. resets the smoke user's password and runs deploy/smoke.mjs.
 
@@ -285,6 +286,37 @@ try {
   New-ParamIfMissing '/telerobot/commit' String 'none'
   # /telerobot/stack/* belong to the stack; /telerobot/minutes/* to the Lambda.
 
+  # ------------------------------------- 6a. artifacts before the stack update
+  # A user-data change replaces the instance, and the new one fetches
+  # /telerobot/commit on its first boot, while cdk deploy is still running.
+  # So when the stack already exists, the artifacts go up and the commit is
+  # set first: a new instance then boots straight into this commit, with no
+  # reboot racing its cloud-init. (On the very first deploy there is no
+  # bucket yet; the fetch unit waits for the commit, set after the deploy.)
+  $ArtifactsUploaded = $false
+  $InstanceBefore = $null
+  function Publish-Artifacts([string]$Bucket) {
+    $prefix = "s3://$Bucket/artifacts/$Sha"
+    Step "Uploading artifacts to $prefix/"
+    Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', $LabJar, "$prefix/lab.jar") | Out-Null
+    Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', $GatewayJar, "$prefix/gateway.jar") | Out-Null
+    foreach ($c in $ConfigTemplates) {
+      Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', (Join-Path $BuildDir "config\$c"), "$prefix/config/$c") | Out-Null
+    }
+    Note 'lab.jar, gateway.jar, config/{MOM.xml,lab.xml,RobotProxy.properties}'
+    Invoke-Aws -Arguments @('ssm', 'put-parameter', '--name', '/telerobot/commit', '--type', 'String',
+      '--value', $Sha, '--overwrite') | Out-Null
+    Note "/telerobot/commit = $Sha"
+  }
+  if (-not $InfraOnly -and $stackExists) {
+    $before = Get-StackOutputs $MainStack $Region
+    $InstanceBefore = $before['InstanceId']
+    if ($before['ArtifactsBucket']) {
+      Publish-Artifacts $before['ArtifactsBucket']
+      $ArtifactsUploaded = $true
+    }
+  }
+
   # ----------------------------------------------------------- 6. cdk deploy
   Step 'cdk deploy --all (CloudFront takes 10-20 minutes on the first run)'
   $cdkArgs = @('cdk', 'deploy', '--all', '--require-approval', 'never', '-c', "alertEmail=$Email")
@@ -326,27 +358,19 @@ try {
     $Artifacts = $Out['ArtifactsBucket']
     $UiBucket = $Out['UiBucket']
     $InstanceId = $Out['InstanceId']
-    $prefix = "s3://$Artifacts/artifacts/$Sha"
-
-    Step "Uploading artifacts to $prefix/"
-    Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', $LabJar, "$prefix/lab.jar") | Out-Null
-    Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', $GatewayJar, "$prefix/gateway.jar") | Out-Null
-    foreach ($c in $ConfigTemplates) {
-      Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', (Join-Path $BuildDir "config\$c"), "$prefix/config/$c") | Out-Null
-    }
-    Note 'lab.jar, gateway.jar, config/{MOM.xml,lab.xml,RobotProxy.properties}'
-
-    Invoke-Aws -Arguments @('ssm', 'put-parameter', '--name', '/telerobot/commit', '--type', 'String',
-      '--value', $Sha, '--overwrite') | Out-Null
-    Note "/telerobot/commit = $Sha"
+    if (-not $ArtifactsUploaded) { Publish-Artifacts $Artifacts }
 
     $state = (Get-AwsJson -Arguments @('ec2', 'describe-instances', '--instance-ids', $InstanceId,
         '--query', 'Reservations[0].Instances[0].State.Name')).ToString()
-    if ($state -eq 'pending') {
-      Invoke-Aws -Arguments @('ec2', 'wait', 'instance-running', '--instance-ids', $InstanceId) | Out-Null
-      $state = 'running'
-    }
-    if ($state -eq 'running') {
+    $replaced = $InstanceBefore -and $InstanceBefore -ne $InstanceId
+    if ($replaced -or -not $stackExists) {
+      # A new instance: its first boot fetches the commit set above (or, on
+      # the first deploy, waits for it). Rebooting could cut its cloud-init short.
+      Note "instance $InstanceId is new ($state); its first boot fetches $Sha"
+    } elseif ($state -eq 'pending' -or $state -eq 'running') {
+      if ($state -eq 'pending') {
+        Invoke-Aws -Arguments @('ec2', 'wait', 'instance-running', '--instance-ids', $InstanceId) | Out-Null
+      }
       Invoke-Aws -Arguments @('ec2', 'reboot-instances', '--instance-ids', $InstanceId) | Out-Null
       Note "instance $InstanceId was running: rebooted, so it fetches $Sha"
     } else {

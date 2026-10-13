@@ -51,9 +51,13 @@ pwsh -File deploy/deploy.ps1 -SkipTests   # skip the test suites (retries only)
    (the first run takes 10–20 minutes, mostly CloudFront);
 6. activates the `project` cost-allocation tag, which the budget filters on;
 7. uploads `lab.jar`, `gateway.jar` and `config/{MOM.xml,lab.xml,RobotProxy.properties}`
-   to `s3://<ArtifactsBucket>/artifacts/<sha>/`, sets `/telerobot/commit` to
-   the sha, and reboots the instance if it is running (it fetches the
-   commit's artifacts on every boot);
+   to `s3://<ArtifactsBucket>/artifacts/<sha>/` and sets `/telerobot/commit`
+   to the sha. When the stack already exists this happens *before* step 5:
+   a user-data change replaces the instance, and the new one fetches the
+   commit on its first boot while `cdk deploy` is still running. Afterwards
+   it reboots the instance only if the same instance survived the deploy and
+   is running (it fetches the commit's artifacts on every boot); a new
+   instance is left alone so a reboot cannot cut its cloud-init short;
 8. syncs `webui/dist` to the UI bucket (never touching `config.json`, which
    the stack writes) and invalidates `/`, `/index.html` and `/config.json`;
 9. tries the CloudFront flat-rate Free plan (below);
