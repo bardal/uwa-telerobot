@@ -20,9 +20,19 @@ drive the 2000 interface again.
 You need **JDK 8** (the last JDK with `appletviewer`) and **Maven**.
 
 ```sh
-mvn package          # builds target/telerobot.jar and runs the tests
+mvn package          # on JDK 8: builds lab/target/telerobot.jar and runs the tests
 ./start.sh           # or .\start.ps1 on Windows; stop with ./stop.sh / .\stop.ps1
 ```
+
+The repository is a Maven multi-module build: `lab` holds the original code, the
+simulator and the tests (it builds on JDK 8 and produces `lab/target/telerobot.jar`),
+and `gateway` is the web gateway, which needs JDK 21. The gateway module joins the
+build only on JDK 21 or later (the root pom's `gateway` profile), so `mvn package`
+on JDK 8 builds the lab and the local applet, and on JDK 21 it builds everything,
+`gateway/target/gateway.jar` included. All the servers listen on `127.0.0.1`
+only; set `-Dtelerobot.bind=<address>` to listen elsewhere. The virtual lab also
+has an admin port (30564, same address) where the line `reset` puts the arm
+and blocks back to the start.
 
 The control applet opens in its own window:
 
@@ -98,7 +108,7 @@ before running MOM anywhere but localhost.
 To render the cameras without starting anything else:
 
 ```sh
-java -cp target/telerobot.jar au.edu.uwa.mech.sim.VirtualLab --preview previews/
+java -cp lab/target/telerobot.jar au.edu.uwa.mech.sim.VirtualLab --preview previews/
 ```
 
 ## Tests
@@ -109,9 +119,15 @@ java -cp target/telerobot.jar au.edu.uwa.mech.sim.VirtualLab --preview previews/
 * the overlay camera model, the rendered cameras and the calibration solver,
   which must agree with each other,
 * the original client code parsing the virtual robot's results and positions,
-* a full pick-up-and-stack.
+* a full pick-up-and-stack,
+* the serialization allowlist (`util.SerialFilter`, for the JVM's
+  `jdk.serialFilter`; that test needs JDK 9+ and is skipped on JDK 8),
+* the world reset and the loopback binding of the servers.
 
-`src/test/java/au/edu/uwa/mech/it` has two checks to run against a stack
+The tests also write `webui/test/fixtures/camera.json`, the camera geometry
+reference values for the browser port.
+
+`lab/src/test/java/au/edu/uwa/mech/it` has two checks to run against a stack
 started with `NO_APPLET=1 ./start.sh` or `.\start.ps1 -NoApplet`:
 
 * `SmokeCheck` logs in headless, takes control and makes a move.
@@ -121,7 +137,7 @@ started with `NO_APPLET=1 ./start.sh` or `.\start.ps1 -NoApplet`:
   a pick-and-place, and saves a screenshot after each step.
 
 ```sh
-java -cp "target/telerobot.jar:target/test-classes" au.edu.uwa.mech.it.AppletWalkthrough walkthrough/
+java -cp "lab/target/telerobot.jar:lab/target/test-classes" au.edu.uwa.mech.it.AppletWalkthrough walkthrough/
 ```
 
 ## Notes

@@ -60,7 +60,8 @@ for:
 | `devices.camera.SimCameraManager` | Simulated cameras for the camera server |
 | `sim.*` | The virtual lab: world, robot server, path-script parser (a port of RobotServer's `PathScriptParser.cpp`), scene, virtual cameras, renderer |
 | `applications.StaticWebServer` | Serves the applet; it was an NT web server and CGI scripts in 2000 |
-| tests, `pom.xml`, scripts, configs, `web/` | Build, run and documentation |
+| `util.SerialFilter` | A `jdk.serialFilter` allowlist for the Java deserialization the 1999 code does on its sockets |
+| tests, the `pom.xml` files (`lab` and `gateway` modules), scripts, configs, `web/` | Build, run and documentation |
 
 Jama (public domain, NIST) and JUnit come from Maven Central at build time
 and aren't part of this repository.

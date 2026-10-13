@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>au.edu.uwa.mech</groupId>
+    <artifactId>uwa-telerobot</artifactId>
+    <version>2000.2-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>uwa-telerobot-lab</artifactId>
+  <packaging>jar</packaging>
+
+  <name>UWA Telerobot</name>
+  <description>The 1999-2000 UWA web telerobot: MOM middleware, robot proxy, camera server and control applet</description>
+
+  <licenses>
+    <license>
+      <name>GNU General Public License v2.0 or later</name>
+      <url>https://www.gnu.org/licenses/old-licenses/gpl-2.0.html</url>
+    </license>
+  </licenses>
+
+  <properties>
+    <!-- Java 8: the last JDK with appletviewer, and java.applet is still present -->
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <!-- the original sources are Latin-1 (degree signs etc.) -->
+    <project.build.sourceEncoding>ISO-8859-1</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>gov.nist.math</groupId>
+      <artifactId>jama</artifactId>
+      <version>1.0.3</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs>
+            <arg>-Xlint:-options</arg>
+          </compilerArgs>
+          <showWarnings>false</showWarnings>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!-- GeometryFixtures and PathscriptFixtures do not end in Test but must run: they write webui/test/fixtures/*.json -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/GeometryFixtures.java</include>
+            <include>**/PathscriptFixtures.java</include>
+          </includes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!-- one jar with Jama included, usable as the applet archive and for every server -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <finalName>telerobot</finalName>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+  <profiles>
+    <profile>
+      <!-- SerialFilterTest uses java.io.ObjectInputFilter (Java 9+), which JDK 8 cannot compile -->
+      <id>jdk8-no-serial-filter-test</id>
+      <activation><jdk>1.8</jdk></activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <testExcludes><testExclude>**/SerialFilterTest.java</testExclude></testExcludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

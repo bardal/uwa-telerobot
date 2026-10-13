@@ -1,0 +1,12 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "watch": {
+    "include": ["bin/**", "lib/**", "lambda/**"],
+    "exclude": ["**/*.test.ts", "node_modules", "cdk.out"]
+  },
+  "context": {
+    "@aws-cdk/core:defaultCrossStackReferences": "strong",
+    "cfPrefixList": "pl-93a247fa",
+    "hoursCap": 150
+  }
+}
