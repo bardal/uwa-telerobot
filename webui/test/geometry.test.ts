@@ -101,3 +101,20 @@ describe('camera geometry vs Java fixtures', () => {
     });
   }
 });
+
+describe('inFront', () => {
+  for (const c of fixture.cameras) {
+    it(`${c.name}: workspace points are in front, their reflection through the centre is not`, () => {
+      const cam = new Camera(flat(c.P));
+      const o = cam.centre();
+      for (const p of c.points) {
+        const w = v(p.xyz);
+        expect(cam.inFront(w)).toBe(true);
+        const behind = { x: 2 * o.x - w.x, y: 2 * o.y - w.y, z: 2 * o.z - w.z };
+        expect(cam.inFront(behind)).toBe(false);
+        expect(cam.depth(behind)).toBeCloseTo(-cam.depth(w), 6);
+      }
+      expect(cam.inFront(o)).toBe(false);
+    });
+  }
+});

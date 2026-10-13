@@ -68,6 +68,21 @@ export class Camera {
     return { u: u / s, v: v / s };
   }
 
+  /** The homogeneous w of the projection of w (P2.X). Zero at the optical centre. */
+  depth(w: Vec3): number {
+    const p = this.p;
+    return p[8]! * w.x + p[9]! * w.y + p[10]! * w.z + p[11]!;
+  }
+
+  /**
+   * True if w is in front of the camera (homogeneous w > 0). xyz2uv mirrors points
+   * behind the camera, so overlays check this before drawing. Assumes the
+   * calibration is normalised so points in front have w > 0, as the lab's are.
+   */
+  inFront(w: Vec3): boolean {
+    return this.depth(w) > 0;
+  }
+
   /** Java's `new Point((int) Math.round(..))`: round half up, like Math.round. */
   toPoint(uv: UV): { x: number; y: number } {
     return { x: Math.round(uv.u), y: Math.round(uv.v) };
