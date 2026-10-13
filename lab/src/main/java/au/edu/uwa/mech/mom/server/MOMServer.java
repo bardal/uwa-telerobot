@@ -393,7 +393,7 @@ public class MOMServer implements EventRelay, Clock//, NewConnectionHandler
 
     Date now = new Date();
     try{
-      userLog.println("login!!"+now.getTime()+"!!"+now+"!!"+userName+"!!"+password+"!!"+nickname+"!!"+peers.size());
+      userLog.println("login!!"+now.getTime()+"!!"+now+"!!"+userName+"!!-!!"+nickname+"!!"+peers.size());
     } catch(IOException e){
       TheLog.logException(e);
     }

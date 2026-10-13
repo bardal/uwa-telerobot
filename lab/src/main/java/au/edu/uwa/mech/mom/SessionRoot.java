@@ -141,7 +141,7 @@ public class SessionRoot extends Session
     MOMPacket loginPacket=packetFactory.loginRequest(userName, password, nickname);
     //peer=connection.login(userName, password, nickname);
                                 // send it and wait for reply
-    TheLog.println("Logging in "+userName+":"+password+":"+nickname);
+    TheLog.println("Logging in "+userName+":"+nickname); // not the PIN
     MOMPacket reply=(MOMPacket)sendAndReceive(loginPacket,10000);
 
     if (!reply.isError()){

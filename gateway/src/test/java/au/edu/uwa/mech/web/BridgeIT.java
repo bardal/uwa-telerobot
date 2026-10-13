@@ -152,6 +152,68 @@ class BridgeIT {
             Thread.sleep(50);
         }
 
+        // 10. the robot's own error text comes back in commandStatus
+        int beforeBad = a.size();
+        a.in(new In.Command("x700,y200,z100"));
+        Out.CommandStatus bad = a.awaitFrom(beforeBad, Out.CommandStatus.class,
+            s -> s.state().equals("done") || s.state().equals("error"), 30_000);
+        assertEquals("error", bad.state());
+        assertTrue(bad.text().contains("outside the workspace"), bad.text());
+
+        // 11. at most 4 commands queued
+        int beforeQueue = a.size();
+        for (String z : List.of("z100", "z110", "z100", "z110", "z100")) a.in(new In.Command(z));
+        Out.Error full = a.awaitFrom(beforeQueue, Out.Error.class, e -> true, 5_000);
+        assertEquals("rate-limited", full.code());
+        assertTrue(full.message().contains("at most 4"), full.message());
+        long until4 = System.currentTimeMillis() + 30_000;
+        while (a.countFrom(beforeQueue, Out.CommandStatus.class, s -> s.state().equals("done")) < 4) {
+            if (System.currentTimeMillis() > until4) fail("the 4 queued commands did not finish");
+            Thread.sleep(50);
+        }
+        assertEquals(4, a.countFrom(beforeQueue, Out.CommandStatus.class, s -> s.state().equals("queued")));
+
+        // 12. a kicked client that ignores the close: its commands stop at once and its control goes
+        a.in(new In.Release());
+        a.await(Out.Controller.class, x -> x.nick() == null, 5_000);
+        FakeConnection s = connect(guest("sam"), "10.0.0.5", true);
+        assertEquals("sam", s.await(Out.Welcome.class, w -> true, 20_000).nick());
+        s.in(new In.TakeControl());
+        s.await(Out.Controller.class, x -> "sam".equals(x.nick()), 5_000);
+        int beforeKick = a.size();
+        d.in(new In.Admin("kick", "SAM", null)); // nicks match ignoring case
+        a.awaitFrom(beforeKick, Out.Controller.class, x -> x.nick() == null, 2_000);
+        assertTrue(s.closedByServer);
+        assertEquals("unauthorised", s.await(Out.Error.class, e -> true, 1_000).code());
+        var poseBefore = lab.world().getPose();
+        for (int i = 0; i < 3; i++) s.in(new In.Command("x150,y300,z60"));
+        Thread.sleep(1_500);
+        assertEquals(poseBefore, lab.world().getPose(), "a closed session's commands never reach the robot");
+        assertFalse(lab.world().isMoving());
+        a.await(Out.Users.class, u -> !u.nicks().contains("sam"), 15_000);
+        s.dropSocket();
+
+        // 13. takeControl and the tab closes at once: the next user is not blocked for 180 s
+        FakeConnection e = connect(guest("eve"), "10.0.0.6", false);
+        e.await(Out.Welcome.class, w -> true, 20_000);
+        a.await(Out.Users.class, u -> u.nicks().contains("eve"), 5_000);
+        e.in(new In.TakeControl());
+        e.dropSocket();
+        a.await(Out.Users.class, u -> !u.nicks().contains("eve"), 15_000);
+        int beforeAnn = a.size();
+        a.in(new In.TakeControl());
+        a.awaitFrom(beforeAnn, Out.Controller.class, x -> "ann".equals(x.nick()), 2_000);
+
+        // 14. ban: the session goes, and the same guest can't come back
+        FakeConnection f1 = connect(guest("fay"), "10.0.0.7", false);
+        f1.await(Out.Welcome.class, w -> true, 20_000);
+        d.in(new In.Admin("ban", "fay", null));
+        assertEquals("unauthorised", f1.await(Out.Error.class, x -> true, 5_000).code());
+        FakeConnection f2 = connect(guest("fay"), "10.0.0.7", false);
+        assertEquals("unauthorised", f2.await(Out.Error.class, x -> true, 10_000).code());
+        assertTrue(f2.frames().stream().noneMatch(x -> x instanceof Out.Welcome));
+        assertTrue(a.isOpen() && b.isOpen(), "other addresses are not banned");
+
         for (FakeConnection f : List.of(a, b, d)) f.dropSocket();
     }
 
@@ -166,7 +228,13 @@ class BridgeIT {
     }
 
     static FakeConnection connect(In.Hello hello) {
-        FakeConnection f = new FakeConnection(registry);
+        return connect(hello, "127.0.0.1", false);
+    }
+
+    /** {@code stubborn}: a client that ignores our close (its socket stays up until it drops it). */
+    static FakeConnection connect(In.Hello hello, String ip, boolean stubborn) {
+        FakeConnection f = new FakeConnection(registry, ip, stubborn);
+
         registry.onHello(f, hello);
         return f;
     }
@@ -178,9 +246,14 @@ class BridgeIT {
         private final AtomicBoolean ended = new AtomicBoolean();
         private volatile boolean open = true;
         private volatile Object attachment;
+        private final String ip;
+        private final boolean stubborn;
+        volatile boolean closedByServer;
 
-        FakeConnection(SessionHandler handler) {
+        FakeConnection(SessionHandler handler, String ip, boolean stubborn) {
             this.handler = handler;
+            this.ip = ip;
+            this.stubborn = stubborn;
         }
 
         void in(In message) {
@@ -199,17 +272,26 @@ class BridgeIT {
             t.start();
         }
 
-        @Override public String remoteIp() { return "127.0.0.1"; }
+        @Override public String remoteIp() { return ip; }
 
+        /** Frames are "written" at once. */
         @Override
-        public void send(Out message) {
+        public void send(Out message, Runnable written) {
             add(message);
+            written.run();
         }
 
         @Override
-        public void sendBinary(byte[] data) {
-            add(data.clone());
+        public void sendImage(Out.Image header, byte[] jpeg, Runnable written) {
+            synchronized (frames) {
+                add(header);
+                add(jpeg.clone());
+            }
+            written.run();
         }
+
+        @Override public long queuedBytes() { return 0; }
+        @Override public int queuedMessages() { return 0; }
 
         private void add(Object frame) {
             synchronized (frames) {
@@ -221,7 +303,8 @@ class BridgeIT {
 
         @Override
         public void close(int code, String reason) {
-            end();
+            closedByServer = true;
+            if (!stubborn) end();
         }
 
         @Override public boolean isOpen() { return open; }
@@ -245,6 +328,12 @@ class BridgeIT {
                 for (int i = 0; i < frames.size(); i++) if (frames.get(i) == frame) return i;
                 return -1;
             }
+        }
+
+        <T> long countFrom(int from, Class<T> type, Predicate<T> p) {
+            List<Object> all = frames();
+            return all.subList(Math.min(from, all.size()), all.size()).stream()
+                .filter(type::isInstance).map(type::cast).filter(p).count();
         }
 
         <T> T last(Class<T> type) {

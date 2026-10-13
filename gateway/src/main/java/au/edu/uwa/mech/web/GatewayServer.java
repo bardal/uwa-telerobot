@@ -32,6 +32,8 @@ public final class GatewayServer {
 
     public static final int MAX_TEXT_BYTES = Protocol.MAX_MESSAGE_BYTES;
     public static final Duration IDLE_TIMEOUT = Duration.ofMinutes(11);
+    /** How long a client has to complete a close we started before its TCP connection is dropped. */
+    public static final long CLOSE_GRACE_MILLIS = 2_000;
 
     /** Timers: slot lease before the socket opens, time allowed to say hello, how often leases are swept. */
     public record Timing(long leaseMillis, long helloDeadlineMillis, long sweepMillis) {
@@ -181,6 +183,8 @@ public final class GatewayServer {
         private volatile Object attachment;
         private volatile boolean helloSeen;
         private volatile java.util.concurrent.ScheduledFuture<?> helloTimer;
+        private volatile boolean closing;
+        private volatile java.util.concurrent.ScheduledFuture<?> closeTimer;
 
         Connection(Admission.Reservation reservation) {
             this.reservation = reservation;
@@ -204,6 +208,7 @@ public final class GatewayServer {
 
         @Override
         public void onWebSocketText(String message) {
+            if (closing) return; // we have closed: nothing more from this client is acted on
             try {
                 if (!helloSeen) {
                     In in;
@@ -244,6 +249,7 @@ public final class GatewayServer {
         @Override
         public void onWebSocketBinary(ByteBuffer payload, org.eclipse.jetty.websocket.api.Callback callback) {
             callback.succeed();
+            if (closing) return;
             close(1003, "binary not accepted");
         }
 
@@ -276,25 +282,75 @@ public final class GatewayServer {
         // ClientConnection
         @Override public String remoteIp() { return ip; }
 
-        @Override
-        public void send(Out message) {
-            Session s = session;
-            if (s != null && s.isOpen()) s.sendText(Out.json(message), org.eclipse.jetty.websocket.api.Callback.NOOP);
+        private final java.util.concurrent.atomic.AtomicLong queuedBytes = new java.util.concurrent.atomic.AtomicLong();
+        private final java.util.concurrent.atomic.AtomicInteger queuedMessages = new java.util.concurrent.atomic.AtomicInteger();
+
+        /** Counts a frame as queued until Jetty has written it (or failed); then runs {@code written}. */
+        private org.eclipse.jetty.websocket.api.Callback tracked(long bytes, Runnable written) {
+            queuedBytes.addAndGet(bytes);
+            queuedMessages.incrementAndGet();
+            java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean();
+            Runnable end = () -> {
+                if (!done.compareAndSet(false, true)) return;
+                queuedBytes.addAndGet(-bytes);
+                queuedMessages.decrementAndGet();
+                written.run();
+            };
+            return org.eclipse.jetty.websocket.api.Callback.from(end, failure -> end.run());
         }
 
         @Override
-        public void sendBinary(byte[] data) {
+        public void send(Out message, Runnable written) {
             Session s = session;
-            if (s != null && s.isOpen()) s.sendBinary(ByteBuffer.wrap(data), org.eclipse.jetty.websocket.api.Callback.NOOP);
+            if (s == null || !s.isOpen()) {
+                written.run();
+                return;
+            }
+            String json = Out.json(message);
+            s.sendText(json, tracked(json.length(), written));
         }
 
+        @Override
+        public void sendImage(Out.Image header, byte[] jpeg, Runnable written) {
+            Session s = session;
+            if (s == null || !s.isOpen()) {
+                written.run();
+                return;
+            }
+            String json = Out.json(header);
+            s.sendText(json, tracked(json.length(), () -> {}));
+            s.sendBinary(ByteBuffer.wrap(jpeg), tracked(jpeg.length, written));
+        }
+
+        @Override public long queuedBytes() { return queuedBytes.get(); }
+        @Override public int queuedMessages() { return queuedMessages.get(); }
+
+        /**
+         * Starts the close handshake, ignores every later frame from the client, and drops the TCP
+         * connection if the client has not completed the close within {@link #CLOSE_GRACE_MILLIS}.
+         */
         @Override
         public void close(int code, String reason) {
+            closing = true;
             Session s = session;
-            if (s != null && s.isOpen()) s.close(code, reason, org.eclipse.jetty.websocket.api.Callback.NOOP);
+            if (s == null) return;
+            if (s.isOpen()) s.close(code, reason, org.eclipse.jetty.websocket.api.Callback.NOOP);
+            if (closeTimer == null) {
+                try {
+                    closeTimer = timers.schedule(() -> {
+                        if (s.isOpen()) {
+                            LOG.info("client {} ignored the close; disconnecting", ip);
+                            s.disconnect();
+                        }
+                        finish();
+                    }, CLOSE_GRACE_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.RejectedExecutionException stopping) {
+                    s.disconnect(); // the server is stopping
+                }
+            }
         }
 
-        @Override public boolean isOpen() { Session s = session; return s != null && s.isOpen(); }
+        @Override public boolean isOpen() { Session s = session; return s != null && s.isOpen() && !closing; }
         @Override public Object attachment() { return attachment; }
         @Override public void attach(Object state) { this.attachment = state; }
     }

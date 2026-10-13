@@ -92,7 +92,8 @@ public final class SessionRegistry implements SessionHandler {
     }
 
     public Optional<Session> byNick(String nick) {
-        return sessions.values().stream().filter(s -> nick != null && nick.equals(s.nick())).findFirst();
+        // nicks are unique ignoring case (Nicks), so match the same way
+        return sessions.values().stream().filter(s -> nick != null && nick.equalsIgnoreCase(s.nick())).findFirst();
     }
 
     /** Closes a session from the server side, for example after the idle timeout (Task 7). */
@@ -137,7 +138,13 @@ public final class SessionRegistry implements SessionHandler {
                 if (a.action().equals("ban")) {
                     bans.ban(t.identity());
                     LOG.info("{} banned {}", from.nick(), t.nick());
-                    t.close("unauthorised", "you are banned", 1008);
+                    // every live session with that sub or address goes, not only the named one
+                    for (Session s : sessions()) {
+                        if (s != from && s.identity() != null && bans.banned(s.identity())) {
+                            s.close("unauthorised", "you are banned", 1008);
+                        }
+                    }
+                    if (bans.banned(from.identity())) from.console("Note: your own address is now banned too");
                 } else {
                     LOG.info("{} kicked {}", from.nick(), t.nick());
                     t.close("unauthorised", "removed by an administrator", 1008);

@@ -7,12 +7,32 @@ public interface ClientConnection {
     String remoteIp();
 
     /** Queue a JSON text frame. Safe from any thread; silently dropped if the socket has closed. */
-    void send(Out message);
+    default void send(Out message) {
+        send(message, () -> {});
+    }
 
-    /** Queue a binary frame (the JPEG after an {@code image} message). */
-    void sendBinary(byte[] data);
+    /**
+     * Queue a JSON text frame; {@code written} runs once, when it has been written or has failed
+     * (including when the socket is already closed). It may run on the calling thread.
+     */
+    void send(Out message, Runnable written);
 
-    /** Close with a WebSocket close code after queued frames have been sent. */
+    /**
+     * Queue an {@code image} header and its JPEG as one unit (nothing else between them as long as the
+     * caller holds its own send lock); {@code written} runs once both are written or have failed.
+     */
+    void sendImage(Out.Image header, byte[] jpeg, Runnable written);
+
+    /** Bytes queued for the socket and not yet written. */
+    long queuedBytes();
+
+    /** Frames queued for the socket and not yet written. */
+    int queuedMessages();
+
+    /**
+     * Close with a WebSocket close code after queued frames have been sent. From then on nothing the
+     * client sends is passed on, and a client that does not finish the close is disconnected.
+     */
     void close(int code, String reason);
 
     boolean isOpen();

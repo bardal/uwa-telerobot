@@ -52,7 +52,7 @@ public class DefaultUserManager implements UserManager
     
     String filePassword  = userDatabase.getStringField(userName, "PIN");
 
-    System.out.println("in default user manager login"+userName+","+nickname+","+password+","+filePassword);
+    System.out.println("in default user manager login "+userName+","+nickname); // never the PINs
     
     if (filePassword.equals("NULL"))
     {

@@ -150,6 +150,8 @@ public final class MomBridge {
     private volatile boolean closing;
     private final java.util.concurrent.atomic.AtomicBoolean lost = new java.util.concurrent.atomic.AtomicBoolean();
     private final java.util.concurrent.atomic.AtomicBoolean closeStarted = new java.util.concurrent.atomic.AtomicBoolean();
+    /** Orders takeControl and command against close: none of them overlap. */
+    private final Object controlLock = new Object();
     private volatile RobotState lastState;
 
     private final Map<String, Camera> cameras = new ConcurrentHashMap<>();
@@ -234,14 +236,22 @@ public final class MomBridge {
 
     /** Releases control if this session holds it, then logs out of MOM. Idempotent. */
     public void close() {
-        if (!closeStarted.compareAndSet(false, true)) return;
-        closing = true;
+        // after this, takeControl and command do nothing; one already sending finishes first
+        synchronized (controlLock) {
+            if (!closeStarted.compareAndSet(false, true)) return;
+            closing = true;
+        }
         within(() -> {
             if (root == null || !root.loggedIn()) return null;
-            try {
-                if (nick.equals(controllerNick())) client.releaseControl();
-            } catch (RobotException e) {
-                LOG.debug("release on close failed: {}", e.getMessage());
+            // Release whatever our local view says: a grab of ours may still be on its way to MOM, or
+            // its GRABBED event on its way back. MOM handles our packets in order, so this release
+            // follows any grab we sent; if someone else owns the token MOM refuses it harmlessly.
+            if (client.tokenKnown()) {
+                try {
+                    client.releaseControl();
+                } catch (RobotException | RuntimeException e) {
+                    LOG.debug("release on close failed: {}", e.getMessage());
+                }
             }
             // MOM answers a logout at once (then waits 10 s before dropping the socket), and the
             // release above is ahead of it on the same socket. Never hang on a dead MOM.
@@ -270,29 +280,39 @@ public final class MomBridge {
 
     // ---- robot ---------------------------------------------------------------------------------
 
-    /** Sends a path script as the applet's Send button does; returns its id. Status comes through the listener. */
+    /**
+     * Sends a path script as the applet's Send button does; returns its id, or null when the bridge
+     * is closing (nothing is sent). Status comes through the listener.
+     */
     public String command(String script) {
         return within(() -> {
-            MMoveCommand c = new MMoveCommand(script);
-            Track t = new Track(Integer.toString(c.ID()), script);
-            commands.put(c.ID(), t);
-            c.observable().addObserver((o, arg) -> commandChanged(c, t));
-            out.commandStatus(t.id, "queued", script, "");
-            try {
-                client.send(c);
-            } catch (MOMException e) {
-                t.finish("error", "Error sending commands :" + e.getMessage());
+            synchronized (controlLock) {
+                if (closing) return null;
+                MMoveCommand c = new MMoveCommand(script);
+                Track t = new Track(Integer.toString(c.ID()), script);
+                commands.put(c.ID(), t);
+                c.observable().addObserver((o, arg) -> commandChanged(c, t));
+                out.commandStatus(t.id, "queued", script, "");
+                try {
+                    client.send(c);
+                } catch (MOMException e) {
+                    t.finish("error", "Error sending commands :" + e.getMessage());
+                }
+                return t.id;
             }
-            return t.id;
         });
     }
 
+    /** Does nothing once the bridge is closing, so close() can't miss a grab and leave the token held. */
     public void takeControl() {
         within(() -> {
-            try {
-                client.gainControl();
-            } catch (RobotException e) {
-                out.console(e.getMessage());
+            synchronized (controlLock) {
+                if (closing) return null;
+                try {
+                    client.gainControl();
+                } catch (RobotException e) {
+                    out.console(e.getMessage());
+                }
             }
             return null;
         });
@@ -472,6 +492,20 @@ public final class MomBridge {
         return Optional.ofNullable(lastSettings.get(camera));
     }
 
+    /** Asks the camera server (CameraClient.getSettings blocks until it answers). */
+    public Optional<Out.CameraSettings> fetchSettings(String camera) {
+        return within(() -> {
+            Camera c = cameras.get(camera);
+            if (c == null || closing) return Optional.<Out.CameraSettings>empty();
+            CameraSettings s = c.getSettings();
+            if (s == null) return Optional.<Out.CameraSettings>empty();
+            Out.CameraSettings out = new Out.CameraSettings(camera, c.getOn(), s.getWidth(), s.getHeight(),
+                s.getZoom(), s.getQuality(), s.getFixed());
+            lastSettings.putIfAbsent(camera, out);
+            return Optional.of(out);
+        });
+    }
+
     public void newImage(String camera) {
         within(() -> {
             Camera c = cameras.get(camera);
@@ -647,6 +681,11 @@ public final class MomBridge {
 
         void send(Command c) throws MOMException {
             sendCommand(c);
+        }
+
+        /** True once the robot token is known locally (a grab can only have been sent then). */
+        boolean tokenKnown() {
+            return robotToken != null;
         }
     }
 

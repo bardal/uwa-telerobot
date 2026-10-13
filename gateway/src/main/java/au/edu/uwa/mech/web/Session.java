@@ -7,9 +7,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,10 +15,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * One browser: its identity, nick, {@link Limits} and {@link MomBridge}. Incoming messages are
- * checked on the calling (Jetty) thread, which never blocks; everything that talks to MOM runs on
- * this session's own serial queue of virtual threads, so a slow MOM round trip holds up only this
- * session. Bridge events arrive on this session's MOM threads and are sent straight to the socket.
+ * One browser: its identity, nick, {@link Limits}, {@link MomBridge} and {@link Outbox}. Incoming
+ * messages are checked on the calling (Jetty) thread, which never blocks; everything that talks to
+ * MOM runs on this session's own serial queue of virtual threads, so a slow MOM round trip holds
+ * up only this session. Bridge events arrive on this session's MOM threads and go to the Outbox.
+ *
+ * <p>Once closed, from either side, nothing the browser sends is acted on, and the shutdown
+ * (release control, log out of MOM, free the nick) starts at once.
  */
 public final class Session implements MomBridge.Listener {
     private static final Logger LOG = LoggerFactory.getLogger(Session.class);
@@ -38,18 +39,18 @@ public final class Session implements MomBridge.Listener {
     private final String id;
     private final Limits limits;
     private final Serial serial;
-    private final Object sendLock = new Object();
+    private final Outbox outbox;
 
     private volatile Identity identity;
     private volatile String nick;
     private volatile MomBridge bridge;
-    private volatile boolean ready;
     private volatile boolean loginDone;
     private volatile boolean closed;
+    private final AtomicBoolean shutdownStarted = new AtomicBoolean();
     private final AtomicBoolean shutDown = new AtomicBoolean();
-    private volatile String selectedCamera;
-    private final Map<String, Integer> seq = new ConcurrentHashMap<>();
     private final AtomicInteger inFlight = new AtomicInteger();
+    private final AtomicInteger pendingPoints = new AtomicInteger();
+    private final AtomicBoolean fetchingSettings = new AtomicBoolean();
 
     Session(SessionRegistry registry, ClientConnection conn, In.Hello hello, String id) {
         this.registry = registry;
@@ -58,6 +59,7 @@ public final class Session implements MomBridge.Listener {
         this.id = id;
         this.limits = new Limits(registry.clock());
         this.serial = new Serial(registry.executor());
+        this.outbox = new Outbox(conn, () -> close("too-many", "the connection is too slow", 1008));
     }
 
     public String id() { return id; }
@@ -69,7 +71,9 @@ public final class Session implements MomBridge.Listener {
 
     MomBridge bridge() { return bridge; }
 
-    boolean ready() { return ready; }
+    boolean ready() { return outbox.isOpen(); }
+
+    boolean closed() { return closed; }
 
     // ---- login ---------------------------------------------------------------------------------
 
@@ -93,6 +97,7 @@ public final class Session implements MomBridge.Listener {
                 return;
             }
             try {
+                if (closed) return; // the tab went while we waited for a login slot
                 Identity id;
                 try {
                     id = registry.auth().authenticate(hello, conn.remoteIp());
@@ -112,8 +117,8 @@ public final class Session implements MomBridge.Listener {
                     return;
                 }
                 if (closed) return;
-                if (!connect(id, wanted, pin)) return;
                 identity = id;
+                if (!connect(id, wanted, pin)) return;
             } finally {
                 registry.logins().release();
             }
@@ -159,32 +164,49 @@ public final class Session implements MomBridge.Listener {
         MomBridge b = bridge;
         registry.seedWorkspace(this);
         registry.register(this);
-        synchronized (sendLock) {
-            conn.send(new Out.Welcome(nick, identity.level().name().toLowerCase(Locale.ROOT), b.cameraNames(),
+        outbox.open(List.of(
+            new Out.Welcome(nick, identity.level().name().toLowerCase(Locale.ROOT), b.cameraNames(),
                 registry.config().commit(), new Out.Limits(Limits.MAX_SCRIPT_CHARS, Limits.MAX_WAYPOINTS,
-                    Limits.MAX_CHAT_CHARS)));
-            conn.send(new Out.Lab("ready", ""));
-            ready = true;
-            // the state so far; later changes come as live events
-            conn.send(new Out.Users(b.users()));
-            conn.send(new Out.Controller(b.controllerNick()));
-            RobotState s = b.lastState();
-            if (s != null) conn.send(toOut(s));
-            conn.send(new Out.Workspace(b.points()));
-        }
+                    Limits.MAX_CHAT_CHARS)),
+            new Out.Lab("ready", "")), () -> {
+                // the state so far; later changes come as live events
+                List<Out> snapshot = new ArrayList<>();
+                snapshot.add(new Out.Users(b.users()));
+                snapshot.add(new Out.Controller(b.controllerNick()));
+                RobotState s = b.lastState();
+                if (s != null) snapshot.add(toOut(s));
+                snapshot.add(new Out.Workspace(b.points()));
+                return snapshot;
+            });
     }
 
     private void refuse(String code, String message) {
-        send(new Out.Error(code, message));
-        conn.close(1008, code);
+        close(code, message, 1008);
     }
 
     // ---- close ---------------------------------------------------------------------------------
 
-    /** The socket has ended. Releases control and logs out of MOM, then frees the nick. */
+    /** The socket has ended. */
     void onClose() {
         closed = true;
-        ready = false;
+        outbox.close();
+        beginShutdown();
+    }
+
+    /**
+     * Server side close (a refusal, kick, ban, idle timeout, lost lab or too many rejections): tell
+     * the browser, stop acting on it, and start the shutdown now rather than when the socket ends.
+     */
+    void close(String code, String message, int wsCode) {
+        if (!closed) outbox.sendNow(new Out.Error(code, message));
+        closed = true;
+        outbox.close();
+        conn.close(wsCode, code);
+        beginShutdown();
+    }
+
+    private void beginShutdown() {
+        if (!shutdownStarted.compareAndSet(false, true)) return;
         if (loginDone) {
             registry.executor().execute(this::shutdown); // don't wait behind a slow MOM call on the queue
         } else {
@@ -192,6 +214,7 @@ public final class Session implements MomBridge.Listener {
         }
     }
 
+    /** Releases control and logs out of MOM, then frees the nick. */
     private void shutdown() {
         if (!shutDown.compareAndSet(false, true)) return;
         registry.unregister(this);
@@ -204,15 +227,10 @@ public final class Session implements MomBridge.Listener {
         }
     }
 
-    /** Server side close: a kick, the idle timeout or a lost lab. */
-    void close(String code, String message, int wsCode) {
-        send(new Out.Error(code, message));
-        conn.close(wsCode, code);
-    }
-
     // ---- incoming ------------------------------------------------------------------------------
 
     void onBadMessage(BadMessage problem) {
+        if (closed) return;
         reject("bad-message", "malformed message");
     }
 
@@ -222,7 +240,7 @@ public final class Session implements MomBridge.Listener {
             reject("rate-limited", "too many messages");
             return;
         }
-        if (!ready) {
+        if (!outbox.isOpen()) {
             reject("bad-message", "wait for welcome");
             return;
         }
@@ -254,7 +272,20 @@ public final class Session implements MomBridge.Listener {
             inFlight.decrementAndGet();
             return reject("rate-limited", "at most " + MAX_QUEUED_COMMANDS + " commands may be queued");
         }
-        return run(() -> b.command(c.script()));
+        boolean queued = run(() -> {
+            String commandId = null;
+            try {
+                commandId = b.command(c.script());
+            } finally {
+                if (commandId == null) commandDone(); // refused (closing) or failed before it was tracked
+            }
+        });
+        if (!queued) commandDone();
+        return queued;
+    }
+
+    private void commandDone() {
+        inFlight.updateAndGet(n -> Math.max(0, n - 1));
     }
 
     private boolean chat(MomBridge b, In.Chat c) {
@@ -267,10 +298,22 @@ public final class Session implements MomBridge.Listener {
     private boolean selectCamera(MomBridge b, In.SelectCamera s) {
         if (!knownCamera(b, s.camera())) return false;
         String camera = s.camera();
-        selectedCamera = camera;
-        // both are in memory, so send them now; a frame arriving meanwhile is never newer than lastPhoto
-        b.lastSettings(camera).ifPresent(this::emit);
-        b.lastPhoto(camera).ifPresent(d -> sendImage(camera, d));
+        outbox.select(camera, () -> b.lastPhoto(camera));
+        Optional<Out.CameraSettings> known = b.lastSettings(camera);
+        if (known.isPresent()) {
+            outbox.emit(known.get());
+        } else if (fetchingSettings.compareAndSet(false, true)) {
+            // CameraClient asks the camera server and waits for it: keep that off the session's queue
+            registry.executor().execute(() -> {
+                try {
+                    b.fetchSettings(camera).ifPresent(st -> {
+                        if (camera.equals(outbox.selected())) outbox.emit(st);
+                    });
+                } finally {
+                    fetchingSettings.set(false);
+                }
+            });
+        }
         return true;
     }
 
@@ -297,11 +340,21 @@ public final class Session implements MomBridge.Listener {
         if (v.text().codePointCount(0, v.text().length()) > MAX_LABEL_CHARS) {
             return reject("bad-message", "label is longer than " + MAX_LABEL_CHARS + " characters");
         }
+        // points already added plus adds still on the queue, so a burst can't pass the cap
         long mine = b.points().stream().filter(p -> p.owner().equals(nick)).count();
-        if (mine >= MAX_POINTS_PER_USER) {
+        if (mine + pendingPoints.incrementAndGet() > MAX_POINTS_PER_USER) {
+            pendingPoints.decrementAndGet();
             return reject("rate-limited", "at most " + MAX_POINTS_PER_USER + " points each");
         }
-        return run(() -> b.workspaceAdd(w.x(), w.y(), w.z(), v.text()));
+        boolean queued = run(() -> {
+            try {
+                b.workspaceAdd(w.x(), w.y(), w.z(), v.text());
+            } finally {
+                pendingPoints.decrementAndGet();
+            }
+        });
+        if (!queued) pendingPoints.decrementAndGet();
+        return queued;
     }
 
     private boolean workspaceDelete(MomBridge b, In.WorkspaceDelete w) {
@@ -324,15 +377,17 @@ public final class Session implements MomBridge.Listener {
 
     /** Tells the browser, and closes the session after 20 rejections in a minute. Always false. */
     boolean reject(String code, String message) {
-        send(new Out.Error(code, message));
+        if (closed) return false;
+        outbox.sendNow(new Out.Error(code, message));
         if (limits.recordRejection()) {
             LOG.info("closing session {}: too many rejected messages", id);
-            conn.close(1008, "too many rejected messages");
+            close("rate-limited", "too many rejected messages", 1008);
         }
         return false;
     }
 
     private boolean run(Runnable task) {
+        if (closed) return false;
         if (!serial.execute(task)) {
             LOG.warn("closing session {}: {} tasks pending", id, MAX_PENDING_TASKS);
             close("lab-unavailable", "the lab is not responding", 1011);
@@ -343,35 +398,9 @@ public final class Session implements MomBridge.Listener {
 
     // ---- outgoing (bridge events, on MOM threads) ----------------------------------------------
 
+    /** Regardless of the welcome: errors from admin actions. */
     void send(Out m) {
-        synchronized (sendLock) {
-            conn.send(m);
-        }
-    }
-
-    /** Sends only once welcomed; earlier state is covered by the welcome's snapshot. */
-    void emit(Out m) {
-        synchronized (sendLock) {
-            if (ready) conn.send(m);
-        }
-    }
-
-    @Override
-    public void console(String text) {
-        emit(new Out.Console(text));
-    }
-
-    /** The header then the JPEG, with nothing in between. */
-    private void sendImage(String camera, ImageData d) {
-        if (d.pixels == null) return;
-        List<Double> calibration = new ArrayList<>(12);
-        for (double v : d.calibrationMatrix.getRowPackedCopy()) calibration.add(v);
-        synchronized (sendLock) {
-            if (!ready) return;
-            int n = seq.merge(camera, 1, Integer::sum);
-            conn.send(new Out.Image(camera, n, d.width, d.height, calibration));
-            conn.sendBinary(d.pixels);
-        }
+        outbox.sendNow(m);
     }
 
     static Out.RobotState toOut(RobotState s) {
@@ -381,29 +410,34 @@ public final class Session implements MomBridge.Listener {
     }
 
     @Override
+    public void console(String text) {
+        outbox.emit(new Out.Console(text));
+    }
+
+    @Override
     public void robotState(RobotState state) {
-        emit(toOut(state));
+        outbox.robotState(toOut(state));
     }
 
     @Override
     public void controller(String nick) {
-        emit(new Out.Controller(nick));
+        outbox.emit(new Out.Controller(nick));
     }
 
     @Override
     public void commandStatus(String id, String state, String script, String text) {
-        if (state.equals("done") || state.equals("error")) inFlight.updateAndGet(n -> Math.max(0, n - 1));
-        emit(new Out.CommandStatus(id, state, script, text));
+        if (state.equals("done") || state.equals("error")) commandDone();
+        outbox.emit(new Out.CommandStatus(id, state, script, text));
     }
 
     @Override
     public void users(List<String> nicks) {
-        emit(new Out.Users(nicks));
+        outbox.emit(new Out.Users(nicks));
     }
 
     @Override
     public void chat(String nick, String text, long time) {
-        emit(new Out.Chat(chatId(nick, text, time), nick, text, time));
+        outbox.emit(new Out.Chat(chatId(nick, text, time), nick, text, time));
     }
 
     /** The same id in every session: MOM gives each of them the sender's timestamp. */
@@ -415,17 +449,17 @@ public final class Session implements MomBridge.Listener {
 
     @Override
     public void image(String camera, ImageData data) {
-        if (camera.equals(selectedCamera)) sendImage(camera, data);
+        outbox.image(camera, data);
     }
 
     @Override
     public void cameraSettings(Out.CameraSettings settings) {
-        if (settings.camera().equals(selectedCamera)) emit(settings);
+        if (settings.camera().equals(outbox.selected())) outbox.emit(settings);
     }
 
     @Override
     public void workspace(List<Out.Point> points) {
-        emit(new Out.Workspace(points));
+        outbox.emit(new Out.Workspace(points));
     }
 
     @Override
