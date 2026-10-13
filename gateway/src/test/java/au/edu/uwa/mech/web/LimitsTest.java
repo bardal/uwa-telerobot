@@ -1,0 +1,157 @@
+package au.edu.uwa.mech.web;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import org.junit.jupiter.api.Test;
+
+class LimitsTest {
+    long now = 0;
+    final Limits limits = new Limits(() -> now);
+
+    static String script(int waypoints) {
+        return IntStream.rangeClosed(1, waypoints).mapToObj(i -> "x" + i).collect(Collectors.joining(";"));
+    }
+
+    @Test
+    void scriptLengthBoundary() {
+        String ok = "x10,y20" + " ".repeat(400 - 7);
+        assertEquals(400, ok.length());
+        assertTrue(limits.checkScript(ok).ok());
+        Limits.Verdict v = limits.checkScript(ok + " ");
+        assertFalse(v.ok());
+        assertTrue(v.reason().contains("400"), v.reason());
+    }
+
+    @Test
+    void scriptWaypointBoundary() {
+        assertTrue(limits.checkScript(script(30)).ok());
+        Limits.Verdict v = limits.checkScript(script(31));
+        assertFalse(v.ok());
+        assertTrue(v.reason().contains("30"), v.reason());
+    }
+
+    @Test
+    void unparseableScriptIsRefusedWithMessage() {
+        Limits.Verdict v = limits.checkScript("x10,,q");
+        assertFalse(v.ok());
+        assertTrue(v.reason().contains("'q'"), v.reason());
+        assertFalse(limits.checkScript("").ok());
+        assertFalse(limits.checkScript(null).ok());
+    }
+
+    @Test
+    void realScriptsParse() {
+        assertTrue(limits.checkScript("x100,y200,z50;rx10;go;tf;gc").ok());
+    }
+
+    @Test
+    void chatLengthBoundaryAfterNfc() {
+        assertTrue(limits.checkChat("a".repeat(300)).ok());
+        assertFalse(limits.checkChat("a".repeat(301)).ok());
+        // decomposed e + combining acute is 600 chars raw, 300 after NFC
+        assertTrue(limits.checkChat("é".repeat(300)).ok());
+        assertEquals("é".repeat(300), limits.checkChat("é".repeat(300)).text());
+    }
+
+    @Test
+    void chatStripsControlAndBidi() {
+        assertEquals("helloevil", limits.checkChat("hello‮evil").text());
+        assertEquals("ab", limits.checkChat("a\u0000\u0007b⁦⁩").text());
+        assertFalse(limits.checkChat("‪‮  ").ok());
+        assertFalse(limits.checkChat("").ok());
+        assertFalse(limits.checkChat(null).ok());
+    }
+
+    @Test
+    void chatBlocklistIsCaseInsensitiveWholeWord() {
+        assertFalse(limits.checkChat("Buy   followers now").ok());
+        assertFalse(limits.checkChat("you RETARD").ok());
+        assertFalse(limits.checkChat("ＶＩＡＧＲＡ").ok()); // fullwidth VIAGRA, NFKC folds it
+        assertTrue(limits.checkChat("retarded motors are fine").ok()); // not a whole word
+        assertTrue(limits.checkChat("scunthorpe kikeriki").ok());
+    }
+
+    @Test
+    void nicks() {
+        assertEquals("Ann B.", Limits.cleanNick("  Ann B.  ").orElseThrow());
+        assertTrue(Limits.cleanNick("a".repeat(20)).isPresent());
+        assertTrue(Limits.cleanNick("a".repeat(21)).isEmpty());
+        assertTrue(Limits.cleanNick("<script>").isEmpty());
+        assertTrue(Limits.cleanNick("   ").isEmpty());
+        assertTrue(Limits.cleanNick(null).isEmpty());
+        assertTrue(Limits.cleanNick("bob_1-x").isPresent());
+        assertTrue(Limits.cleanNick("böb").isEmpty());
+    }
+
+    @Test
+    void chatBucketIsOnePerSecondBurstFive() {
+        for (int i = 0; i < 5; i++) assertTrue(limits.allow("chat"), "burst " + i);
+        assertFalse(limits.allow("chat"));
+        now += 999;
+        assertFalse(limits.allow("chat"));
+        now += 1;
+        assertTrue(limits.allow("chat"));
+        assertFalse(limits.allow("chat"));
+        now += 60_000; // refill is capped at the burst
+        for (int i = 0; i < 5; i++) assertTrue(limits.allow("chat"));
+        assertFalse(limits.allow("chat"));
+    }
+
+    @Test
+    void activityIsTwoPerSecond() {
+        assertTrue(limits.allow("activity"));
+        assertTrue(limits.allow("activity"));
+        assertFalse(limits.allow("activity"));
+        now += 499;
+        assertFalse(limits.allow("activity"));
+        now += 1;
+        assertTrue(limits.allow("activity"));
+        assertFalse(limits.allow("activity"));
+    }
+
+    @Test
+    void snapshotsAreTenPerHour() {
+        for (int i = 0; i < 10; i++) assertTrue(limits.allow("snapshot"), "snap " + i);
+        assertFalse(limits.allow("snapshot"));
+        now += 3_600_000L / 10 - 1;
+        assertFalse(limits.allow("snapshot"));
+        now += 1;
+        assertTrue(limits.allow("snapshot"));
+        assertFalse(limits.allow("snapshot"));
+    }
+
+    @Test
+    void bucketsAreIndependentAndUnknownIsRejected() {
+        for (int i = 0; i < 5; i++) limits.allow("chat");
+        assertFalse(limits.allow("chat"));
+        assertTrue(limits.allow("command"));
+        assertTrue(limits.allow("any"));
+        assertThrows(IllegalArgumentException.class, () -> limits.allow("nope"));
+    }
+
+    @Test
+    void twentyRejectionsInAMinuteCloseTheSession() {
+        for (int i = 0; i < 19; i++) {
+            assertFalse(limits.recordRejection(), "rejection " + (i + 1));
+            now += 1000;
+        }
+        assertTrue(limits.recordRejection()); // the 20th, 19 s after the first
+    }
+
+    @Test
+    void slowRejectionsDoNotAccumulate() {
+        for (int i = 0; i < 100; i++) {
+            assertFalse(limits.recordRejection());
+            now += 4_000; // 15 per minute
+        }
+    }
+
+    @Test
+    void rejectionWindowIsExactlyAMinute() {
+        for (int i = 0; i < 19; i++) limits.recordRejection(); // all at t=0
+        now += 60_000; // those 19 now fall outside the window
+        assertFalse(limits.recordRejection());
+    }
+}

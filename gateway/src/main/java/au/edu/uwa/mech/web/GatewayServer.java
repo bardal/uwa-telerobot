@@ -112,7 +112,13 @@ public final class GatewayServer {
                 ? "the origin secret header is NOT checked (only Origin is); " : "");
         }
         server.start();
-        timers.scheduleWithFixedDelay(admission::sweep, timing.sweepMillis(), timing.sweepMillis(),
+        timers.scheduleWithFixedDelay(() -> {
+            try {
+                admission.sweep();
+            } catch (RuntimeException e) { // an escaping exception would silently end the schedule
+                LOG.warn("admission sweep failed", e);
+            }
+        }, timing.sweepMillis(), timing.sweepMillis(),
             java.util.concurrent.TimeUnit.MILLISECONDS);
     }
 
