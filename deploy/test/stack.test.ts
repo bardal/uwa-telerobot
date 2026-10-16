@@ -9,6 +9,9 @@ import { ARCHIVE_CSP, TelerobotStack } from "../lib/telerobot-stack";
 
 const ACCOUNT = "123456789012";
 const ORIGIN_HEADER = "X-Telerobot-Origin";
+// AWS-managed CloudFront policy ids (the same in every account).
+const SECURITY_HEADERS = "67f7725c-6f97-4210-82d7-5512b31e9d03";
+const ALL_VIEWER_AND_CLOUDFRONT = "33f36d7e-f396-46d9-90e0-52428a34d9dc";
 
 type Resources = Record<string, { Type: string; Properties?: any; DependsOn?: string | string[] }>;
 
@@ -37,6 +40,18 @@ function only<T = any>(t: Template, type: string): [string, T] {
   const found = Object.entries(t.findResources(type));
   expect(found, type).toHaveLength(1);
   return [found[0][0], found[0][1].Properties as T];
+}
+
+function fnByComment(comment: string): [string, any] {
+  const found = Object.entries(main.findResources("AWS::CloudFront::Function")).filter(
+    ([, r]) => r.Properties.FunctionConfig.Comment === comment,
+  );
+  expect(found, comment).toHaveLength(1);
+  return [found[0][0], found[0][1].Properties];
+}
+
+function handlerOf([, fn]: [string, any]): (event: any) => any {
+  return new Function(`${fn.FunctionCode}; return handler;`)();
 }
 
 function statements(t: Template): any[] {
@@ -277,27 +292,37 @@ describe("telerobot stack", () => {
     expect(ec2.CustomOriginConfig).toMatchObject({ HTTPPort: 8080, OriginProtocolPolicy: "http-only" });
     expect(JSON.stringify(ec2.DomainName)).toContain(".eu-west-2.compute.amazonaws.com");
 
-    // The gateway's per-IP admission needs CloudFront-Viewer-Address.
-    const [orpId, orp] = only(main, "AWS::CloudFront::OriginRequestPolicy");
-    expect(orp.OriginRequestPolicyConfig.HeadersConfig).toEqual({
-      HeaderBehavior: "allViewerAndWhitelistCloudFront",
-      Headers: ["CloudFront-Viewer-Address"],
-    });
+    // The gateway's per-IP admission needs CloudFront-Viewer-Address: the managed
+    // AllViewerAndCloudFrontHeaders-2022-06 policy carries it.
     for (const p of ["/ws", "/healthz"]) {
-      expect(behaviours.find((b) => b.PathPattern === p).OriginRequestPolicyId).toEqual({ Ref: orpId });
+      expect(behaviours.find((b) => b.PathPattern === p).OriginRequestPolicyId).toBe(ALL_VIEWER_AND_CLOUDFRONT);
     }
 
     const archive = behaviours.find((b) => b.PathPattern === "/archive/public/*");
-    expect(archive.FunctionAssociations).toEqual([expect.objectContaining({ EventType: "viewer-request" })]);
+    expect(archive.FunctionAssociations.map((f: any) => f.EventType)).toEqual(["viewer-request", "viewer-response"]);
     expect(cfg.WebACLId).toBeDefined();
 
     const api_b = behaviours.find((b) => b.PathPattern === "/api/*");
     expect(api_b.AllowedMethods.sort()).toEqual(["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]);
   });
 
+  it("uses only what the CloudFront flat-rate Free plan allows: managed policies, no custom ones", () => {
+    for (const type of [
+      "AWS::CloudFront::ResponseHeadersPolicy",
+      "AWS::CloudFront::OriginRequestPolicy",
+      "AWS::CloudFront::CachePolicy",
+    ]) {
+      expect(Object.keys(main.findResources(type)), type).toHaveLength(0);
+    }
+    const [, dist] = only(main, "AWS::CloudFront::Distribution");
+    for (const b of [dist.DistributionConfig.DefaultCacheBehavior, ...dist.DistributionConfig.CacheBehaviors]) {
+      expect(typeof b.CachePolicyId, b.PathPattern ?? "default").toBe("string");
+      expect(b.ForwardedValues, b.PathPattern ?? "default").toBeUndefined();
+    }
+  });
+
   it("strips /archive in the viewer-request function", () => {
-    const [, fn] = only(main, "AWS::CloudFront::Function");
-    const handler = new Function(`${fn.FunctionCode}; return handler;`)();
+    const handler = handlerOf(fnByComment("/archive/public/x -> /public/x"));
     const out = handler({ request: { uri: "/archive/public/index/days.json" } });
     expect(out.uri).toBe("/public/index/days.json");
   });
@@ -305,38 +330,31 @@ describe("telerobot stack", () => {
   it("sends the CSP from webui/csp.json and the security headers", () => {
     const json = JSON.parse(readFileSync(new URL("../../webui/csp.json", import.meta.url), "utf8"));
     expect(CSP).toBe(json.csp);
-    const policies = main.findResources("AWS::CloudFront::ResponseHeadersPolicy");
-    expect(Object.keys(policies)).toHaveLength(2);
-    const byCsp = (csp: string) =>
-      Object.entries(policies).find(
-        ([, p]) =>
-          p.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy
-            .ContentSecurityPolicy === csp,
-      )!;
-    const [siteId, site] = byCsp(CSP);
-    const sec = site.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig;
-    expect(sec.StrictTransportSecurity).toMatchObject({ AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true });
-    expect(sec.FrameOptions.FrameOption).toBe("DENY");
-    expect(sec.ReferrerPolicy.ReferrerPolicy).toBe("strict-origin-when-cross-origin");
-    expect(sec.ContentTypeOptions).toBeDefined();
-    expect(site.Properties.ResponseHeadersPolicyConfig.CustomHeadersConfig.Items).toEqual([
-      { Header: "Permissions-Policy", Value: "camera=(), microphone=(), geolocation=()", Override: true },
-      { Header: "Cross-Origin-Opener-Policy", Value: "same-origin", Override: true },
-    ]);
-
-    // the archive serves inert images under its own policy
-    const [archiveId, archive] = byCsp(ARCHIVE_CSP);
     expect(ARCHIVE_CSP).toBe("default-src 'none'; img-src 'self'; sandbox");
-    const asec = archive.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig;
-    expect(asec.StrictTransportSecurity).toMatchObject({ AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true });
-    expect(asec.FrameOptions.FrameOption).toBe("DENY");
-    expect(asec.ContentTypeOptions).toBeDefined();
 
+    const respond = (fn: any) => handlerOf(fn)({ request: { uri: "/" }, response: { statusCode: 200, headers: { etag: { value: "x" } } } }).headers;
+    const siteId = fnByComment("CSP, Permissions-Policy, COOP")[0];
+    expect(respond(fnByComment("CSP, Permissions-Policy, COOP"))).toEqual({
+      etag: { value: "x" },
+      "content-security-policy": { value: CSP },
+      "permissions-policy": { value: "camera=(), microphone=(), geolocation=()" },
+      "cross-origin-opener-policy": { value: "same-origin" },
+    });
+    const archiveId = fnByComment("the archive's inert-document CSP")[0];
+    expect(respond(fnByComment("the archive's inert-document CSP"))).toEqual({
+      etag: { value: "x" },
+      "content-security-policy": { value: ARCHIVE_CSP },
+    });
+
+    // HSTS, nosniff, X-Frame-Options and Referrer-Policy on every response, from the managed policy
     const [, dist] = only(main, "AWS::CloudFront::Distribution");
     const cfg = dist.DistributionConfig;
     for (const b of [cfg.DefaultCacheBehavior, ...cfg.CacheBehaviors]) {
-      const want = b.PathPattern === "/archive/public/*" ? archiveId : siteId;
-      expect(b.ResponseHeadersPolicyId, b.PathPattern ?? "default").toEqual({ Ref: want });
+      const where = b.PathPattern ?? "default";
+      expect(b.ResponseHeadersPolicyId, where).toBe(SECURITY_HEADERS);
+      const onResponse = (b.FunctionAssociations ?? []).filter((f: any) => f.EventType === "viewer-response");
+      const want = where === "/ws" ? [] : [where === "/archive/public/*" ? archiveId : siteId];
+      expect(onResponse.map((f: any) => f.FunctionARN["Fn::GetAtt"][0]), where).toEqual(want);
     }
   });
 

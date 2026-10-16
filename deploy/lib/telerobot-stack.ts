@@ -60,6 +60,30 @@ const PARAM = {
   minutes: "/telerobot/minutes/*",
 };
 export const ARCHIVE_CSP = "default-src 'none'; img-src 'self'; sandbox";
+/** What the site's documents get on top of the managed SecurityHeadersPolicy. */
+export const SITE_HEADERS: Record<string, string> = {
+  "content-security-policy": CSP,
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  "cross-origin-opener-policy": "same-origin",
+};
+export const ARCHIVE_HEADERS: Record<string, string> = { "content-security-policy": ARCHIVE_CSP };
+
+/**
+ * A viewer-response CloudFront Function that sets `headers`. Custom response
+ * headers policies are Business-tier only on the flat-rate plans, so the CSP
+ * and friends come from a function (which the Free plan includes). Functions
+ * do not run on responses of 400 and above; those still get the managed
+ * policy's HSTS, nosniff, frame and referrer headers.
+ */
+export function setHeadersCode(headers: Record<string, string>): string {
+  return [
+    "function handler(event) {",
+    "  var h = event.response.headers;",
+    ...Object.entries(headers).map(([k, v]) => `  h[${JSON.stringify(k)}] = { value: ${JSON.stringify(v)} };`),
+    "  return event.response;",
+    "}",
+  ].join("\n");
+}
 const DEPLOY_DIR = fileURLToPath(new URL("..", import.meta.url));
 
 /** eu-west-2: everything except the web ACL. */
@@ -339,54 +363,36 @@ export class TelerobotStack extends Stack {
       ),
     });
 
-    const headers = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
-      securityHeadersBehavior: {
-        strictTransportSecurity: { accessControlMaxAge: Duration.days(730), includeSubdomains: true, override: true },
-        contentTypeOptions: { override: true },
-        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
-        referrerPolicy: {
-          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
-          override: true,
-        },
-        contentSecurityPolicy: { contentSecurityPolicy: CSP, override: true },
-      },
-      customHeadersBehavior: {
-        customHeaders: [
-          { header: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()", override: true },
-          { header: "Cross-Origin-Opener-Policy", value: "same-origin", override: true },
-        ],
-      },
+    // Only AWS-managed policies are allowed on the CloudFront flat-rate Free
+    // plan: SECURITY_HEADERS gives HSTS, nosniff, X-Frame-Options, Referrer-Policy
+    // (on every response, errors included); the functions add the CSP and the rest.
+    const siteHeaders = new cloudfront.Function(this, "SiteHeaders", {
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      comment: "CSP, Permissions-Policy, COOP",
+      code: cloudfront.FunctionCode.fromInline(setHeadersCode(SITE_HEADERS)),
     });
     // Archived images are served as inert documents (Cache-Control comes from the objects).
-    const archiveHeaders = new cloudfront.ResponseHeadersPolicy(this, "ArchiveHeaders", {
-      securityHeadersBehavior: {
-        strictTransportSecurity: { accessControlMaxAge: Duration.days(730), includeSubdomains: true, override: true },
-        contentTypeOptions: { override: true },
-        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
-        contentSecurityPolicy: { contentSecurityPolicy: ARCHIVE_CSP, override: true },
-      },
+    const archiveHeaders = new cloudfront.Function(this, "ArchiveHeaders", {
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      comment: "the archive's inert-document CSP",
+      code: cloudfront.FunctionCode.fromInline(setHeadersCode(ARCHIVE_HEADERS)),
     });
+    const onResponse = (fn: cloudfront.IFunction) => ({ function: fn, eventType: cloudfront.FunctionEventType.VIEWER_RESPONSE });
 
     const noCache = {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
       originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-      responseHeadersPolicy: headers,
+      responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
     };
-    // The managed ALL_VIEWER_EXCEPT_HOST_HEADER cannot carry CloudFront
-    // headers, and the gateway's per-IP admission reads CloudFront-Viewer-Address.
-    // The EC2 origin does not care about Host, so forward every viewer header too.
-    const toGateway = new cloudfront.OriginRequestPolicy(this, "GatewayRequest", {
-      comment: "Telerobot gateway: all viewer headers plus CloudFront-Viewer-Address",
-      headerBehavior: cloudfront.OriginRequestHeaderBehavior.all("CloudFront-Viewer-Address"),
-      cookieBehavior: cloudfront.OriginRequestCookieBehavior.all(),
-      queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.all(),
-    });
-    const gatewayNoCache = { ...noCache, originRequestPolicy: toGateway };
+    // The gateway's per-IP admission reads CloudFront-Viewer-Address, which
+    // ALL_VIEWER_EXCEPT_HOST_HEADER cannot carry. The EC2 origin does not care
+    // about Host, so the managed all-viewer-and-CloudFront-headers policy does.
+    const gatewayNoCache = { ...noCache, originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_AND_CLOUDFRONT_2022 };
     const cached = {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-      responseHeadersPolicy: headers,
+      responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
     };
 
     const dist = new cloudfront.Distribution(this, "Cdn", {
@@ -395,17 +401,29 @@ export class TelerobotStack extends Stack {
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       webAclId: props.webAclArn,
-      defaultBehavior: { origin: origins.S3BucketOrigin.withOriginAccessControl(ui), ...cached },
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(ui),
+        ...cached,
+        functionAssociations: [onResponse(siteHeaders)],
+      },
       additionalBehaviors: {
-        "/api/*": { origin: apiOrigin, ...noCache, allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL },
+        "/api/*": {
+          origin: apiOrigin,
+          ...noCache,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          functionAssociations: [onResponse(siteHeaders)],
+        },
         "/archive/public/*": {
           origin: archiveOrigin,
           ...cached,
-          responseHeadersPolicy: archiveHeaders,
-          functionAssociations: [{ function: stripArchive, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
+          functionAssociations: [
+            { function: stripArchive, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
+            onResponse(archiveHeaders),
+          ],
         },
+        // No response function on the WebSocket upgrade.
         "/ws": { origin: ec2Origin, ...gatewayNoCache },
-        "/healthz": { origin: ec2Origin, ...gatewayNoCache },
+        "/healthz": { origin: ec2Origin, ...gatewayNoCache, functionAssociations: [onResponse(siteHeaders)] },
       },
     });
 

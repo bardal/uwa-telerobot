@@ -17,6 +17,7 @@ import {
   AdminInitiateAuthCommand,
   CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { readFileSync } from "node:fs";
 import https from "node:https";
 import WebSocket from "ws";
 
@@ -98,6 +99,23 @@ async function readJson(res) {
   } catch {
     return { _raw: text.slice(0, 200) };
   }
+}
+
+// ---- 0. the UI's security headers (managed policy + SiteHeaders function) ----
+{
+  const csp = JSON.parse(readFileSync(new URL("../webui/csp.json", import.meta.url), "utf8")).csp;
+  const res = await get("/");
+  await res.arrayBuffer();
+  const want = {
+    "content-security-policy": csp,
+    "permissions-policy": "camera=(), microphone=(), geolocation=()",
+    "cross-origin-opener-policy": "same-origin",
+    "x-content-type-options": "nosniff",
+  };
+  const wrong = Object.entries(want).filter(([k, v]) => res.headers.get(k) !== v).map(([k]) => k);
+  if (!res.headers.get("strict-transport-security")) wrong.push("strict-transport-security");
+  if (res.status !== 200 || wrong.length > 0) fail("headers", `HTTP ${res.status}, wrong or missing: ${wrong.join(", ")}`);
+  pass("headers");
 }
 
 // ---- 1. GET /api/status ----
