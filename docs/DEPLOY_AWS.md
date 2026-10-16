@@ -201,10 +201,27 @@ distribution depends on:
   `CloudFront-Viewer-Address` so the gateway's per-IP connection cap sees the
   real client.
 
-The guide also lists WAF "Rule Groups" as unsupported on every plan. Getting
-onto the Free plan would mean giving up the security headers and the per-IP
-cap, so the distribution stays on pay-as-you-go (about $9 a month for the web
-ACL).
+Since then the distribution uses only what the Free plan allows (a stack
+test enforces no custom cache, origin request or response headers policy):
+
+* the managed `SecurityHeadersPolicy` on every behaviour: HSTS (one year),
+  nosniff, `X-Frame-Options: SAMEORIGIN` and the referrer policy, on every
+  response including errors;
+* viewer-response CloudFront Functions for the rest: `SiteHeaders` (CSP,
+  Permissions-Policy, COOP) on the UI, `/api/*` and `/healthz`, and
+  `ArchiveHeaders` (the archive's inert-document CSP) on `/archive/public/*`.
+  Functions do not run on responses of 400 and above, so error pages carry
+  only the managed headers; `/ws` has none (the WebSocket upgrade);
+* the managed `AllViewerAndCloudFrontHeaders-2022-06` origin request policy on
+  `/ws` and `/healthz`, which carries `CloudFront-Viewer-Address` to the
+  gateway's per-IP cap.
+
+The guide also lists WAF "Rule Groups" as unsupported on every plan; that
+means account-owned rule groups, while the Free plan's five-rule allowance
+counts AWS Managed Rules. Whether it accepts the web ACL's two managed rule
+groups and the `/api/wake` rate rule's scope-down is not documented: the
+deploy's subscription attempt is the test. If it is refused again, the
+distribution stays on pay-as-you-go (about $9 a month for the web ACL).
 
 ## Stopping and tearing down
 
