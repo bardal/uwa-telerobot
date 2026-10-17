@@ -41,4 +41,6 @@ new TelerobotStack(app, "Telerobot", {
   googleClientId: ctx("googleClientId"),
   googleClientSecret: ctx("googleClientSecret"),
   labDns: labRecord && labZoneId ? { zoneId: labZoneId, recordName: labRecord } : undefined,
+  siteDomain: ctx("siteDomain"),
+  siteCertArn: ctx("siteCertArn"),
 });

@@ -282,7 +282,8 @@ describe("telerobot stack", () => {
     expect(originOf("/healthz").Id).toBe(ec2.Id);
     expect(headerNames(ec2)).toEqual([ORIGIN_HEADER]);
     expect(ec2.CustomOriginConfig).toMatchObject({ HTTPPort: 8080, OriginProtocolPolicy: "http-only" });
-    expect(JSON.stringify(ec2.DomainName)).toContain(".eu-west-2.compute.amazonaws.com");
+    // the lab's DNS record, which follows the instance
+    expect(ec2.DomainName).toBe("Lab.Example.Invalid");
 
     // The gateway's per-IP admission needs CloudFront-Viewer-Address: the managed
     // AllViewerAndCloudFrontHeaders-2022-06 policy carries it.
@@ -398,6 +399,49 @@ describe("telerobot stack", () => {
     main.hasOutput("ApiFunctionName", {});
   });
 
+  it("answers on the cloudfront.net name only until the site domain's certificate is given", () => {
+    const [, dist] = only(main, "AWS::CloudFront::Distribution");
+    expect(dist.DistributionConfig.Aliases).toBeUndefined();
+    const origins = Object.values(main.findResources("AWS::SSM::Parameter")).find(
+      (p) => p.Properties.Name === "/telerobot/stack/allowed-origin",
+    )!;
+    // one origin: "https://" + the distribution domain, no comma-separated list
+    expect(origins.Properties.Value["Fn::Join"][0]).toBe("");
+    expect(origins.Properties.Value["Fn::Join"][1]).toEqual(["https://", { "Fn::GetAtt": [expect.stringMatching(/^Cdn/), "DomainName"] }]);
+  });
+
+  it("serves the site domain too once its certificate is issued", () => {
+    const app2 = new App({ context: { "aws:cdk:bundling-stacks": [] } });
+    const e2 = new EdgeStack(app2, "Edge", { env: { account: ACCOUNT, region: "us-east-1" }, crossRegionReferences: true });
+    const cert = "arn:aws:acm:us-east-1:123456789012:certificate/abc";
+    const t = Template.fromStack(
+      new TelerobotStack(app2, "Main", {
+        env: { account: ACCOUNT, region: "eu-west-2" },
+        crossRegionReferences: true,
+        webAclArn: e2.webAclArn,
+        alertEmail: "test@example.invalid",
+        labDns: { zoneId: "Z0123456789ABC", recordName: "lab.example.invalid" },
+        siteDomain: "robot.example.invalid",
+        siteCertArn: cert,
+      }),
+    );
+    const [, dist] = only(t, "AWS::CloudFront::Distribution");
+    expect(dist.DistributionConfig.Aliases).toEqual(["robot.example.invalid"]);
+    expect(dist.DistributionConfig.ViewerCertificate).toMatchObject({ AcmCertificateArn: cert, SslSupportMethod: "sni-only" });
+
+    // both names: the gateway's allowed origins and the web client's redirects
+    const allowed = Object.values(t.findResources("AWS::SSM::Parameter")).find(
+      (p) => p.Properties.Name === "/telerobot/stack/allowed-origin",
+    )!;
+    const value = JSON.stringify(allowed.Properties.Value);
+    expect(value).toContain("https://robot.example.invalid,https://");
+    const web = Object.values(t.findResources("AWS::Cognito::UserPoolClient")).find((c) => c.Properties.AllowedOAuthFlows)!;
+    expect(web.Properties.CallbackURLs).toHaveLength(2);
+    expect(web.Properties.CallbackURLs[0]).toBe("https://robot.example.invalid/");
+    expect(web.Properties.LogoutURLs).toEqual(web.Properties.CallbackURLs);
+    t.hasOutput("Url", { Value: "https://robot.example.invalid" });
+  });
+
   it("sets a $20 monthly budget emailing the alert address at 50% and 100%", () => {
     const [, b] = only(main, "AWS::Budgets::Budget");
     expect(b.Budget).toMatchObject({ BudgetLimit: { Amount: 20, Unit: "USD" }, TimeUnit: "MONTHLY" });
@@ -441,6 +485,8 @@ describe("telerobot stack", () => {
     expect(cfg).not.toHaveProperty("dev");
     expect(Object.keys(cfg).sort()).toEqual(["clientId", "redirectUri", "region", "turnstileSiteKey", "userPoolDomain"]);
     expect(cfg.region).toBe("eu-west-2");
+    // the UI uses its own origin, so sign-in works on either of the site's names
+    expect(cfg.redirectUri).toBe("");
     // the dev config in webui/public is the one that must never ship
     const devCfg = JSON.parse(readFileSync(new URL("../../webui/public/config.json", import.meta.url), "utf8"));
     expect(devCfg.dev).toBe(true);

@@ -99,8 +99,9 @@ on every `cdk deploy`, and the instance reads the rest on every boot.
 The first deploy uses Cloudflare's always-pass test keys, so guest login
 works but proves nothing. To switch to real ones:
 
-1. In the Cloudflare dashboard, create a Turnstile widget for the
-   distribution's domain (`<id>.cloudfront.net`, from the `Url` output).
+1. In the Cloudflare dashboard, create a Turnstile widget for both of the
+   site's hostnames: `telerobot.daltons.net` (the `Url` output) and
+   `<id>.cloudfront.net` (the `CloudFrontUrl` output).
 2. Overwrite both parameters:
    ```powershell
    aws ssm put-parameter --region eu-west-2 --name /telerobot/turnstile-sitekey --type String --value <site key> --overwrite
@@ -260,12 +261,22 @@ repairs it, and `deploy.ps1` syncs it after `cdk deploy` (an instance the
 deploy replaced starts before the rule names it) and checks it against the
 instance after the smoke test. The function may only UPSERT that one A
 record. `deploy.ps1` finds the hosted zone by the record's parent name.
+CloudFront's origin for `/ws` and `/healthz` is that record, so it follows
+the lab: after a wake, CloudFront reaches the new address once the record's
+TTL has passed.
 
 `siteDomain` (`telerobot.daltons.net`) gets an ACM certificate in us-east-1,
 which `deploy.ps1` requests. The domain's DNS is at justhostme (cPanel's Zone
-Editor, which cannot delegate a subdomain: no NS records), so the
-certificate's validation CNAME, which `deploy.ps1` prints, is added there by
-hand and must stay for renewals.
+Editor, which cannot delegate a subdomain: no NS records), so two CNAMEs are
+added there by hand: the certificate's validation record, which `deploy.ps1`
+prints and which must stay for renewals, and `telerobot` to the
+distribution's `cloudfront.net` name. Once ACM issues the certificate,
+`deploy.ps1` passes it to the stack and the distribution answers on both
+names. `Url` becomes `https://telerobot.daltons.net` (`CloudFrontUrl` keeps
+the other), both are allowed origins and Cognito redirect URLs, and
+`config.json`'s `redirectUri` is empty so the UI redirects to whichever name
+it was loaded from. The smoke test runs against `Url`, or against
+`CloudFrontUrl` while the site domain does not resolve.
 
 ## Stopping and tearing down
 

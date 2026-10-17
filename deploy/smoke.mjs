@@ -160,14 +160,20 @@ let idToken;
 
 // ---- 3. poll /healthz until the lab is ready ----
 {
-  const deadline = Date.now() + wakeTimeoutMs;
+  const started = Date.now();
+  const deadline = started + wakeTimeoutMs;
+  const secs = () => Math.round((Date.now() - started) / 1000);
   let last = "";
   let woke = false;
+  // When the gateway first answered through CloudFront (the lab's DNS record
+  // must have followed the instance by then), as against when it was ready.
+  let firstAnswer = null;
   for (;;) {
     try {
       const res = await get("/healthz");
       const body = await readJson(res);
       last = `HTTP ${res.status} ${JSON.stringify(body)}`;
+      if (firstAnswer === null && res.status === 200 && body.ok === true) firstAnswer = secs();
       // Ready means lab === "ready" (MOM, the robot proxy and the camera
       // server all up; "starting" until then), on the expected commit. A
       // ready gateway on another commit is the previous boot still serving
@@ -175,7 +181,7 @@ let idToken;
       // reports it.
       if (res.status === 200 && body.ok === true && body.lab === "ready") {
         if (!expectCommit || body.commit === expectCommit) {
-          pass("healthz", JSON.stringify(body));
+          pass("healthz", `${JSON.stringify(body)}; gateway first answered after ${firstAnswer} s, ready after ${secs()} s`);
           break;
         }
         last += ` (commit ${body.commit}, expected ${expectCommit})`;

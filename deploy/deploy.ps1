@@ -492,13 +492,25 @@ try {
 
   # ------------------------------------------------------------ 11. smoke
   if (-not $InfraOnly) {
-    Step "Smoke test against $Url"
+    # The canonical URL is the site domain once it has a certificate; until its
+    # CNAME to CloudFront is in place, test the cloudfront.net name instead.
+    $SmokeUrl = $Url
+    $cfUrl = $Out['CloudFrontUrl']
+    if ($cfUrl -and $Url -ne $cfUrl) {
+      try {
+        [void][System.Net.Dns]::GetHostAddresses(([uri]$Url).Host)
+      } catch {
+        Warn "$Url does not resolve yet (add its CNAME to $(([uri]$cfUrl).Host)); smoke-testing $cfUrl"
+        $SmokeUrl = $cfUrl
+      }
+    }
+    Step "Smoke test against $SmokeUrl"
     $env:SMOKE_USER_POOL_ID = $PoolId
     $env:SMOKE_CLIENT_ID = $Out['SmokeClientId']
     $env:SMOKE_PASSWORD = $SmokePassword
     $env:SMOKE_COMMIT = $Sha
     try {
-      & node (Join-Path $CdkDir 'smoke.mjs') $Url
+      & node (Join-Path $CdkDir 'smoke.mjs') $SmokeUrl
       $smokeCode = $LASTEXITCODE
     } finally {
       Remove-Item Env:SMOKE_PASSWORD -ErrorAction SilentlyContinue
