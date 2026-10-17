@@ -167,10 +167,12 @@ and a `User-Agent`: the WAF's common rule set blocks requests without one.
 
 ## Costs
 
-* Asleep: about $4.50 a month: the Elastic IP's public IPv4 address
-  ($0.005 an hour, running or not, about $3.65), the 8 GB gp3 root volume
-  (about $0.75), and S3, SSM and CloudWatch pennies.
-* Awake: t4g.small at about $0.02 an hour; the 150-hour cap is under $3.
+* Asleep: under $1 a month: the 8 GB gp3 root volume (about $0.75), and S3,
+  SSM, CloudWatch and Route 53 query pennies. There is no Elastic IP (it was
+  $3.65 a month, running or not): the lab's auto-assigned public IP is
+  released when it stops, and its DNS record follows it.
+* Awake: t4g.small at about $0.02 an hour plus its public IPv4 address at
+  $0.005 an hour; the 150-hour cap is under $4.
 * CloudFront and WAF: on the flat-rate Free plan (subscribed 2026-10-17), $0.
   Otherwise pay-as-you-go: the web ACL is $5 a month plus $1 for each of its
   three rules and rule groups (about $8 in all), plus $0.60 per million requests, plus
@@ -252,9 +254,10 @@ the plan means cancelling the subscription (Free plans cancel at once).
 
 ## The lab's DNS record and the site domain
 
-The Api function keeps an A record, `labRecord` in `deploy/cdk.json`
-(`telerobot-lab.scollops.net`, TTL 60), pointed at the lab instance's public
-IP while it runs and at `192.0.2.1` (TEST-NET-1, never routed) otherwise, so
+The lab has no fixed address: the default subnets give it a public IP each
+time it starts (`deploy.ps1` fails if a running lab has none). The Api
+function keeps an A record, `labRecord` in `deploy/cdk.json`
+(`telerobot-lab.scollops.net`, TTL 60), pointed at that IP while it runs and at `192.0.2.1` (TEST-NET-1, never routed) otherwise, so
 nothing reaches whoever later holds an address the lab gave up. An
 EventBridge rule on the instance's state changes triggers it, every reap tick
 repairs it, and `deploy.ps1` syncs it after `cdk deploy` (an instance the
@@ -263,7 +266,8 @@ instance after the smoke test. The function may only UPSERT that one A
 record. `deploy.ps1` finds the hosted zone by the record's parent name.
 CloudFront's origin for `/ws` and `/healthz` is that record, so it follows
 the lab: after a wake, CloudFront reaches the new address once the record's
-TTL has passed.
+TTL has passed. (Measured 2026-10-17: woken with the record parked, the
+gateway answered through CloudFront 30 s into the smoke test's polling.)
 
 `siteDomain` (`telerobot.daltons.net`) gets an ACM certificate in us-east-1,
 which `deploy.ps1` requests. The domain's DNS is at justhostme (cPanel's Zone

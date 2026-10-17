@@ -530,7 +530,12 @@ try {
   $record = Get-LabDnsRecord
   $want = if ($labState -eq 'running' -and $labIp -ne 'none') { $labIp } else { '192.0.2.1' }
   Note "instance $labState, public IP $labIp; record $record"
-  if ($record -like "$want *") {
+  if ($labState -eq 'running' -and $labIp -eq 'none') {
+    # No Elastic IP: the default subnet's auto-assigned address is the only way in.
+    Warn 'the running lab has no public IP (does its subnet still map public IPs on launch?)'
+    $Summary['Lab DNS'] = "BROKEN: the running lab has no public IP; $LabRecord = $record"
+    $exitCode = 1
+  } elseif ($record -like "$want *") {
     $Summary['Lab DNS'] = "$LabRecord = $record (in step)"
   } else {
     Warn "the record should be $want"

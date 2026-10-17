@@ -45,11 +45,11 @@ export interface TelerobotStackProps extends StackProps {
   googleClientId?: string;
   googleClientSecret?: string;
   /**
-   * The lab's A record, which the Api function keeps pointed at the running
-   * instance (and parked otherwise). zoneId is the Route 53 hosted zone that
-   * holds recordName.
+   * The lab's A record, CloudFront's origin for /ws and /healthz, which the
+   * Api function keeps pointed at the running instance (and parked otherwise).
+   * zoneId is the Route 53 hosted zone that holds recordName.
    */
-  labDns?: { zoneId: string; recordName: string };
+  labDns: { zoneId: string; recordName: string };
   /** A custom domain for the site; used once its us-east-1 certificate is issued. */
   siteDomain?: string;
   siteCertArn?: string;
@@ -125,7 +125,8 @@ export class TelerobotStack extends Stack {
     const artifacts = new s3.Bucket(this, "Artifacts", privateBucket);
 
     // ---- EC2 lab instance (default VPC: no subnet or VPC given) ----
-    const eip = new ec2.CfnEIP(this, "LabIp", { domain: "vpc" });
+    // No Elastic IP: the default subnets give the instance a public IP while it
+    // runs (billed only then), and the lab's DNS record follows it.
 
     // No VpcId: the default VPC. Egress is left out, which gives a VPC
     // security group its default allow-all egress rule (CloudFormation only
@@ -237,10 +238,6 @@ export class TelerobotStack extends Stack {
           "Lab" + createHash("md5").update(JSON.stringify(ctx.resolve(userData))).digest("hex").slice(0, 16),
       }),
     );
-    new ec2.CfnEIPAssociation(this, "LabIpAssociation", {
-      allocationId: eip.attrAllocationId,
-      instanceId: instance.ref,
-    });
 
     const instanceArn = `arn:${Aws.PARTITION}:ec2:${region}:${this.account}:instance/${instance.ref}`;
     const onlyTagged = { StringEquals: { [`ec2:ResourceTag/${LAB_TAG.key}`]: LAB_TAG.value } };
@@ -306,7 +303,8 @@ export class TelerobotStack extends Stack {
         COGNITO_CLIENT_IDS_PARAM: STACK_PARAMS.cognitoClientIds,
         INSTANCE_ID: instance.ref,
         HOURS_CAP: String(props.hoursCap ?? 150),
-        ...(props.labDns ? { LAB_DNS_ZONE_ID: props.labDns.zoneId, LAB_DNS_NAME: props.labDns.recordName } : {}),
+        LAB_DNS_ZONE_ID: props.labDns.zoneId,
+        LAB_DNS_NAME: props.labDns.recordName,
       },
     });
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["ec2:DescribeInstances"], resources: ["*"] }));
@@ -338,41 +336,36 @@ export class TelerobotStack extends Stack {
       targets: [new targets.LambdaFunction(fn, { event: events.RuleTargetInput.fromObject({ reap: true }) })],
     });
 
-    if (props.labDns) {
-      // Only UPSERTs of the one A record.
-      fn.addToRolePolicy(
-        new iam.PolicyStatement({
-          actions: ["route53:ChangeResourceRecordSets"],
-          resources: [`arn:${Aws.PARTITION}:route53:::hostedzone/${props.labDns.zoneId}`],
-          conditions: {
-            "ForAllValues:StringEquals": {
-              "route53:ChangeResourceRecordSetsNormalizedRecordNames": [props.labDns.recordName.toLowerCase()],
-              "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
-              "route53:ChangeResourceRecordSetsActions": ["UPSERT"],
-            },
+    // Only UPSERTs of the one A record.
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["route53:ChangeResourceRecordSets"],
+        resources: [`arn:${Aws.PARTITION}:route53:::hostedzone/${props.labDns.zoneId}`],
+        conditions: {
+          "ForAllValues:StringEquals": {
+            "route53:ChangeResourceRecordSetsNormalizedRecordNames": [props.labDns.recordName.toLowerCase()],
+            "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
+            "route53:ChangeResourceRecordSetsActions": ["UPSERT"],
           },
-        }),
-      );
-      // Every state change of this instance re-points the record. An instance
-      // a deploy replaces starts before this rule names it; deploy.ps1 then
-      // invokes the function with {"syncDns":true}, and each reap tick repairs too.
-      new events.Rule(this, "LabState", {
-        eventPattern: {
-          source: ["aws.ec2"],
-          detailType: ["EC2 Instance State-change Notification"],
-          detail: { "instance-id": [instance.ref] },
         },
-        targets: [new targets.LambdaFunction(fn)],
-      });
-    }
+      }),
+    );
+    // Every state change of this instance re-points the record. An instance
+    // a deploy replaces starts before this rule names it; deploy.ps1 then
+    // invokes the function with {"syncDns":true}, and each reap tick repairs too.
+    new events.Rule(this, "LabState", {
+      eventPattern: {
+        source: ["aws.ec2"],
+        detailType: ["EC2 Instance State-change Notification"],
+        detail: { "instance-id": [instance.ref] },
+      },
+      targets: [new targets.LambdaFunction(fn)],
+    });
 
     // ---- CloudFront ----
     const originHeaders = { [ORIGIN_HEADER]: originSecret };
     // The lab's DNS record follows the instance (syncLabDns).
-    const ec2Domain = props.labDns
-      ? props.labDns.recordName
-      : Fn.join("", ["ec2-", Fn.join("-", Fn.split(".", eip.ref)), `.${region}.compute.amazonaws.com`]);
-    const ec2Origin = new origins.HttpOrigin(ec2Domain, {
+    const ec2Origin = new origins.HttpOrigin(props.labDns.recordName, {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
       httpPort: 8080,
       customHeaders: originHeaders,

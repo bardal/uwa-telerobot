@@ -145,8 +145,10 @@ describe("telerobot stack", () => {
       { DeviceName: "/dev/xvda", Ebs: expect.objectContaining({ VolumeSize: 8, VolumeType: "gp3", Encrypted: true }) },
     ]);
     expect(inst.Tags).toEqual(expect.arrayContaining([{ Key: "telerobot", Value: "lab" }]));
-    main.resourceCountIs("AWS::EC2::EIP", 1);
-    main.resourceCountIs("AWS::EC2::EIPAssociation", 1);
+    // no Elastic IP: an auto-assigned public IP (billed only while running) and the lab's DNS record
+    main.resourceCountIs("AWS::EC2::EIP", 0);
+    main.resourceCountIs("AWS::EC2::EIPAssociation", 0);
+    expect(inst.NetworkInterfaces).toBeUndefined();
   });
 
   it("allows ec2:StopInstances and StartInstances only on the tagged instance", () => {
