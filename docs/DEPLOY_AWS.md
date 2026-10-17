@@ -235,6 +235,11 @@ groups are gone. What remains in front of the lab: the per-IP rate limits,
 Cognito sign-in and Turnstile, the gateway's origin secret and its own per-IP
 connection cap.
 
+Without the managed groups (ca92ef7) the API still names the web ACL, on the
+deploy and on a retry minutes later. Of what is left, the `WakeRatePerIp`
+scope-down (a byte match on the URI path) is the only thing beyond the plain
+"IP-based rate limiting" the Free plan lists.
+
 ## Stopping and tearing down
 
 * Stop the lab now: `aws ec2 stop-instances --region eu-west-2 --instance-ids <InstanceId>`.
