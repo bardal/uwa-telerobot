@@ -5,7 +5,7 @@ export type State = "stopped" | "starting" | "running" | "stopping";
 export interface Deps {
   ec2: {
     /** Raw EC2 state name: pending, running, stopping, stopped, shutting-down, terminated. */
-    describeState(instanceId: string): Promise<{ state: string; launchTime: number }>;
+    describeState(instanceId: string): Promise<{ state: string; launchTime: number; publicIp?: string }>;
     start(instanceId: string): Promise<void>;
     stop(instanceId: string): Promise<void>;
   };
@@ -13,6 +13,8 @@ export interface Deps {
     get(name: string): Promise<string | null>;
     put(name: string, value: string): Promise<void>;
   };
+  /** The lab's DNS record (CloudFront's origin for /ws and /healthz), when there is one. */
+  labDns?: { upsert(ip: string): Promise<void> };
   verifyTurnstile(token: string): Promise<boolean>;
   verifyIdToken(token: string): Promise<boolean>;
   now(): number;
@@ -215,4 +217,23 @@ export async function reap(deps: Deps): Promise<void> {
   const idle =
     hb !== null && hb.sessions === 0 && now - Math.max(hb.lastSessionEnd, launchTime) > IDLE_MS;
   if (stale || idle) await deps.ec2.stop(deps.instanceId);
+}
+
+/**
+ * Where a lab that is not running points: TEST-NET-1 (RFC 5737) is never
+ * routed, so CloudFront cannot reach whoever holds the lab's old public IP.
+ */
+export const PARKED_IP = "192.0.2.1";
+
+/**
+ * Points the lab's DNS record at its public IP while it runs, and at
+ * PARKED_IP otherwise. Idempotent: every EC2 state change, every reap tick and
+ * every deploy calls it. Returns the address written, or null with no record.
+ */
+export async function syncLabDns(deps: Deps): Promise<string | null> {
+  if (!deps.labDns) return null;
+  const { state, publicIp } = await deps.ec2.describeState(deps.instanceId);
+  const ip = state === "running" && publicIp ? publicIp : PARKED_IP;
+  await deps.labDns.upsert(ip);
+  return ip;
 }

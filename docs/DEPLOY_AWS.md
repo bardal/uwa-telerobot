@@ -249,6 +249,24 @@ and the origin secret, and the 150-hour cap bounds what wakes can cost.
 Once subscribed, the web ACL can't be detached from the distribution; leaving
 the plan means cancelling the subscription (Free plans cancel at once).
 
+## The lab's DNS record and the site domain
+
+The Api function keeps an A record, `labRecord` in `deploy/cdk.json`
+(`telerobot-lab.scollops.net`, TTL 60), pointed at the lab instance's public
+IP while it runs and at `192.0.2.1` (TEST-NET-1, never routed) otherwise, so
+nothing reaches whoever later holds an address the lab gave up. An
+EventBridge rule on the instance's state changes triggers it, every reap tick
+repairs it, and `deploy.ps1` syncs it after `cdk deploy` (an instance the
+deploy replaced starts before the rule names it) and checks it against the
+instance after the smoke test. The function may only UPSERT that one A
+record. `deploy.ps1` finds the hosted zone by the record's parent name.
+
+`siteDomain` (`telerobot.daltons.net`) gets an ACM certificate in us-east-1,
+which `deploy.ps1` requests. The domain's DNS is at justhostme (cPanel's Zone
+Editor, which cannot delegate a subdomain: no NS records), so the
+certificate's validation CNAME, which `deploy.ps1` prints, is added there by
+hand and must stay for renewals.
+
 ## Stopping and tearing down
 
 * Stop the lab now: `aws ec2 stop-instances --region eu-west-2 --instance-ids <InstanceId>`.

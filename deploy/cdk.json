@@ -7,6 +7,8 @@
   "context": {
     "@aws-cdk/core:defaultCrossStackReferences": "strong",
     "cfPrefixList": "pl-93a247fa",
-    "hoursCap": 150
+    "hoursCap": 150,
+    "labRecord": "telerobot-lab.scollops.net",
+    "siteDomain": "telerobot.daltons.net"
   }
 }

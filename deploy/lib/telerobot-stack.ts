@@ -43,6 +43,12 @@ export interface TelerobotStackProps extends StackProps {
   /** Google sign-in turns on when both are given. */
   googleClientId?: string;
   googleClientSecret?: string;
+  /**
+   * The lab's A record, which the Api function keeps pointed at the running
+   * instance (and parked otherwise). zoneId is the Route 53 hosted zone that
+   * holds recordName.
+   */
+  labDns?: { zoneId: string; recordName: string };
 }
 
 export const ORIGIN_HEADER = "X-Telerobot-Origin";
@@ -296,6 +302,7 @@ export class TelerobotStack extends Stack {
         COGNITO_CLIENT_IDS_PARAM: STACK_PARAMS.cognitoClientIds,
         INSTANCE_ID: instance.ref,
         HOURS_CAP: String(props.hoursCap ?? 150),
+        ...(props.labDns ? { LAB_DNS_ZONE_ID: props.labDns.zoneId, LAB_DNS_NAME: props.labDns.recordName } : {}),
       },
     });
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ["ec2:DescribeInstances"], resources: ["*"] }));
@@ -326,6 +333,34 @@ export class TelerobotStack extends Stack {
       schedule: events.Schedule.rate(Duration.minutes(15)),
       targets: [new targets.LambdaFunction(fn, { event: events.RuleTargetInput.fromObject({ reap: true }) })],
     });
+
+    if (props.labDns) {
+      // Only UPSERTs of the one A record.
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["route53:ChangeResourceRecordSets"],
+          resources: [`arn:${Aws.PARTITION}:route53:::hostedzone/${props.labDns.zoneId}`],
+          conditions: {
+            "ForAllValues:StringEquals": {
+              "route53:ChangeResourceRecordSetsNormalizedRecordNames": [props.labDns.recordName.toLowerCase()],
+              "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
+              "route53:ChangeResourceRecordSetsActions": ["UPSERT"],
+            },
+          },
+        }),
+      );
+      // Every state change of this instance re-points the record. An instance
+      // a deploy replaces starts before this rule names it; deploy.ps1 then
+      // invokes the function with {"syncDns":true}, and each reap tick repairs too.
+      new events.Rule(this, "LabState", {
+        eventPattern: {
+          source: ["aws.ec2"],
+          detailType: ["EC2 Instance State-change Notification"],
+          detail: { "instance-id": [instance.ref] },
+        },
+        targets: [new targets.LambdaFunction(fn)],
+      });
+    }
 
     // ---- CloudFront ----
     const originHeaders = { [ORIGIN_HEADER]: originSecret };
@@ -538,6 +573,7 @@ export class TelerobotStack extends Stack {
     new CfnOutput(this, "Url", { value: siteUrl });
     new CfnOutput(this, "DistributionId", { value: dist.distributionId });
     new CfnOutput(this, "InstanceId", { value: instance.ref });
+    new CfnOutput(this, "ApiFunctionName", { value: fn.functionName });
     new CfnOutput(this, "UserPoolId", { value: pool.userPoolId });
     new CfnOutput(this, "ClientId", { value: web.userPoolClientId });
     new CfnOutput(this, "SmokeClientId", { value: smoke.userPoolClientId });

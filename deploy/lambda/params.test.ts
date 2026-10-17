@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cachedValue, isReapEvent } from "./params";
+import { cachedValue, isDnsSyncEvent, isReapEvent } from "./params";
 
 describe("cachedValue", () => {
   it("prefers the environment value and never fetches", async () => {
@@ -38,5 +38,27 @@ describe("isReapEvent", () => {
   it("rejects function URL requests", () => {
     expect(isReapEvent({ rawPath: "/api/wake", body: '{"reap":true}' })).toBe(false);
     expect(isReapEvent({ reap: "true" })).toBe(false);
+  });
+});
+
+describe("isDnsSyncEvent", () => {
+  const stateChange = {
+    source: "aws.ec2",
+    "detail-type": "EC2 Instance State-change Notification",
+    detail: { "instance-id": "i-123", state: "running" },
+  };
+  it("accepts EC2 state changes and deploy.ps1's {syncDns:true}", () => {
+    expect(isDnsSyncEvent(stateChange)).toBe(true);
+    expect(isDnsSyncEvent({ syncDns: true })).toBe(true);
+  });
+  it("rejects the reap schedule, other EC2 events and function URL requests", () => {
+    expect(isDnsSyncEvent({ reap: true })).toBe(false);
+    expect(isDnsSyncEvent({ source: "aws.events", "detail-type": "Scheduled Event" })).toBe(false);
+    expect(isDnsSyncEvent({ source: "aws.ec2", "detail-type": "EBS Snapshot Notification" })).toBe(false);
+    expect(isDnsSyncEvent({ rawPath: "/api/wake", body: '{"syncDns":true}' })).toBe(false);
+    expect(isDnsSyncEvent({ syncDns: "true" })).toBe(false);
+  });
+  it("is never mistaken for a reap", () => {
+    expect(isReapEvent(stateChange)).toBe(false);
   });
 });

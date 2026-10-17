@@ -31,6 +31,7 @@ beforeAll(() => {
     crossRegionReferences: true,
     webAclArn: edgeStack.webAclArn,
     alertEmail: "test@example.invalid",
+    labDns: { zoneId: "Z0123456789ABC", recordName: "Lab.Example.Invalid" },
   });
   edge = Template.fromStack(edgeStack);
   main = Template.fromStack(mainStack);
@@ -361,6 +362,40 @@ describe("telerobot stack", () => {
       ScheduleExpression: "rate(15 minutes)",
       Targets: [Match.objectLike({ Input: JSON.stringify({ reap: true }) })],
     });
+  });
+
+  it("keeps the lab's DNS record in step with the instance, and may change only that record", () => {
+    const [instId] = only(main, "AWS::EC2::Instance");
+    const api = Object.values(main.findResources("AWS::Lambda::Function")).find(
+      (f) => f.Properties.Environment?.Variables?.INSTANCE_ID,
+    )!;
+    expect(api.Properties.Environment.Variables).toMatchObject({
+      LAB_DNS_ZONE_ID: "Z0123456789ABC",
+      LAB_DNS_NAME: "Lab.Example.Invalid",
+    });
+
+    const rules = Object.values(main.findResources("AWS::Events::Rule")).filter((r) => r.Properties.EventPattern);
+    expect(rules).toHaveLength(1);
+    expect(rules[0].Properties.EventPattern).toEqual({
+      source: ["aws.ec2"],
+      "detail-type": ["EC2 Instance State-change Notification"],
+      detail: { "instance-id": [{ Ref: instId }] },
+    });
+    // no input: the function sees the EC2 event itself
+    expect(rules[0].Properties.Targets[0].Input).toBeUndefined();
+
+    const r53 = statements(main).filter((s) => actions(s).some((a) => a.startsWith("route53:")));
+    expect(r53).toHaveLength(1);
+    expect(actions(r53[0])).toEqual(["route53:ChangeResourceRecordSets"]);
+    expect(JSON.stringify(r53[0].Resource)).toContain(":route53:::hostedzone/Z0123456789ABC");
+    expect(r53[0].Condition).toEqual({
+      "ForAllValues:StringEquals": {
+        "route53:ChangeResourceRecordSetsNormalizedRecordNames": ["lab.example.invalid"],
+        "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
+        "route53:ChangeResourceRecordSetsActions": ["UPSERT"],
+      },
+    });
+    main.hasOutput("ApiFunctionName", {});
   });
 
   it("sets a $20 monthly budget emailing the alert address at 50% and 100%", () => {
