@@ -210,6 +210,19 @@ describe("user data", () => {
     expect(script).toContain("COGNITO_CLIENT_IDS=$client_ids");
   });
 
+  it("accepts the stack's allowed origins: one per site name, comma-separated", () => {
+    // A single-origin check here kept the lab from booting once the site
+    // domain was added (the stack writes "https://<domain>,https://<cdn>").
+    const m = script.match(/\[\[ "\$allowed_origin" =~ (\S+) \]\]/);
+    expect(m).not.toBeNull();
+    const check = new RegExp(m![1]); // the same in bash's ERE
+    expect(check.test("https://d2zvyeori0stdd.cloudfront.net")).toBe(true);
+    expect(check.test("https://telerobot.daltons.net,https://d2zvyeori0stdd.cloudfront.net")).toBe(true);
+    for (const bad of ["", "http://a.example", "https://a.example,", "https://a.example, https://b.example", "https://a.example/x"]) {
+      expect(check.test(bad), bad).toBe(false);
+    }
+  });
+
   it("ships journald for the units to /telerobot/lab", () => {
     const m = script.match(/<<'CWAGENT'[^\n]*\n([\s\S]*?)\nCWAGENT\n/);
     expect(m).not.toBeNull();

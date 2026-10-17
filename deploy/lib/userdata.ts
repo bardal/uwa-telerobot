@@ -144,7 +144,8 @@ fetch() {
     printf -v "pin_$u" '%s' "$pin"
   done
   allowed_origin=$(param ${STACK_PARAMS.allowedOrigin}) || return 1
-  [[ "$allowed_origin" =~ ^https://[a-z0-9.-]+$ ]] || fail "bad allowed origin: $allowed_origin" || return 1
+  # One origin per site name (the custom domain and the CloudFront one).
+  [[ "$allowed_origin" =~ ^https://[a-z0-9.-]+(,https://[a-z0-9.-]+)*$ ]] || fail "bad allowed origins: $allowed_origin" || return 1
   client_ids=$(param ${STACK_PARAMS.cognitoClientIds}) || return 1
   [[ "$client_ids" =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]] || fail "bad client ids: $client_ids" || return 1
   COMMIT=$commit
