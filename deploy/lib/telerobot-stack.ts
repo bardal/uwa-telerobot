@@ -398,7 +398,8 @@ export class TelerobotStack extends Stack {
     const dist = new cloudfront.Distribution(this, "Cdn", {
       comment: "UWA Telerobot",
       defaultRootObject: "index.html",
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      // The flat-rate plans cover every edge location; a restricted price class may bar the Free plan.
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_ALL,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       webAclId: props.webAclArn,
       defaultBehavior: {
