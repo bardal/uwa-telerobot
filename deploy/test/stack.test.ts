@@ -435,8 +435,11 @@ describe("telerobot stack", () => {
     const allowed = Object.values(t.findResources("AWS::SSM::Parameter")).find(
       (p) => p.Properties.Name === "/telerobot/stack/allowed-origin",
     )!;
-    const value = JSON.stringify(allowed.Properties.Value);
-    expect(value).toContain("https://robot.example.invalid,https://");
+    // the format userdata.test.ts checks telerobot-fetch accepts
+    expect(allowed.Properties.Value["Fn::Join"]).toEqual([
+      "",
+      ["https://robot.example.invalid,https://", { "Fn::GetAtt": [expect.stringMatching(/^Cdn/), "DomainName"] }],
+    ]);
     const web = Object.values(t.findResources("AWS::Cognito::UserPoolClient")).find((c) => c.Properties.AllowedOAuthFlows)!;
     expect(web.Properties.CallbackURLs).toHaveLength(2);
     expect(web.Properties.CallbackURLs[0]).toBe("https://robot.example.invalid/");
