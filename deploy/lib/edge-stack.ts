@@ -15,14 +15,8 @@ export class EdgeStack extends Stack {
       metricName,
       sampledRequestsEnabled: true,
     });
-    const managed = (name: string, priority: number): wafv2.CfnWebACL.RuleProperty => ({
-      name,
-      priority,
-      overrideAction: { none: {} },
-      statement: { managedRuleGroupStatement: { vendorName: "AWS", name } },
-      visibilityConfig: visibility(name),
-    });
-
+    // Rate limits only: AWS's managed rule groups make the web ACL ineligible
+    // for the CloudFront flat-rate Free plan (docs/DEPLOY_AWS.md).
     const acl = new wafv2.CfnWebACL(this, "WebAcl", {
       scope: "CLOUDFRONT",
       defaultAction: { allow: {} },
@@ -58,8 +52,6 @@ export class EdgeStack extends Stack {
           },
           visibilityConfig: visibility("WakeRatePerIp"),
         },
-        managed("AWSManagedRulesCommonRuleSet", 2),
-        managed("AWSManagedRulesKnownBadInputsRuleSet", 3),
       ],
     });
 

@@ -4,7 +4,7 @@ The web version runs as two CDK stacks, deployed by one script:
 
 | Stack | Region | Holds |
 |---|---|---|
-| `TelerobotEdge` | us-east-1 | The CloudFront-scope WAF web ACL (rate limits, AWS managed rule groups). |
+| `TelerobotEdge` | us-east-1 | The CloudFront-scope WAF web ACL (two per-IP rate limits). |
 | `Telerobot` | eu-west-2 | CloudFront, the UI/archive/artifacts buckets, Cognito, the lab instance (t4g.small), the status/wake/reaper Lambda, the budget. |
 
 The lab instance sleeps until someone visits. The wake Lambda starts it, the
@@ -162,7 +162,7 @@ day's index list that move, that the day's audit log (which now exists) is
 refused at `/archive/private/audit/<day>.jsonl` and through `public/../`
 traversals with no audit content in the body, and that a WebSocket with a
 foreign `Origin` gets HTTP 403. Every request carries the site's `Origin`
-and a `User-Agent`: the WAF's common rule set blocks requests without one.
+and a `User-Agent`, as a browser's would.
 
 ## Costs
 
@@ -171,8 +171,8 @@ and a `User-Agent`: the WAF's common rule set blocks requests without one.
   (about $0.75), and S3, SSM and CloudWatch pennies.
 * Awake: t4g.small at about $0.02 an hour; the 150-hour cap is under $3.
 * CloudFront and WAF: on the flat-rate Free plan, $0. Otherwise
-  pay-as-you-go: the web ACL is $5 a month plus $1 for each of its four rules
-  and rule groups (about $9 in all), plus $0.60 per million requests, plus
+  pay-as-you-go: the web ACL is $5 a month plus $1 for each of its two rules
+  (about $7 in all), plus $0.60 per million requests, plus
   CloudFront requests and transfer.
 * The `telerobot-monthly` budget ($20) emails the alert address at 50% and
   100%. It counts only resources tagged `project=uwa-telerobot`, once the
@@ -228,6 +228,12 @@ still named both resources; with `PriceClass_All` (previously
 `PriceClass_100`) it names only the web ACL. So the distribution is eligible,
 and something in the web ACL (the two managed rule groups or the scope-down
 on `WakeRatePerIp`) is not.
+
+So the web ACL now holds only the two rate limits; the
+`AWSManagedRulesCommonRuleSet` and `AWSManagedRulesKnownBadInputsRuleSet`
+groups are gone. What remains in front of the lab: the per-IP rate limits,
+Cognito sign-in and Turnstile, the gateway's origin secret and its own per-IP
+connection cap.
 
 ## Stopping and tearing down
 
