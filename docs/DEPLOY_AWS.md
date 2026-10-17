@@ -4,7 +4,7 @@ The web version runs as two CDK stacks, deployed by one script:
 
 | Stack | Region | Holds |
 |---|---|---|
-| `TelerobotEdge` | us-east-1 | The CloudFront-scope WAF web ACL (two per-IP rate limits). |
+| `TelerobotEdge` | us-east-1 | The CloudFront-scope WAF web ACL (a per-IP rate limit). |
 | `Telerobot` | eu-west-2 | CloudFront, the UI/archive/artifacts buckets, Cognito, the lab instance (t4g.small), the status/wake/reaper Lambda, the budget. |
 
 The lab instance sleeps until someone visits. The wake Lambda starts it, the
@@ -171,8 +171,8 @@ and a `User-Agent`, as a browser's would.
   (about $0.75), and S3, SSM and CloudWatch pennies.
 * Awake: t4g.small at about $0.02 an hour; the 150-hour cap is under $3.
 * CloudFront and WAF: on the flat-rate Free plan, $0. Otherwise
-  pay-as-you-go: the web ACL is $5 a month plus $1 for each of its two rules
-  (about $7 in all), plus $0.60 per million requests, plus
+  pay-as-you-go: the web ACL is $5 a month plus $1 for its one rule
+  (about $6 in all), plus $0.60 per million requests, plus
   CloudFront requests and transfer.
 * The `telerobot-monthly` budget ($20) emails the alert address at 50% and
   100%. It counts only resources tagged `project=uwa-telerobot`, once the
@@ -229,16 +229,18 @@ still named both resources; with `PriceClass_All` (previously
 and something in the web ACL (the two managed rule groups or the scope-down
 on `WakeRatePerIp`) is not.
 
-So the web ACL now holds only the two rate limits; the
-`AWSManagedRulesCommonRuleSet` and `AWSManagedRulesKnownBadInputsRuleSet`
-groups are gone. What remains in front of the lab: the per-IP rate limits,
-Cognito sign-in and Turnstile, the gateway's origin secret and its own per-IP
-connection cap.
+Dropping the `AWSManagedRulesCommonRuleSet` and
+`AWSManagedRulesKnownBadInputsRuleSet` groups (ca92ef7) was not enough: the
+API still named the web ACL, on the deploy and on a retry minutes later. Of
+what was left, the `WakeRatePerIp` scope-down (a byte match on the URI path,
+20 wakes per 5 minutes per IP) was the only thing beyond the plain
+"IP-based rate limiting" the Free plan lists, so that rule went too.
 
-Without the managed groups (ca92ef7) the API still names the web ACL, on the
-deploy and on a retry minutes later. Of what is left, the `WakeRatePerIp`
-scope-down (a byte match on the URI path) is the only thing beyond the plain
-"IP-based rate limiting" the Free plan lists.
+The web ACL now holds one rule, `RatePerIp` (300 requests per 5 minutes per
+IP). `/api/wake` falls under it, and a wake still needs a Turnstile or
+Cognito token and the origin secret; the 150-hour cap bounds what wakes can
+cost. Also in front of the lab: the gateway's origin secret and its own
+per-IP connection cap.
 
 ## Stopping and tearing down
 

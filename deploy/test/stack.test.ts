@@ -69,26 +69,16 @@ function statements(t: Template): any[] {
 const actions = (s: any): string[] => [s.Action].flat();
 
 describe("edge stack", () => {
-  it("is a CLOUDFRONT web ACL with just the two rate limits (Free-plan eligible)", () => {
+  it("is a CLOUDFRONT web ACL with one plain per-IP rate limit (Free-plan eligible)", () => {
     const [, acl] = only(edge, "AWS::WAFv2::WebACL");
     expect(acl.Scope).toBe("CLOUDFRONT");
-    expect(acl.Rules).toHaveLength(2);
-
-    const rate = acl.Rules.filter((r: any) => r.Statement.RateBasedStatement);
-    expect(rate).toHaveLength(2);
-    for (const r of rate) {
-      expect(r.Action).toEqual({ Block: {} });
-      expect(r.Statement.RateBasedStatement.AggregateKeyType).toBe("IP");
-      expect(r.Statement.RateBasedStatement.EvaluationWindowSec).toBe(300);
-    }
-    const global = rate.find((r: any) => !r.Statement.RateBasedStatement.ScopeDownStatement);
-    const wake = rate.find((r: any) => r.Statement.RateBasedStatement.ScopeDownStatement);
-    expect(global.Statement.RateBasedStatement.Limit).toBe(300);
-    expect(wake.Statement.RateBasedStatement.Limit).toBe(20);
-    expect(wake.Statement.RateBasedStatement.ScopeDownStatement.ByteMatchStatement).toMatchObject({
-      SearchString: "/api/wake",
-      PositionalConstraint: "EXACTLY",
-      FieldToMatch: { UriPath: {} },
+    expect(acl.Rules).toHaveLength(1);
+    const [rule] = acl.Rules;
+    expect(rule.Action).toEqual({ Block: {} });
+    expect(rule.Statement.RateBasedStatement).toEqual({
+      Limit: 300,
+      EvaluationWindowSec: 300,
+      AggregateKeyType: "IP",
     });
   });
 

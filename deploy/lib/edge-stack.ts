@@ -15,8 +15,8 @@ export class EdgeStack extends Stack {
       metricName,
       sampledRequestsEnabled: true,
     });
-    // Rate limits only: AWS's managed rule groups make the web ACL ineligible
-    // for the CloudFront flat-rate Free plan (docs/DEPLOY_AWS.md).
+    // One plain per-IP rate limit, so the web ACL is eligible for the
+    // CloudFront flat-rate Free plan (docs/DEPLOY_AWS.md).
     const acl = new wafv2.CfnWebACL(this, "WebAcl", {
       scope: "CLOUDFRONT",
       defaultAction: { allow: {} },
@@ -30,27 +30,6 @@ export class EdgeStack extends Stack {
             rateBasedStatement: { limit: 300, evaluationWindowSec: 300, aggregateKeyType: "IP" },
           },
           visibilityConfig: visibility("RatePerIp"),
-        },
-        {
-          name: "WakeRatePerIp",
-          priority: 1,
-          action: { block: {} },
-          statement: {
-            rateBasedStatement: {
-              limit: 20,
-              evaluationWindowSec: 300,
-              aggregateKeyType: "IP",
-              scopeDownStatement: {
-                byteMatchStatement: {
-                  fieldToMatch: { uriPath: {} },
-                  positionalConstraint: "EXACTLY",
-                  searchString: "/api/wake",
-                  textTransformations: [{ priority: 0, type: "NONE" }],
-                },
-              },
-            },
-          },
-          visibilityConfig: visibility("WakeRatePerIp"),
         },
       ],
     });
