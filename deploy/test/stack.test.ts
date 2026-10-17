@@ -69,11 +69,15 @@ function statements(t: Template): any[] {
 const actions = (s: any): string[] => [s.Action].flat();
 
 describe("edge stack", () => {
-  it("is a CLOUDFRONT web ACL with one plain per-IP rate limit (Free-plan eligible)", () => {
+  it("is a CLOUDFRONT web ACL with a plain per-IP rate limit and the managed rule groups (Free-plan eligible)", () => {
     const [, acl] = only(edge, "AWS::WAFv2::WebACL");
     expect(acl.Scope).toBe("CLOUDFRONT");
-    expect(acl.Rules).toHaveLength(1);
-    const [rule] = acl.Rules;
+    expect(acl.Rules).toHaveLength(3);
+    const groups = acl.Rules.filter((r: any) => r.Statement.ManagedRuleGroupStatement).map(
+      (r: any) => r.Statement.ManagedRuleGroupStatement.Name,
+    );
+    expect(groups.sort()).toEqual(["AWSManagedRulesCommonRuleSet", "AWSManagedRulesKnownBadInputsRuleSet"]);
+    const [rule] = acl.Rules.filter((r: any) => r.Statement.RateBasedStatement);
     expect(rule.Action).toEqual({ Block: {} });
     expect(rule.Statement.RateBasedStatement).toEqual({
       Limit: 300,

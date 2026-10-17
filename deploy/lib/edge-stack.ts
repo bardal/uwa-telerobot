@@ -15,8 +15,16 @@ export class EdgeStack extends Stack {
       metricName,
       sampledRequestsEnabled: true,
     });
-    // One plain per-IP rate limit, so the web ACL is eligible for the
-    // CloudFront flat-rate Free plan (docs/DEPLOY_AWS.md).
+    const managed = (name: string, priority: number): wafv2.CfnWebACL.RuleProperty => ({
+      name,
+      priority,
+      overrideAction: { none: {} },
+      statement: { managedRuleGroupStatement: { vendorName: "AWS", name } },
+      visibilityConfig: visibility(name),
+    });
+
+    // A plain per-IP rate limit and AWS managed rules: no scope-down or
+    // other matching, which the CloudFront Free plan refuses (docs/DEPLOY_AWS.md).
     const acl = new wafv2.CfnWebACL(this, "WebAcl", {
       scope: "CLOUDFRONT",
       defaultAction: { allow: {} },
@@ -31,6 +39,8 @@ export class EdgeStack extends Stack {
           },
           visibilityConfig: visibility("RatePerIp"),
         },
+        managed("AWSManagedRulesCommonRuleSet", 1),
+        managed("AWSManagedRulesKnownBadInputsRuleSet", 2),
       ],
     });
 
