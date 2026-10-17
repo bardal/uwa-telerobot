@@ -223,6 +223,12 @@ groups and the `/api/wake` rate rule's scope-down is not documented: the
 deploy's subscription attempt is the test. If it is refused again, the
 distribution stays on pay-as-you-go (about $9 a month for the web ACL).
 
+On 2026-10-17, with the managed policies and functions in place, the API
+still named both resources; with `PriceClass_All` (previously
+`PriceClass_100`) it names only the web ACL. So the distribution is eligible,
+and something in the web ACL (the two managed rule groups or the scope-down
+on `WakeRatePerIp`) is not.
+
 ## Stopping and tearing down
 
 * Stop the lab now: `aws ec2 stop-instances --region eu-west-2 --instance-ids <InstanceId>`.
