@@ -4,7 +4,7 @@ The web version runs as two CDK stacks, deployed by one script:
 
 | Stack | Region | Holds |
 |---|---|---|
-| `TelerobotEdge` | us-east-1 | The CloudFront-scope WAF web ACL (a per-IP rate limit). |
+| `TelerobotEdge` | us-east-1 | The CloudFront-scope WAF web ACL (a per-IP rate limit, AWS managed rule groups). |
 | `Telerobot` | eu-west-2 | CloudFront, the UI/archive/artifacts buckets, Cognito, the lab instance (t4g.small), the status/wake/reaper Lambda, the budget. |
 
 The lab instance sleeps until someone visits. The wake Lambda starts it, the
@@ -162,7 +162,7 @@ day's index list that move, that the day's audit log (which now exists) is
 refused at `/archive/private/audit/<day>.jsonl` and through `public/../`
 traversals with no audit content in the body, and that a WebSocket with a
 foreign `Origin` gets HTTP 403. Every request carries the site's `Origin`
-and a `User-Agent`, as a browser's would.
+and a `User-Agent`: the WAF's common rule set blocks requests without one.
 
 ## Costs
 
@@ -170,9 +170,9 @@ and a `User-Agent`, as a browser's would.
   ($0.005 an hour, running or not, about $3.65), the 8 GB gp3 root volume
   (about $0.75), and S3, SSM and CloudWatch pennies.
 * Awake: t4g.small at about $0.02 an hour; the 150-hour cap is under $3.
-* CloudFront and WAF: on the flat-rate Free plan, $0. Otherwise
-  pay-as-you-go: the web ACL is $5 a month plus $1 for its one rule
-  (about $6 in all), plus $0.60 per million requests, plus
+* CloudFront and WAF: on the flat-rate Free plan (subscribed 2026-10-17), $0.
+  Otherwise pay-as-you-go: the web ACL is $5 a month plus $1 for each of its
+  three rules and rule groups (about $8 in all), plus $0.60 per million requests, plus
   CloudFront requests and transfer.
 * The `telerobot-monthly` budget ($20) emails the alert address at 50% and
   100%. It counts only resources tagged `project=uwa-telerobot`, once the
@@ -236,11 +236,18 @@ what was left, the `WakeRatePerIp` scope-down (a byte match on the URI path,
 20 wakes per 5 minutes per IP) was the only thing beyond the plain
 "IP-based rate limiting" the Free plan lists, so that rule went too.
 
-The web ACL now holds one rule, `RatePerIp` (300 requests per 5 minutes per
-IP). `/api/wake` falls under it, and a wake still needs a Turnstile or
-Cognito token and the origin secret; the 150-hour cap bounds what wakes can
-cost. Also in front of the lab: the gateway's origin secret and its own
-per-IP connection cap.
+With `RatePerIp` (300 requests per 5 minutes per IP) alone, the subscription
+went through (2467253, `ACTIVE` within minutes). The two managed groups then
+went back in (1335729) and the plan stayed `ACTIVE`: the Free plan takes AWS
+managed rule groups, within its five rules, but not a scope-down statement.
+
+So the web ACL is `RatePerIp`, `AWSManagedRulesCommonRuleSet` and
+`AWSManagedRulesKnownBadInputsRuleSet`. `/api/wake` has no limit of its own:
+it falls under `RatePerIp`, a wake still needs a Turnstile or Cognito token
+and the origin secret, and the 150-hour cap bounds what wakes can cost.
+
+Once subscribed, the web ACL can't be detached from the distribution; leaving
+the plan means cancelling the subscription (Free plans cancel at once).
 
 ## Stopping and tearing down
 
