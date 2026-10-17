@@ -8,7 +8,9 @@
     1. refuses a dirty working tree;
     2. clones HEAD into a temp directory and builds it there: Maven (all tests,
        stamped with the commit) and the web UI (npm ci, test, lint, build);
-    3. creates any missing SSM parameter (never overwrites one);
+    3. creates any missing SSM parameter (never overwrites one), looks up the
+       Route 53 zone of the lab's DNS record (cdk.json labRecord) and requests
+       or checks the ACM certificate for cdk.json siteDomain;
     4. runs the pre-flight checks, then `cdk deploy --all` from the clone's
        deploy/ (after npm ci, test and tsc there; never the working tree);
     5. activates the `project` cost-allocation tag;
@@ -17,7 +19,9 @@
        instance the deploy replaces boots straight into <sha>), reboots a
        surviving running instance, syncs the UI and invalidates it;
     7. tries the CloudFront flat-rate Free plan;
-    8. resets the smoke user's password and runs deploy/smoke.mjs.
+    8. resets the smoke user's password and runs deploy/smoke.mjs;
+    9. checks the lab's DNS record against the instance (it is synced
+       right after cdk deploy, too).
 
   -InfraOnly does 1, the clone (not the build), 3, 4, 5, 7 and the smoke
   user, and uploads nothing:
@@ -286,6 +290,53 @@ try {
   New-ParamIfMissing '/telerobot/commit' String 'none'
   # /telerobot/stack/* belong to the stack; /telerobot/minutes/* to the Lambda.
 
+  # ------------------------------------- 5b. lab DNS zone, site certificate
+  $CdkContext = (Get-Content -Raw -LiteralPath (Join-Path $CdkDir 'cdk.json') | ConvertFrom-Json).context
+  $LabRecord = $CdkContext.labRecord
+  $SiteDomain = $CdkContext.siteDomain
+
+  Step "Hosted zone for the lab's record $LabRecord"
+  $zoneName = $LabRecord.Substring($LabRecord.IndexOf('.') + 1)
+  $zones = Get-AwsJson -Arguments @('route53', 'list-hosted-zones-by-name', '--dns-name', $zoneName)
+  $zone = @($zones.HostedZones | Where-Object { $_.Name -eq "$zoneName." -and -not $_.Config.PrivateZone })
+  if ($zone.Count -ne 1) { Abort "expected one public Route 53 hosted zone named $zoneName, found $($zone.Count)" }
+  $LabZoneId = $zone[0].Id -replace '^/hostedzone/', ''
+  Note "$zoneName = $LabZoneId"
+
+  # ACM in us-east-1 (CloudFront's region). The domain's DNS is not in Route 53,
+  # so the validation CNAME is added by hand at its DNS host; until ACM issues
+  # the certificate, the distribution keeps only its cloudfront.net name.
+  Step "Certificate for $SiteDomain ($EdgeRegion)"
+  $certs = Get-AwsJson -Arguments @('acm', 'list-certificates', '--certificate-statuses', 'PENDING_VALIDATION', 'ISSUED') -In $EdgeRegion
+  $cert = @($certs.CertificateSummaryList | Where-Object { $_.DomainName -eq $SiteDomain } |
+      Sort-Object { $_.Status -ne 'ISSUED' }) | Select-Object -First 1
+  if ($cert) {
+    $CertArn = $cert.CertificateArn
+  } else {
+    $CertArn = (Get-AwsJson -In $EdgeRegion -Arguments @('acm', 'request-certificate', '--domain-name', $SiteDomain,
+        '--validation-method', 'DNS', '--idempotency-token', 'telerobotsite',
+        '--tags', "Key=$($ProjectTag.Key),Value=$($ProjectTag.Value)")).CertificateArn
+    Note "requested $CertArn"
+  }
+  # The validation record appears a few seconds after the request.
+  $certInfo = $null; $validation = $null
+  for ($i = 0; $i -lt 10 -and -not $validation; $i++) {
+    if ($i) { Start-Sleep -Seconds 3 }
+    $certInfo = (Get-AwsJson -Arguments @('acm', 'describe-certificate', '--certificate-arn', $CertArn) -In $EdgeRegion).Certificate
+    $opt = @($certInfo.DomainValidationOptions)[0]
+    if ($opt -and $opt.PSObject.Properties['ResourceRecord']) { $validation = $opt.ResourceRecord }
+  }
+  $SiteCertArn = $null
+  if ($certInfo.Status -eq 'ISSUED') {
+    $SiteCertArn = $CertArn
+    Note "issued: $CertArn"
+    $Summary['Site domain'] = "https://$SiteDomain (certificate issued)"
+  } else {
+    Warn "$SiteDomain's certificate is $($certInfo.Status). Add this CNAME at the domain's DNS host, then rerun:"
+    if ($validation) { Warn "  $($validation.Name)  CNAME  $($validation.Value)" }
+    $Summary['Site domain'] = "waiting for the certificate ($($certInfo.Status)); add the validation CNAME"
+  }
+
   # ------------------------------------- 6a. artifacts before the stack update
   # A user-data change replaces the instance, and the new one fetches
   # /telerobot/commit on its first boot, while cdk deploy is still running.
@@ -319,7 +370,8 @@ try {
 
   # ----------------------------------------------------------- 6. cdk deploy
   Step 'cdk deploy --all (CloudFront takes 10-20 minutes on the first run)'
-  $cdkArgs = @('cdk', 'deploy', '--all', '--require-approval', 'never', '-c', "alertEmail=$Email")
+  $cdkArgs = @('cdk', 'deploy', '--all', '--require-approval', 'never', '-c', "alertEmail=$Email", '-c', "labZoneId=$LabZoneId")
+  if ($SiteCertArn) { $cdkArgs += @('-c', "siteCertArn=$SiteCertArn") }
   # Google sign-in (Decision 5) turns on when both are in the environment.
   if ($env:TELEROBOT_GOOGLE_CLIENT_ID -and $env:TELEROBOT_GOOGLE_CLIENT_SECRET) {
     $cdkArgs += @('-c', "googleClientId=$env:TELEROBOT_GOOGLE_CLIENT_ID", '-c', "googleClientSecret=$env:TELEROBOT_GOOGLE_CLIENT_SECRET")
@@ -336,6 +388,28 @@ try {
   $DistributionArn = "arn:aws:cloudfront::${Account}:distribution/$DistributionId"
   $WebAclArn = $EdgeOut['WebAclArn']
   if (-not $Url -or -not $DistributionId -or -not $WebAclArn) { Abort 'the stack outputs are incomplete' }
+
+  # ------------------------------------------------------ 6b. lab DNS record
+  # EC2 state changes keep the record in step, but an instance this deploy
+  # replaced started before the rule named it: sync now.
+  function Sync-LabDns {
+    $payload = Join-Path $Private 'sync-dns.json'
+    $response = Join-Path $Private 'sync-dns-response.json'
+    Set-Content -LiteralPath $payload -Value '{"syncDns":true}' -Encoding utf8NoBOM -NoNewline
+    $r = Get-AwsJson -Arguments @('lambda', 'invoke', '--function-name', $Out['ApiFunctionName'],
+      '--payload', "fileb://$payload", $response)
+    if ($r.PSObject.Properties['FunctionError']) { Abort "the DNS sync failed: $(Get-Content -Raw -LiteralPath $response)" }
+    (Get-Content -Raw -LiteralPath $response | ConvertFrom-Json).labDns
+  }
+  function Get-LabDnsRecord {
+    $rs = Get-AwsJson -Arguments @('route53', 'list-resource-record-sets', '--hosted-zone-id', $LabZoneId,
+      '--start-record-name', $LabRecord, '--start-record-type', 'A', '--max-items', '1')
+    $set = @($rs.ResourceRecordSets | Where-Object { $_.Name -eq "$LabRecord." -and $_.Type -eq 'A' })
+    if ($set.Count -eq 1) { "$(@($set[0].ResourceRecords)[0].Value) (TTL $($set[0].TTL))" } else { 'missing' }
+  }
+  Step "Lab DNS record $LabRecord"
+  $synced = Sync-LabDns
+  Note "synced: $synced"
 
   # ------------------------------------------------- 7. cost-allocation tag
   Step "Activating the '$($ProjectTag.Key)' cost-allocation tag"
@@ -418,13 +492,25 @@ try {
 
   # ------------------------------------------------------------ 11. smoke
   if (-not $InfraOnly) {
-    Step "Smoke test against $Url"
+    # The canonical URL is the site domain once it has a certificate; until its
+    # CNAME to CloudFront is in place, test the cloudfront.net name instead.
+    $SmokeUrl = $Url
+    $cfUrl = $Out['CloudFrontUrl']
+    if ($cfUrl -and $Url -ne $cfUrl) {
+      try {
+        [void][System.Net.Dns]::GetHostAddresses(([uri]$Url).Host)
+      } catch {
+        Warn "$Url does not resolve yet (add its CNAME to $(([uri]$cfUrl).Host)); smoke-testing $cfUrl"
+        $SmokeUrl = $cfUrl
+      }
+    }
+    Step "Smoke test against $SmokeUrl"
     $env:SMOKE_USER_POOL_ID = $PoolId
     $env:SMOKE_CLIENT_ID = $Out['SmokeClientId']
     $env:SMOKE_PASSWORD = $SmokePassword
     $env:SMOKE_COMMIT = $Sha
     try {
-      & node (Join-Path $CdkDir 'smoke.mjs') $Url
+      & node (Join-Path $CdkDir 'smoke.mjs') $SmokeUrl
       $smokeCode = $LASTEXITCODE
     } finally {
       Remove-Item Env:SMOKE_PASSWORD -ErrorAction SilentlyContinue
@@ -435,6 +521,27 @@ try {
     $Summary['Smoke test'] = 'not run (infra-only: no artifacts yet)'
   }
   $SmokePassword = $null
+
+  # ------------------------------------------- 11b. lab DNS against the lab
+  Step "Lab DNS record $LabRecord against the instance"
+  $inst = Get-AwsJson -Arguments @('ec2', 'describe-instances', '--instance-ids', $Out['InstanceId'],
+    '--query', 'Reservations[0].Instances[0].[State.Name,PublicIpAddress]')
+  $labState = $inst[0]; $labIp = if ($inst[1]) { $inst[1] } else { 'none' }
+  $record = Get-LabDnsRecord
+  $want = if ($labState -eq 'running' -and $labIp -ne 'none') { $labIp } else { '192.0.2.1' }
+  Note "instance $labState, public IP $labIp; record $record"
+  if ($labState -eq 'running' -and $labIp -eq 'none') {
+    # No Elastic IP: the default subnet's auto-assigned address is the only way in.
+    Warn 'the running lab has no public IP (does its subnet still map public IPs on launch?)'
+    $Summary['Lab DNS'] = "BROKEN: the running lab has no public IP; $LabRecord = $record"
+    $exitCode = 1
+  } elseif ($record -like "$want *") {
+    $Summary['Lab DNS'] = "$LabRecord = $record (in step)"
+  } else {
+    Warn "the record should be $want"
+    $Summary['Lab DNS'] = "OUT OF STEP: $LabRecord = $record, expected $want"
+    $exitCode = 1
+  }
 
   # ------------------------------------------------------------ 12. report
   Step 'Done'

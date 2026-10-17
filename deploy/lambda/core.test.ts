@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { STATUS_CACHE_MS, cachedStatus, checkOrigin, reap, status, wake, type Deps } from "./core";
+import { PARKED_IP, STATUS_CACHE_MS, cachedStatus, checkOrigin, reap, status, syncLabDns, wake, type Deps } from "./core";
 
 const NOW = Date.UTC(2026, 9, 13, 12, 0, 0);
 const HOUR = 3_600_000;
@@ -19,7 +19,7 @@ function makeDeps(opts: {
   const store: Record<string, string> = { ...(opts.minutes ?? {}) };
   if (opts.heartbeat) store["/telerobot/heartbeat"] = JSON.stringify(opts.heartbeat);
   const ec2 = {
-    describeState: vi.fn(async () => ({
+    describeState: vi.fn<Deps["ec2"]["describeState"]>(async () => ({
       state: opts.state ?? "stopped",
       launchTime: opts.launchTime ?? NOW - 60 * 60_000,
     })),
@@ -435,5 +435,46 @@ describe("checkOrigin", () => {
     expect(checkOrigin(d, { "x-telerobot-origin": "short" })).toBe(false);
     expect(checkOrigin(d, {})).toBe(false);
     expect(checkOrigin({ originSecret: "" }, { "x-telerobot-origin": "" })).toBe(false);
+  });
+});
+
+describe("syncLabDns", () => {
+  function withDns(state: string, publicIp?: string) {
+    const made = makeDeps({ state });
+    made.ec2.describeState.mockResolvedValue({ state, launchTime: NOW, publicIp });
+    const upsert = vi.fn(async (_ip: string) => {});
+    made.deps.labDns = { upsert };
+    return { ...made, upsert };
+  }
+
+  it("points the record at the running lab's public IP", async () => {
+    const { deps, upsert, ec2 } = withDns("running", "3.8.1.2");
+    expect(await syncLabDns(deps)).toBe("3.8.1.2");
+    expect(upsert).toHaveBeenCalledWith("3.8.1.2");
+    expect(ec2.describeState).toHaveBeenCalledWith("i-123");
+  });
+
+  it("parks the record whenever the lab is not running", async () => {
+    for (const state of ["pending", "stopping", "stopped", "shutting-down", "terminated"]) {
+      const { deps, upsert } = withDns(state, "3.8.1.2");
+      expect(await syncLabDns(deps), state).toBe(PARKED_IP);
+      expect(upsert).toHaveBeenCalledWith(PARKED_IP);
+    }
+  });
+
+  it("parks a running lab with no public IP", async () => {
+    const { deps, upsert } = withDns("running", undefined);
+    expect(await syncLabDns(deps)).toBe(PARKED_IP);
+    expect(upsert).toHaveBeenCalledWith(PARKED_IP);
+  });
+
+  it("parks on a never-routed address", () => {
+    expect(PARKED_IP).toBe("192.0.2.1");
+  });
+
+  it("does nothing without a record", async () => {
+    const { deps, ec2 } = makeDeps({ state: "running" });
+    expect(await syncLabDns(deps)).toBeNull();
+    expect(ec2.describeState).not.toHaveBeenCalled();
   });
 });

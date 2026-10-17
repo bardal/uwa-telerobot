@@ -4,10 +4,11 @@ import {
   StartInstancesCommand,
   StopInstancesCommand,
 } from "@aws-sdk/client-ec2";
+import { ChangeResourceRecordSetsCommand, Route53Client } from "@aws-sdk/client-route-53";
 import { GetParameterCommand, ParameterNotFound, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
-import { cachedStatus, checkOrigin, reap, wake, type Deps } from "./core";
-import { cachedValue, isReapEvent } from "./params";
+import { cachedStatus, checkOrigin, reap, syncLabDns, wake, type Deps } from "./core";
+import { cachedValue, isDnsSyncEvent, isReapEvent } from "./params";
 
 interface FunctionUrlEvent {
   rawPath?: string;
@@ -18,10 +19,17 @@ interface FunctionUrlEvent {
   source?: string;
   "detail-type"?: string;
   reap?: boolean;
+  syncDns?: boolean;
 }
 
 const ec2Client = new EC2Client({});
 const ssmClient = new SSMClient({});
+const route53Client = new Route53Client({});
+
+const LAB_DNS_ZONE_ID = process.env.LAB_DNS_ZONE_ID ?? "";
+const LAB_DNS_NAME = process.env.LAB_DNS_NAME ?? "";
+/** Short, so CloudFront follows the lab to its new address soon after a start. */
+const LAB_DNS_TTL = 60;
 
 async function decryptedParam(name: string): Promise<string> {
   const r = await ssmClient.send(new GetParameterCommand({ Name: name, WithDecryption: true }));
@@ -63,6 +71,7 @@ function buildDeps(): Deps {
         return {
           state: i?.State?.Name ?? "stopped",
           launchTime: i?.LaunchTime ? new Date(i.LaunchTime).getTime() : 0,
+          publicIp: i?.PublicIpAddress,
         };
       },
       async start(id) {
@@ -88,6 +97,31 @@ function buildDeps(): Deps {
         );
       },
     },
+    labDns:
+      LAB_DNS_ZONE_ID && LAB_DNS_NAME
+        ? {
+            async upsert(ip) {
+              await route53Client.send(
+                new ChangeResourceRecordSetsCommand({
+                  HostedZoneId: LAB_DNS_ZONE_ID,
+                  ChangeBatch: {
+                    Changes: [
+                      {
+                        Action: "UPSERT",
+                        ResourceRecordSet: {
+                          Name: LAB_DNS_NAME,
+                          Type: "A",
+                          TTL: LAB_DNS_TTL,
+                          ResourceRecords: [{ Value: ip }],
+                        },
+                      },
+                    ],
+                  },
+                }),
+              );
+            },
+          }
+        : undefined,
     async verifyTurnstile(token) {
       const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
         method: "POST",
@@ -125,9 +159,13 @@ const statusCache = cachedStatus();
 export async function handler(event: FunctionUrlEvent) {
   const deps = buildDeps();
 
+  if (isDnsSyncEvent(event)) {
+    return { labDns: await syncLabDns(deps) };
+  }
   if (isReapEvent(event)) {
     await reap(deps);
-    return { reaped: true };
+    // Also repairs the lab's record should an EC2 state-change event be missed.
+    return { reaped: true, labDns: await syncLabDns(deps) };
   }
 
   const method = event.requestContext?.http?.method ?? "";

@@ -15,6 +15,14 @@ if (!alertEmail) {
 const hoursCap = Number(ctx("hoursCap") ?? 150);
 if (!Number.isFinite(hoursCap) || hoursCap <= 0) throw new Error("hoursCap must be a positive number");
 
+// The lab's DNS record (cdk.json); deploy.ps1 looks up its hosted zone.
+const labRecord = ctx("labRecord");
+const labZoneId = ctx("labZoneId");
+if (!labRecord) throw new Error("cdk.json must name the lab's DNS record (labRecord)");
+if (!labZoneId) {
+  throw new Error(`Pass the hosted zone holding ${labRecord}: -c labZoneId=<id> (deploy.ps1 looks it up)`);
+}
+
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 
 const edge = new EdgeStack(app, "TelerobotEdge", {
@@ -33,4 +41,7 @@ new TelerobotStack(app, "Telerobot", {
   hoursCap,
   googleClientId: ctx("googleClientId"),
   googleClientSecret: ctx("googleClientSecret"),
+  labDns: { zoneId: labZoneId, recordName: labRecord },
+  siteDomain: ctx("siteDomain"),
+  siteCertArn: ctx("siteCertArn"),
 });
