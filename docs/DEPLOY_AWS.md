@@ -209,7 +209,7 @@ test enforces no custom cache, origin request or response headers policy):
   response including errors;
 * viewer-response CloudFront Functions for the rest: `SiteHeaders` (CSP,
   Permissions-Policy, COOP) on the UI, `/api/*` and `/healthz`, and
-  `ArchiveHeaders` (the archive's inert-document CSP) on `/archive/public/*`.
+  `ArchiveCsp` (the archive's inert-document CSP) on `/archive/public/*`.
   Functions do not run on responses of 400 and above, so error pages carry
   only the managed headers; `/ws` has none (the WebSocket upgrade);
 * the managed `AllViewerAndCloudFrontHeaders-2022-06` origin request policy on

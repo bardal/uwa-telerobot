@@ -372,7 +372,7 @@ export class TelerobotStack extends Stack {
       code: cloudfront.FunctionCode.fromInline(setHeadersCode(SITE_HEADERS)),
     });
     // Archived images are served as inert documents (Cache-Control comes from the objects).
-    const archiveHeaders = new cloudfront.Function(this, "ArchiveHeaders", {
+    const archiveHeaders = new cloudfront.Function(this, "ArchiveCsp", {
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       comment: "the archive's inert-document CSP",
       code: cloudfront.FunctionCode.fromInline(setHeadersCode(ARCHIVE_HEADERS)),
