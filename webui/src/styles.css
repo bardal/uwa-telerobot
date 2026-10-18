@@ -423,8 +423,10 @@ textarea[readonly] {
   padding: 0 4px 0 10px;
 }
 
+/* width 0: fills the row without its font-sized intrinsic width holding the panel open */
 .chat-send {
   flex: 1 1 auto;
+  width: 0;
   min-width: 0;
 }
 
@@ -897,5 +899,10 @@ a.back-link {
   .classic-page input[type='checkbox'] {
     width: 22px;
     height: 22px;
+  }
+
+  /* the larger fields still fit a 320 px phone */
+  .classic-form td {
+    padding-right: 4px;
   }
 }
