@@ -169,8 +169,9 @@ and a `User-Agent`: the WAF's common rule set blocks requests without one.
 
 * Asleep: under $1 a month: the 8 GB gp3 root volume (about $0.75), and S3,
   SSM, CloudWatch and Route 53 query pennies. There is no Elastic IP (it was
-  $3.65 a month, running or not): the lab's auto-assigned public IP is
-  released when it stops, and its DNS record follows it.
+  $3.65 a month, running or not): CloudFront reaches the lab at its IPv6
+  address, which is free, and its auto-assigned public IPv4 address (for its
+  own outbound calls) is released when it stops.
 * Awake: t4g.small at about $0.02 an hour plus its public IPv4 address at
   $0.005 an hour; the 150-hour cap is under $4.
 * CloudFront and WAF: on the flat-rate Free plan (subscribed 2026-10-17), $0.
@@ -252,22 +253,40 @@ and the origin secret, and the 150-hour cap bounds what wakes can cost.
 Once subscribed, the web ACL can't be detached from the distribution; leaving
 the plan means cancelling the subscription (Free plans cancel at once).
 
-## The lab's DNS record and the site domain
+## The lab's network, its DNS record and the site domain
 
-The lab has no fixed address: the default subnets give it a public IP each
-time it starts (`deploy.ps1` fails if a running lab has none). The Api
-function keeps an A record, `labRecord` in `deploy/cdk.json`
-(`telerobot-lab.scollops.net`, TTL 60), pointed at that IP while it runs and at `192.0.2.1` (TEST-NET-1, never routed) otherwise, so
-nothing reaches whoever later holds an address the lab gave up. An
-EventBridge rule on the instance's state changes triggers it, every reap tick
-repairs it, and `deploy.ps1` syncs it after `cdk deploy` (an instance the
-deploy replaced starts before the rule names it) and checks it against the
-instance after the smoke test. The function may only UPSERT that one A
-record. `deploy.ps1` finds the hosted zone by the record's parent name.
-CloudFront's origin for `/ws` and `/healthz` is that record, so it follows
-the lab: after a wake, CloudFront reaches the new address once the record's
-TTL has passed. (Measured 2026-10-17: woken with the record parked, the
-gateway answered through CloudFront 30 s into the smoke test's polling.)
+The lab has its own small VPC (`LabVpc`, 10.42.0.0/24 and an Amazon IPv6
+/56): one public subnet in the region's first zone, an internet gateway,
+routes for `0.0.0.0/0` and `::/0`, and no NAT. The instance gets one IPv6
+address, which belongs to its network interface and so survives stop and
+start; only replacing the instance (a user-data change) gives it a new one.
+It also gets a public IPv4 address while it runs, for its own outbound calls
+(S3, SSM, CloudWatch, Cognito, Turnstile); `deploy.ps1` fails if a running
+lab has none.
+
+CloudFront's origin for `/ws` and `/healthz` is an AAAA record, `labRecord`
+in `deploy/cdk.json` (`telerobot-origin.scollops.net`, TTL 60), reached over
+IPv6 only (the origin's `IpAddressType` is `ipv6`, supported since
+September 2025). The security group admits port 8080 only from CloudFront's
+IPv6 origin-facing prefix list (`pl-0d7c235a121ad5fd1`). The Api function
+keeps the record at the instance's IPv6 address in every state: `deploy.ps1`
+syncs it after `cdk deploy` (a replaced instance starts before the
+state-change rule names it) and checks it after the smoke test, and every EC2
+state change and reap tick re-checks it. The function may only UPSERT that
+one AAAA record; `deploy.ps1` finds the hosted zone by the record's parent
+name. While the lab is asleep CloudFront's requests to it time out (504 after
+30 s); its address stays the lab's, so nothing reaches anyone else.
+
+Why not a moving A record (d6e8167 replaced it): from b35d561 to then, an A
+record `telerobot-lab.scollops.net` followed the auto-assigned IPv4 address
+and was parked on `192.0.2.1` while the lab slept. On 2026-10-18 CloudFront
+edges kept answering 502 "CloudFront wasn't able to resolve the origin domain
+name" long after each change, although every Route 53 name server and public
+resolver had the new address: ten minutes after a wake, 45 of 45 requests
+through Manchester (`MAN50-P1`) and 14 of 15 through London (`LHR50-P4`)
+failed, and a browser, which keeps one connection to one edge server, could
+fail for minutes. With the fixed IPv6 address both edges answered 32 s after
+the instance started, with no failures in the next 158 requests each.
 
 `siteDomain` (`telerobot.daltons.net`) gets an ACM certificate in us-east-1,
 which `deploy.ps1` requests. The domain's DNS is at justhostme (cPanel's Zone
