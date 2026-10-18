@@ -4,7 +4,10 @@ import type { In, Out } from '../src/net/protocol';
 import { ChatPanel } from '../src/ui/chatPanel';
 import { ControlPage, HOME } from '../src/ui/controlPage';
 import { LoginPage, HELP_TEXT } from '../src/ui/loginPage';
-import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, SLOW_AFTER_S, TYPICAL_WAKE_S, WAKING, WIKIPEDIA, WakingPage, progressAt } from '../src/ui/wakingPage';
+import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, SLOW_AFTER_S, TYPICAL_WAKE_S, WAKING, WIKIPEDIA, WakingPage, progressAt, shuffled } from '../src/ui/wakingPage';
+
+/** Fisher–Yates with this random leaves the facts in their listed order. */
+const IN_ORDER = () => 0.999999;
 
 const ctxStub = new Proxy({}, { get: () => () => undefined, set: () => true }) as unknown as CanvasRenderingContext2D;
 
@@ -543,7 +546,7 @@ describe('waking page', () => {
   it('rotates the facts while waking, and stops when the wait ends', () => {
     vi.useFakeTimers();
     try {
-      const w = new WakingPage(vi.fn(), vi.fn());
+      const w = new WakingPage(vi.fn(), vi.fn(), Date.now, IN_ORDER);
       const fact = w.el.querySelector('.waking-fact')!;
       w.show({ kind: 'starting', since: Date.now(), step: 'computer' });
       expect(fact.textContent).toBe(FACTS[0]!.text);
@@ -581,7 +584,7 @@ describe('waking page', () => {
     }
     vi.useFakeTimers();
     try {
-      const w = new WakingPage(vi.fn(), vi.fn());
+      const w = new WakingPage(vi.fn(), vi.fn(), Date.now, IN_ORDER);
       w.show({ kind: 'starting', since: Date.now(), step: 'computer' });
       const thesisAt = FACTS.findIndex((f) => f.link?.href === DALTON_THESIS);
       expect(thesisAt).toBeGreaterThanOrEqual(0);
@@ -592,9 +595,55 @@ describe('waking page', () => {
       expect(a.rel).toBe('noopener');
       const source = w.el.querySelector('.waking-source') as HTMLAnchorElement;
       expect(source.href).toBe(WIKIPEDIA);
+      expect(source.target).toBe('_blank');
       w.stopTimer();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('names each fact’s source: Wikipedia, or the thesis for the facts from it', () => {
+    vi.useFakeTimers();
+    try {
+      const w = new WakingPage(vi.fn(), vi.fn(), Date.now, IN_ORDER);
+      const source = w.el.querySelector('.waking-source') as HTMLAnchorElement;
+      w.show({ kind: 'starting', since: Date.now(), step: 'computer' });
+      const thesisAt = FACTS.findIndex((f) => f.source === 'thesis');
+      expect(thesisAt).toBeGreaterThan(0);
+      vi.advanceTimersByTime(FACT_MS * thesisAt);
+      expect(source.href).toBe(DALTON_THESIS);
+      expect(source.textContent).toMatch(/thesis/);
+      vi.advanceTimersByTime(FACT_MS * (FACTS.length - thesisAt)); // round to the first, a Wikipedia one
+      expect(source.href).toBe(WIKIPEDIA);
+      w.stopTimer();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives each visitor the facts in a different order, every fact once per round', () => {
+    expect(shuffled(FACTS.length, IN_ORDER)).toEqual([...FACTS.keys()]);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const firsts = new Set<string>();
+    for (let v = 0; v < 6; v++) {
+      vi.useFakeTimers();
+      try {
+        const w = new WakingPage(vi.fn(), vi.fn(), Date.now, rnd);
+        const fact = w.el.querySelector('.waking-fact')!;
+        w.show({ kind: 'starting', since: Date.now(), step: 'computer' });
+        const seen: string[] = [fact.textContent!];
+        for (let i = 1; i < FACTS.length; i++) {
+          vi.advanceTimersByTime(FACT_MS);
+          seen.push(fact.textContent!);
+        }
+        expect(new Set(seen).size).toBe(FACTS.length);
+        firsts.add(seen[0]!);
+        w.stopTimer();
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+    expect(firsts.size).toBeGreaterThan(1);
   });
 });
