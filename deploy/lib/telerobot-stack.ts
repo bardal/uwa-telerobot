@@ -37,17 +37,17 @@ export interface TelerobotStackProps extends StackProps {
   webAclArn: string;
   /** Budget alerts go here; passed as context, never committed. */
   alertEmail: string;
-  /** The CloudFront origin-facing managed prefix list in this region. */
-  cfPrefixList?: string;
+  /** The CloudFront origin-facing IPv6 managed prefix list in this region. */
+  cfPrefixListV6?: string;
   /** Wake cap in hours a month. */
   hoursCap?: number;
   /** Google sign-in turns on when both are given. */
   googleClientId?: string;
   googleClientSecret?: string;
   /**
-   * The lab's A record, CloudFront's origin for /ws and /healthz, which the
-   * Api function keeps pointed at the running instance (and parked otherwise).
-   * zoneId is the Route 53 hosted zone that holds recordName.
+   * The lab's AAAA record, CloudFront's origin for /ws and /healthz, which the
+   * Api function keeps at the instance's IPv6 address. zoneId is the Route 53
+   * hosted zone that holds recordName.
    */
   labDns: { zoneId: string; recordName: string };
   /** A custom domain for the site; used once its us-east-1 certificate is issued. */
@@ -124,23 +124,62 @@ export class TelerobotStack extends Stack {
     const archive = new s3.Bucket(this, "Archive", privateBucket);
     const artifacts = new s3.Bucket(this, "Artifacts", privateBucket);
 
-    // ---- EC2 lab instance (default VPC: no subnet or VPC given) ----
-    // No Elastic IP: the default subnets give the instance a public IP while it
-    // runs (billed only then), and the lab's DNS record follows it.
+    // ---- the lab's network: one public subnet, IPv4 and IPv6, no NAT ----
+    // CloudFront reaches the gateway over IPv6. An instance keeps its IPv6
+    // address through stop and start (it belongs to the network interface), so
+    // the lab's DNS record holds one address for the instance's whole life and
+    // CloudFront never has to follow it. A changing A record did not work:
+    // CloudFront edges kept failing to resolve it long after each change.
+    // The public IPv4 address is for the lab's own outbound calls only; it is
+    // billed only while the lab runs.
+    const vpc = new ec2.CfnVPC(this, "LabVpc", {
+      cidrBlock: "10.42.0.0/24",
+      enableDnsSupport: true,
+      enableDnsHostnames: true,
+      tags: [{ key: "Name", value: "telerobot" }],
+    });
+    const vpcV6 = new ec2.CfnVPCCidrBlock(this, "LabVpcV6", { vpcId: vpc.ref, amazonProvidedIpv6CidrBlock: true });
+    const igw = new ec2.CfnInternetGateway(this, "LabIgw", { tags: [{ key: "Name", value: "telerobot" }] });
+    const igwAttach = new ec2.CfnVPCGatewayAttachment(this, "LabIgwAttach", {
+      vpcId: vpc.ref,
+      internetGatewayId: igw.ref,
+    });
+    const subnet = new ec2.CfnSubnet(this, "LabSubnet", {
+      vpcId: vpc.ref,
+      availabilityZone: Fn.select(0, Fn.getAzs()),
+      cidrBlock: "10.42.0.0/24",
+      // the first /64 of the VPC's /56 (64 host bits)
+      ipv6CidrBlock: Fn.select(0, Fn.cidr(Fn.select(0, vpc.attrIpv6CidrBlocks), 1, "64")),
+      mapPublicIpOnLaunch: true,
+      assignIpv6AddressOnCreation: true,
+      tags: [{ key: "Name", value: "telerobot" }],
+    });
+    // the VPC's Ipv6CidrBlocks is empty until the block is associated
+    subnet.addDependency(vpcV6);
+    const routes = new ec2.CfnRouteTable(this, "LabRoutes", { vpcId: vpc.ref, tags: [{ key: "Name", value: "telerobot" }] });
+    const egress = [
+      new ec2.CfnRoute(this, "LabRouteV4", { routeTableId: routes.ref, gatewayId: igw.ref, destinationCidrBlock: "0.0.0.0/0" }),
+      new ec2.CfnRoute(this, "LabRouteV6", { routeTableId: routes.ref, gatewayId: igw.ref, destinationIpv6CidrBlock: "::/0" }),
+      new ec2.CfnSubnetRouteTableAssociation(this, "LabSubnetRoutes", { subnetId: subnet.ref, routeTableId: routes.ref }),
+    ];
+    for (const r of egress) r.addDependency(igwAttach);
 
-    // No VpcId: the default VPC. Egress is left out, which gives a VPC
-    // security group its default allow-all egress rule (CloudFormation only
-    // accepts explicit egress rules together with a VpcId).
+    // With a VpcId the default egress rule is IPv4 only: both are explicit.
     const sg = new ec2.CfnSecurityGroup(this, "LabSg", {
       groupDescription: "Telerobot gateway: 8080 from CloudFront only",
+      vpcId: vpc.ref,
       securityGroupIngress: [
         {
           ipProtocol: "tcp",
           fromPort: 8080,
           toPort: 8080,
-          sourcePrefixListId: props.cfPrefixList ?? "pl-93a247fa",
-          description: "CloudFront origin-facing",
+          sourcePrefixListId: props.cfPrefixListV6 ?? "pl-0d7c235a121ad5fd1",
+          description: "CloudFront origin-facing (IPv6)",
         },
+      ],
+      securityGroupEgress: [
+        { ipProtocol: "-1", cidrIp: "0.0.0.0/0", description: "all IPv4" },
+        { ipProtocol: "-1", cidrIpv6: "::/0", description: "all IPv6" },
       ],
     });
 
@@ -214,7 +253,9 @@ export class TelerobotStack extends Stack {
       imageId: ami.imageId,
       instanceType: "t4g.small",
       iamInstanceProfile: profile.ref,
+      subnetId: subnet.ref,
       securityGroupIds: [sg.attrGroupId],
+      ipv6AddressCount: 1,
       launchTemplate: { launchTemplateId: launchTemplate.ref, version: launchTemplate.attrLatestVersionNumber },
       blockDeviceMappings: [
         {
@@ -230,6 +271,8 @@ export class TelerobotStack extends Stack {
         { key: "Name", value: "telerobot-lab" },
       ],
     });
+    // its first boot fetches the artifacts: the way out must be there first
+    for (const r of egress) instance.addDependency(r);
     // cloud-init only runs user data on an instance's first boot, so a change
     // to it must replace the instance (as ec2.Instance's userDataCausesReplacement).
     instance.overrideLogicalId(
@@ -336,7 +379,7 @@ export class TelerobotStack extends Stack {
       targets: [new targets.LambdaFunction(fn, { event: events.RuleTargetInput.fromObject({ reap: true }) })],
     });
 
-    // Only UPSERTs of the one A record.
+    // Only UPSERTs of the one AAAA record.
     fn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["route53:ChangeResourceRecordSets"],
@@ -344,15 +387,15 @@ export class TelerobotStack extends Stack {
         conditions: {
           "ForAllValues:StringEquals": {
             "route53:ChangeResourceRecordSetsNormalizedRecordNames": [props.labDns.recordName.toLowerCase()],
-            "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
+            "route53:ChangeResourceRecordSetsRecordTypes": ["AAAA"],
             "route53:ChangeResourceRecordSetsActions": ["UPSERT"],
           },
         },
       }),
     );
-    // Every state change of this instance re-points the record. An instance
-    // a deploy replaces starts before this rule names it; deploy.ps1 then
-    // invokes the function with {"syncDns":true}, and each reap tick repairs too.
+    // The address only changes when a deploy replaces the instance; deploy.ps1
+    // then invokes the function with {"syncDns":true}. Every state change of
+    // this instance and every reap tick re-check it too.
     new events.Rule(this, "LabState", {
       eventPattern: {
         source: ["aws.ec2"],
@@ -364,8 +407,9 @@ export class TelerobotStack extends Stack {
 
     // ---- CloudFront ----
     const originHeaders = { [ORIGIN_HEADER]: originSecret };
-    // The lab's DNS record follows the instance (syncLabDns).
+    // The lab's AAAA record holds the instance's IPv6 address (syncLabDns).
     const ec2Origin = new origins.HttpOrigin(props.labDns.recordName, {
+      ipAddressType: cloudfront.OriginIpAddressType.IPV6,
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
       httpPort: 8080,
       customHeaders: originHeaders,

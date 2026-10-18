@@ -121,16 +121,46 @@ describe("telerobot stack", () => {
     for (const id of deps.keys()) visit(id, []);
   });
 
-  it("admits only tcp/8080 from the CloudFront prefix list", () => {
+  it("admits only tcp/8080 from CloudFront's IPv6 origin-facing prefix list, and lets everything out", () => {
+    const [vpcId] = only(main, "AWS::EC2::VPC");
     const [, sg] = only(main, "AWS::EC2::SecurityGroup");
     expect(sg.SecurityGroupIngress).toEqual([
-      expect.objectContaining({ IpProtocol: "tcp", FromPort: 8080, ToPort: 8080, SourcePrefixListId: "pl-93a247fa" }),
+      expect.objectContaining({ IpProtocol: "tcp", FromPort: 8080, ToPort: 8080, SourcePrefixListId: "pl-0d7c235a121ad5fd1" }),
     ]);
     expect(sg.SecurityGroupIngress[0].CidrIp).toBeUndefined();
-    // no explicit egress: a VPC security group then allows all egress
-    expect(sg.SecurityGroupEgress).toBeUndefined();
-    expect(sg.VpcId).toBeUndefined();
+    expect(sg.SecurityGroupIngress[0].CidrIpv6).toBeUndefined();
+    // with a VpcId the implicit egress rule is IPv4 only
+    expect(sg.SecurityGroupEgress).toEqual([
+      expect.objectContaining({ IpProtocol: "-1", CidrIp: "0.0.0.0/0" }),
+      expect.objectContaining({ IpProtocol: "-1", CidrIpv6: "::/0" }),
+    ]);
+    expect(sg.VpcId).toEqual({ Ref: vpcId });
     main.resourceCountIs("AWS::EC2::SecurityGroupIngress", 0);
+  });
+
+  it("puts the lab in its own public subnet with IPv6 and no NAT", () => {
+    const [vpcId] = only(main, "AWS::EC2::VPC");
+    const [v6Id, v6] = only(main, "AWS::EC2::VPCCidrBlock");
+    expect(v6).toEqual({ VpcId: { Ref: vpcId }, AmazonProvidedIpv6CidrBlock: true });
+    const [subnetId, subnet] = only(main, "AWS::EC2::Subnet");
+    expect(subnet).toMatchObject({ VpcId: { Ref: vpcId }, MapPublicIpOnLaunch: true, AssignIpv6AddressOnCreation: true });
+    expect(subnet.Ipv6CidrBlock).toEqual({
+      "Fn::Select": [0, { "Fn::Cidr": [{ "Fn::Select": [0, { "Fn::GetAtt": [vpcId, "Ipv6CidrBlocks"] }] }, 1, "64"] }],
+    });
+    expect(main.toJSON().Resources[subnetId].DependsOn).toContain(v6Id);
+    const [igwId] = only(main, "AWS::EC2::InternetGateway");
+    const routes = Object.values(main.findResources("AWS::EC2::Route")).map((r) => r.Properties);
+    expect(routes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ DestinationCidrBlock: "0.0.0.0/0", GatewayId: { Ref: igwId } }),
+      expect.objectContaining({ DestinationIpv6CidrBlock: "::/0", GatewayId: { Ref: igwId } }),
+    ]));
+    expect(routes).toHaveLength(2);
+    main.resourceCountIs("AWS::EC2::NatGateway", 0);
+    main.resourceCountIs("AWS::EC2::EIP", 0);
+
+    const [, inst] = only(main, "AWS::EC2::Instance");
+    expect(inst.SubnetId).toEqual({ Ref: subnetId });
+    expect(inst.Ipv6AddressCount).toBe(1);
   });
 
   it("runs the instance with IMDSv2 required, no key pair, stop on shutdown, gp3 8 GB encrypted", () => {
@@ -145,7 +175,7 @@ describe("telerobot stack", () => {
       { DeviceName: "/dev/xvda", Ebs: expect.objectContaining({ VolumeSize: 8, VolumeType: "gp3", Encrypted: true }) },
     ]);
     expect(inst.Tags).toEqual(expect.arrayContaining([{ Key: "telerobot", Value: "lab" }]));
-    // no Elastic IP: an auto-assigned public IP (billed only while running) and the lab's DNS record
+    // no Elastic IP: the instance's own IPv6 address (and a public IPv4 while it runs)
     main.resourceCountIs("AWS::EC2::EIP", 0);
     main.resourceCountIs("AWS::EC2::EIPAssociation", 0);
     expect(inst.NetworkInterfaces).toBeUndefined();
@@ -283,8 +313,8 @@ describe("telerobot stack", () => {
     const ec2 = originOf("/ws");
     expect(originOf("/healthz").Id).toBe(ec2.Id);
     expect(headerNames(ec2)).toEqual([ORIGIN_HEADER]);
-    expect(ec2.CustomOriginConfig).toMatchObject({ HTTPPort: 8080, OriginProtocolPolicy: "http-only" });
-    // the lab's DNS record, which follows the instance
+    expect(ec2.CustomOriginConfig).toMatchObject({ HTTPPort: 8080, OriginProtocolPolicy: "http-only", IpAddressType: "ipv6" });
+    // the lab's AAAA record, which holds the instance's IPv6 address
     expect(ec2.DomainName).toBe("Lab.Example.Invalid");
 
     // The gateway's per-IP admission needs CloudFront-Viewer-Address: the managed
@@ -367,7 +397,7 @@ describe("telerobot stack", () => {
     });
   });
 
-  it("keeps the lab's DNS record in step with the instance, and may change only that record", () => {
+  it("keeps the lab's AAAA record at the instance's address, and may change only that record", () => {
     const [instId] = only(main, "AWS::EC2::Instance");
     const api = Object.values(main.findResources("AWS::Lambda::Function")).find(
       (f) => f.Properties.Environment?.Variables?.INSTANCE_ID,
@@ -394,7 +424,7 @@ describe("telerobot stack", () => {
     expect(r53[0].Condition).toEqual({
       "ForAllValues:StringEquals": {
         "route53:ChangeResourceRecordSetsNormalizedRecordNames": ["lab.example.invalid"],
-        "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
+        "route53:ChangeResourceRecordSetsRecordTypes": ["AAAA"],
         "route53:ChangeResourceRecordSetsActions": ["UPSERT"],
       },
     });

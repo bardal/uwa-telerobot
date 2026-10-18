@@ -6,9 +6,9 @@
   },
   "context": {
     "@aws-cdk/core:defaultCrossStackReferences": "strong",
-    "cfPrefixList": "pl-93a247fa",
+    "cfPrefixListV6": "pl-0d7c235a121ad5fd1",
     "hoursCap": 150,
-    "labRecord": "telerobot-lab.scollops.net",
+    "labRecord": "telerobot-origin.scollops.net",
     "siteDomain": "telerobot.daltons.net"
   }
 }

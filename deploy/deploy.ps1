@@ -390,8 +390,8 @@ try {
   if (-not $Url -or -not $DistributionId -or -not $WebAclArn) { Abort 'the stack outputs are incomplete' }
 
   # ------------------------------------------------------ 6b. lab DNS record
-  # EC2 state changes keep the record in step, but an instance this deploy
-  # replaced started before the rule named it: sync now.
+  # The AAAA record holds the instance's IPv6 address, which only changes when
+  # a deploy replaces the instance (before the state-change rule names it): sync now.
   function Sync-LabDns {
     $payload = Join-Path $Private 'sync-dns.json'
     $response = Join-Path $Private 'sync-dns-response.json'
@@ -403,8 +403,8 @@ try {
   }
   function Get-LabDnsRecord {
     $rs = Get-AwsJson -Arguments @('route53', 'list-resource-record-sets', '--hosted-zone-id', $LabZoneId,
-      '--start-record-name', $LabRecord, '--start-record-type', 'A', '--max-items', '1')
-    $set = @($rs.ResourceRecordSets | Where-Object { $_.Name -eq "$LabRecord." -and $_.Type -eq 'A' })
+      '--start-record-name', $LabRecord, '--start-record-type', 'AAAA', '--max-items', '1')
+    $set = @($rs.ResourceRecordSets | Where-Object { $_.Name -eq "$LabRecord." -and $_.Type -eq 'AAAA' })
     if ($set.Count -eq 1) { "$(@($set[0].ResourceRecords)[0].Value) (TTL $($set[0].TTL))" } else { 'missing' }
   }
   Step "Lab DNS record $LabRecord"
@@ -525,15 +525,20 @@ try {
   # ------------------------------------------- 11b. lab DNS against the lab
   Step "Lab DNS record $LabRecord against the instance"
   $inst = Get-AwsJson -Arguments @('ec2', 'describe-instances', '--instance-ids', $Out['InstanceId'],
-    '--query', 'Reservations[0].Instances[0].[State.Name,PublicIpAddress]')
+    '--query', 'Reservations[0].Instances[0].[State.Name,PublicIpAddress,NetworkInterfaces[?Attachment.DeviceIndex==`0`].Ipv6Addresses[0].Ipv6Address | [0]]')
   $labState = $inst[0]; $labIp = if ($inst[1]) { $inst[1] } else { 'none' }
+  $want = if ($inst[2]) { $inst[2] } else { 'none' }
   $record = Get-LabDnsRecord
-  $want = if ($labState -eq 'running' -and $labIp -ne 'none') { $labIp } else { '192.0.2.1' }
-  Note "instance $labState, public IP $labIp; record $record"
-  if ($labState -eq 'running' -and $labIp -eq 'none') {
-    # No Elastic IP: the default subnet's auto-assigned address is the only way in.
-    Warn 'the running lab has no public IP (does its subnet still map public IPs on launch?)'
-    $Summary['Lab DNS'] = "BROKEN: the running lab has no public IP; $LabRecord = $record"
+  Note "instance $labState, IPv6 $want, public IPv4 $labIp; record $record"
+  if ($want -eq 'none') {
+    # CloudFront reaches the gateway over IPv6 only.
+    Warn 'the lab has no IPv6 address (does its subnet still assign IPv6 on creation?)'
+    $Summary['Lab DNS'] = "BROKEN: the lab has no IPv6 address; $LabRecord = $record"
+    $exitCode = 1
+  } elseif ($labState -eq 'running' -and $labIp -eq 'none') {
+    # Its outbound calls (S3, SSM, Cognito, Turnstile) go out over IPv4.
+    Warn 'the running lab has no public IPv4 (does its subnet still map public IPs on launch?)'
+    $Summary['Lab DNS'] = "BROKEN: the running lab has no public IPv4; $LabRecord = $record"
     $exitCode = 1
   } elseif ($record -like "$want *") {
     $Summary['Lab DNS'] = "$LabRecord = $record (in step)"

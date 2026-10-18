@@ -28,7 +28,7 @@ const route53Client = new Route53Client({});
 
 const LAB_DNS_ZONE_ID = process.env.LAB_DNS_ZONE_ID ?? "";
 const LAB_DNS_NAME = process.env.LAB_DNS_NAME ?? "";
-/** Short, so CloudFront follows the lab to its new address soon after a start. */
+/** The address only changes with a new instance; short, so CloudFront follows that soon. */
 const LAB_DNS_TTL = 60;
 
 async function decryptedParam(name: string): Promise<string> {
@@ -71,7 +71,7 @@ function buildDeps(): Deps {
         return {
           state: i?.State?.Name ?? "stopped",
           launchTime: i?.LaunchTime ? new Date(i.LaunchTime).getTime() : 0,
-          publicIp: i?.PublicIpAddress,
+          ipv6: i?.NetworkInterfaces?.find((n) => n.Attachment?.DeviceIndex === 0)?.Ipv6Addresses?.[0]?.Ipv6Address,
         };
       },
       async start(id) {
@@ -100,7 +100,7 @@ function buildDeps(): Deps {
     labDns:
       LAB_DNS_ZONE_ID && LAB_DNS_NAME
         ? {
-            async upsert(ip) {
+            async upsert(ipv6) {
               await route53Client.send(
                 new ChangeResourceRecordSetsCommand({
                   HostedZoneId: LAB_DNS_ZONE_ID,
@@ -110,9 +110,9 @@ function buildDeps(): Deps {
                         Action: "UPSERT",
                         ResourceRecordSet: {
                           Name: LAB_DNS_NAME,
-                          Type: "A",
+                          Type: "AAAA",
                           TTL: LAB_DNS_TTL,
-                          ResourceRecords: [{ Value: ip }],
+                          ResourceRecords: [{ Value: ipv6 }],
                         },
                       },
                     ],
