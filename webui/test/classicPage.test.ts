@@ -150,6 +150,8 @@ describe('classic (1996 forms) page', () => {
     page.fields.Y.value = '120';
     page.fields.Z.value = '90';
     page.gripper.checked = true;
+    const scroll = vi.fn();
+    page.el.scrollIntoView = scroll;
     const done = page.submit();
     await flush();
     expect(sent.at(-1)).toEqual({ t: 'takeControl' });
@@ -170,6 +172,7 @@ describe('classic (1996 forms) page', () => {
     expect(page.moveButton.disabled).toBe(false);
     expect(page.error.textContent).toBe('');
     expect(page.stats.textContent).toMatch(/You have made 1 move,.*Your last move was made at /);
+    expect(scroll).toHaveBeenCalledOnce(); // back to the photos, as the CGI's new page was
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -205,6 +208,8 @@ describe('classic (1996 forms) page', () => {
     page.handle(welcome('ann'));
     page.handle({ t: 'controller', nick: 'ann' });
     page.handle(state());
+    const scroll = vi.fn();
+    page.el.scrollIntoView = scroll;
     const done = page.submit();
     await flush();
     const script = (sent.at(-1) as { script: string }).script;
@@ -217,6 +222,7 @@ describe('classic (1996 forms) page', () => {
     }
     await done;
     expect(page.error.textContent).toBe('Out of reach');
+    expect(scroll).not.toHaveBeenCalled(); // the reason stays in view by the form
   });
 
   it('observer page while someone else has the robot; Try to get control asks for it', async () => {
