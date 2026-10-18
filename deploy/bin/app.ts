@@ -37,7 +37,7 @@ new TelerobotStack(app, "Telerobot", {
   description: "UWA Telerobot: web UI, gateway lab instance, wake Lambda, archive",
   webAclArn: edge.webAclArn,
   alertEmail,
-  cfPrefixList: ctx("cfPrefixList") ?? "pl-93a247fa",
+  cfPrefixListV6: ctx("cfPrefixListV6") ?? "pl-0d7c235a121ad5fd1",
   hoursCap,
   googleClientId: ctx("googleClientId"),
   googleClientSecret: ctx("googleClientSecret"),
