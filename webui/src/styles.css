@@ -491,6 +491,7 @@ textarea[readonly] {
 }
 
 a.history-link,
+a.home-link,
 a.back-link {
   color: #000080;
 }
