@@ -29,9 +29,9 @@ export interface Fact {
 }
 
 export const WIKIPEDIA = 'https://en.wikipedia.org/wiki/UWA_Telerobot';
-/** The original telerobot.mech.uwa.edu.au copy is gone; the Wayback Machine kept it. */
-export const DALTON_THESIS =
-  'https://web.archive.org/web/20081203110131/http://telerobot.mech.uwa.edu.au/Information/Dalton%20thesis.pdf';
+/** Served from public/thesis. The original telerobot.mech.uwa.edu.au copy is gone; this one came from the
+ * Wayback Machine (web.archive.org/web/20081203110131/http://telerobot.mech.uwa.edu.au/Information/Dalton%20thesis.pdf). */
+export const DALTON_THESIS = '/thesis/dalton-thesis.pdf';
 
 const SOURCES = {
   wikipedia: { href: WIKIPEDIA, label: 'More on Wikipedia' },

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { APPLET_HASH, FORMS_HASH, GALLERY, HISTORY, LandingPage, STYLING_NOTE, longDate } from '../src/ui/landingPage';
+import { DALTON_THESIS } from '../src/ui/wakingPage';
 
 const PUBLIC = join(__dirname, '..', 'public');
 const images = [...GALLERY.hall, ...GALLERY.towers, ...GALLERY.creations].flatMap((e) => e.images);
@@ -19,6 +20,13 @@ describe('landing page', () => {
     expect(p.el.querySelector('.landing-styling')!.textContent).toBe(STYLING_NOTE);
     expect(STYLING_NOTE).toMatch(/^2000s styling preserved/);
     for (const a of p.el.querySelectorAll<HTMLAnchorElement>('a[target=_blank]')) expect(a.rel).toBe('noopener');
+  });
+
+  it('links the thesis PDF this site serves', () => {
+    const f = join(PUBLIC, DALTON_THESIS);
+    expect(readFileSync(f).subarray(0, 5).toString()).toBe('%PDF-');
+    const links = [...new LandingPage().el.querySelectorAll<HTMLAnchorElement>('a')].filter((a) => a.getAttribute('href') === DALTON_THESIS);
+    expect(links.length).toBe(1);
   });
 
   it('every photo has alt text, exists in public/ and loads lazily below the top', () => {
