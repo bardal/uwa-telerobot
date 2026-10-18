@@ -155,6 +155,7 @@ export class ClassicPage {
         {},
         h('li', {}, link('Use the 2000 Java applet interface', () => deps.showApplet())),
         h('li', {}, link('History: moves other people have made', () => deps.openHistory())),
+        h('li', {}, h('a', { href: '#/about', text: 'About the UWA Telerobot' })),
         h('li', {}, link('Log out', () => deps.logout())),
       ),
       h('hr'),

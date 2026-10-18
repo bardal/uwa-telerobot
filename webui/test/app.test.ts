@@ -95,7 +95,7 @@ beforeEach(() => {
   FakeGateway.all = [];
   wakeResult = { kind: 'running' };
   document.body.replaceChildren();
-  globalThis.location.hash = '';
+  globalThis.location.hash = '#/login'; // the landing page's way in; its own tests start at ''
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctxStub as never);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
 });
@@ -408,7 +408,7 @@ describe('e2e hook', () => {
   });
 
   it('with ?e2e=1 is a read-only set of getters', async () => {
-    globalThis.history.replaceState(null, '', '/?e2e=1');
+    globalThis.history.replaceState(null, '', '/?e2e=1#/login');
     const { g } = await loggedIn('ann');
     g.emit(welcome('ann'));
     g.emit({ t: 'controller', nick: 'ann' });
@@ -488,5 +488,96 @@ describe('the 1996 forms interface (#/classic)', () => {
     await flush();
     expect(app.view()).toBe('login');
     expect(app.classic()).toBeNull();
+  });
+});
+
+describe('landing page', () => {
+  const go = (hash: string) => {
+    globalThis.location.hash = hash;
+    globalThis.dispatchEvent(new HashChangeEvent('hashchange'));
+  };
+  const start = async (hash: string, extra: Partial<AppDeps> = {}) => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    globalThis.location.hash = hash;
+    const app = startApp(root, deps(extra));
+    await app.ready;
+    return { root, app };
+  };
+
+  it('is the bare site before a session, and its two ways in log in first', async () => {
+    const { root, app } = await start('');
+    expect(app.view()).toBe('landing');
+    expect(root.querySelector('.landing-page h1')!.textContent).toBe('The UWA Telerobot');
+    const ways = [...root.querySelectorAll<HTMLAnchorElement>('.landing-go')].map((a) => a.getAttribute('href'));
+    expect(ways).toEqual(['#/login', '#/classic']);
+    go('#/login');
+    expect(app.view()).toBe('login');
+    go('#/');
+    expect(app.view()).toBe('landing');
+    go('#/classic');
+    expect(app.view()).toBe('login');
+  });
+
+  it('chosen as the forms interface, the session opens on the forms page', async () => {
+    const { root, app } = await start('#/classic');
+    app.login.nicknameField.value = 'ann';
+    guestButton(root).click();
+    await flush();
+    FakeGateway.all.at(-1)!.emit(welcome('ann'));
+    expect(app.view()).toBe('classic');
+  });
+
+  it('#/about shows it during a session too, and its ways in go straight back', async () => {
+    const { app, g } = await loggedIn('ann');
+    g.emit(welcome('ann'));
+    app.control()!.menuBar.item('Help', 'About the UWA Telerobot').el.click();
+    globalThis.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(app.view()).toBe('landing');
+    go('#/login');
+    expect(app.view()).toBe('control');
+    go('#/classic');
+    expect(app.view()).toBe('classic');
+  });
+
+  it('a session ended with a message shows the login page, even from the bare site', async () => {
+    const store = new Map<string, string>([['telerobot.nick', 'barney']]);
+    const { app } = await start('', {
+      storage: () => ({ getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }) as unknown as Storage,
+      auth: { signIn: vi.fn(async () => undefined), handleRedirect: async () => true, idToken: () => 'id', signOut: vi.fn(async () => undefined) },
+    });
+    await flush();
+    const g = FakeGateway.all.at(-1)!;
+    g.emit({ t: 'error', code: 'bad-message', message: 'That nickname is reserved' });
+    g.opts.onClose?.();
+    await flush();
+    expect(app.view()).toBe('login');
+    expect(app.login.console.text()).toContain('That nickname is reserved');
+  });
+
+  it('a sign-in redirect comes back to the way in that was chosen', async () => {
+    const signIn = vi.fn(async () => undefined);
+    const withPool = { ...config, userPoolDomain: 'pool.example', clientId: 'c' };
+    const { root, app } = await start('#/classic', {
+      config: async () => withPool,
+      auth: { signIn, handleRedirect: async () => false, idToken: () => null, signOut: vi.fn(async () => undefined) },
+    });
+    app.login.nicknameField.value = 'ann';
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Sign in')!.click();
+    await flush();
+    expect(signIn).toHaveBeenCalled();
+    expect(sessionStorage.getItem('telerobot.afterSignIn')).toBe('#/classic');
+
+    // back from the hosted UI, on the bare site
+    const store = new Map<string, string>([['telerobot.nick', 'ann']]);
+    const back = await start('', {
+      storage: () => ({ getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }) as unknown as Storage,
+      auth: { signIn, handleRedirect: async () => true, idToken: () => 'id', signOut: vi.fn(async () => undefined) },
+    });
+    await flush();
+    expect(globalThis.location.hash).toBe('#/classic');
+    expect(sessionStorage.getItem('telerobot.afterSignIn')).toBeNull();
+    FakeGateway.all.at(-1)!.emit(welcome('ann'));
+    expect(back.app.view()).toBe('classic');
   });
 });

@@ -906,3 +906,103 @@ a.back-link {
     padding-right: 4px;
   }
 }
+
+/* ---- the landing page: the forms page's 1990s look, a readable column ---- */
+
+.landing-page {
+  padding-left: max(16px, calc((100% - 760px) / 2));
+  padding-right: max(16px, calc((100% - 760px) / 2));
+}
+
+.landing-page h2 {
+  color: #000080;
+  margin: 1.4em 0 0.4em;
+  border-bottom: 1px solid #808080;
+}
+
+.landing-page h3 {
+  margin: 0.2em 0;
+}
+
+.landing-lede {
+  font-size: 1.15em;
+}
+
+.landing-hero {
+  margin: 0;
+  text-align: center;
+}
+
+.landing-hero figcaption,
+.landing-byline {
+  font-style: italic;
+}
+
+.landing-ways {
+  list-style: none;
+  padding: 0;
+}
+
+.landing-way {
+  margin: 0.8em 0;
+}
+
+.landing-go {
+  font-size: 1.25em;
+  font-weight: bold;
+}
+
+.landing-history dt {
+  float: left;
+  clear: left;
+  width: 3.2em;
+  font-weight: bold;
+}
+
+.landing-history dd {
+  margin: 0 0 0.5em 3.6em;
+}
+
+.landing-build {
+  margin: 1em 0;
+  padding-bottom: 0.6em;
+  border-bottom: 1px dotted #c0c0c0;
+}
+
+.landing-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.landing-photo {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #808080;
+}
+
+.landing-page blockquote {
+  margin: 0.4em 0 0 1.5em;
+}
+
+.landing-towers {
+  border-collapse: collapse;
+}
+
+.landing-towers th,
+.landing-towers td {
+  text-align: left;
+  padding: 2px 16px 2px 0;
+}
+
+.landing-hero .landing-photo {
+  margin: 0 auto;
+  max-height: 360px;
+  width: auto;
+}
+
+.landing-build .landing-photo {
+  max-height: 260px;
+  width: auto;
+}
