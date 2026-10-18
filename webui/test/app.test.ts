@@ -77,7 +77,7 @@ function deps(extra: Partial<AppDeps> = {}): AppDeps {
   };
 }
 
-const guestButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Guest')!;
+const guestButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Continue as guest')!;
 
 async function loggedIn(nick = 'ann') {
   const root = document.createElement('div');

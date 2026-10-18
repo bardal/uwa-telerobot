@@ -42,7 +42,7 @@ test('admin: the Admin menu kicks a guest and resets the lab', async ({ browser 
     await expectConsole(boss.page, `Kicked ${nickGuest}`);
     await expect(boss.page.locator('.user-list')).not.toContainText(nickGuest);
     // the guest is told why and is back on the login page, not reconnected
-    await expect(guest.page.getByRole('button', { name: 'Guest', exact: true })).toBeVisible();
+    await expect(guest.page.getByRole('button', { name: 'Continue as guest', exact: true })).toBeVisible();
     await expect(guest.page.locator('textarea.login-console')).toHaveValue(/removed by an administrator/);
     await guest.page.waitForTimeout(3_000);
     await expect(boss.page.locator('.user-list')).not.toContainText(nickGuest);

@@ -453,35 +453,139 @@ textarea[readonly] {
 
 /* ---- login, waking and history pages ---- */
 
+/* The login page: a 2026 card on the applet's salmon page. Wide fields, a
+   guest / registered-user switch and 16px text, so phones don't zoom in. */
 .login-page {
   display: flex;
-  flex-direction: column;
-  padding: 4px;
-  gap: 4px;
-}
-
-.login-panel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 4px;
+  align-items: flex-start;
+  padding: 24px 16px;
+  overflow: auto;
 }
 
-.login-panel label {
-  text-align: right;
+.login-card {
+  box-sizing: border-box;
+  width: min(480px, 100%);
+  padding: 20px 24px;
+  background: #fff8f2;
+  border: 1px solid #a0522d;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  font: 16px/1.4 Arial, Helvetica, sans-serif;
+  color: #1a1a1a;
 }
 
-.login-help {
-  flex: 1 1 auto;
+.login-title {
+  margin: 0 0 6px;
+  font-size: 1.5em;
+  color: #000080;
+}
+
+.login-way {
+  margin: 0 0 16px;
+}
+
+.login-way a,
+.login-card a.history-link,
+.login-card a.home-link {
+  color: #000080;
+}
+
+.login-modes {
+  display: flex;
+  margin: 0 0 16px;
+  border: 1px solid #a0522d;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.login-mode {
+  flex: 1 1 0;
+  position: relative;
+  text-align: center;
+  cursor: pointer;
+}
+
+.login-mode-input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.login-mode span {
+  display: block;
+  padding: 10px 8px;
+  background: #ffffff;
+}
+
+.login-mode + .login-mode span {
+  border-left: 1px solid #a0522d;
+}
+
+.login-mode-input:checked + span {
+  background: #000080;
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.login-mode-input:focus-visible + span {
+  outline: 3px solid #ff9900;
+  outline-offset: -3px;
+}
+
+.login-mode-input:disabled + span {
+  color: #a0a0a0;
+  cursor: not-allowed;
+}
+
+.login-field {
+  display: block;
+  font-weight: bold;
+}
+
+.login-input {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
-  min-height: 90px;
-  background: var(--field);
+  margin-top: 4px;
+  padding: 10px 12px;
+  font: 16px Arial, Helvetica, sans-serif;
+  border: 1px solid #808080;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.login-input:focus-visible {
+  outline: 3px solid #ff9900;
+  outline-offset: 0;
+}
+
+.login-hint {
+  margin: 8px 0 16px;
+  color: #404040;
+  font-size: 0.95em;
+}
+
+.login-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.login-card .login-go {
+  flex: 1 1 auto;
+  padding: 10px 16px;
+  font: bold 16px Arial, Helvetica, sans-serif;
+  border-radius: 4px;
 }
 
 .archive-notice {
-  padding: 2px 4px;
+  margin: 12px 0 0;
+  font-size: 0.85em;
+  color: #404040;
 }
 
 .login-console {

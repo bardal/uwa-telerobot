@@ -14,10 +14,12 @@ import { ClassicPage } from './ui/classicPage';
 import { ControlPage } from './ui/controlPage';
 import { h } from './ui/dom';
 import { APPLET_HASH, FORMS_HASH, LandingPage } from './ui/landingPage';
-import { LoginPage } from './ui/loginPage';
+import { LoginPage, type LoginMode } from './ui/loginPage';
 import { WakingPage } from './ui/wakingPage';
 
 const NICK_KEY = 'telerobot.nick';
+/** Guest or registered user, as last chosen on the login page. */
+const MODE_KEY = 'telerobot.loginMode';
 /** The way in (#/login or #/classic) chosen before a sign-in redirect. */
 const AFTER_SIGN_IN = 'telerobot.afterSignIn';
 const OUT_TYPES: Out['t'][] = [
@@ -139,10 +141,14 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   let historyShown = false;
 
   function makeLogin(signInAvailable: boolean, dev: boolean): LoginPage {
+    let mode: LoginMode = 'guest';
+    try { if (storage(deps)?.getItem(MODE_KEY) === 'registered') mode = 'registered'; } catch { /* unavailable */ }
     return new LoginPage({
       nick,
       signInAvailable,
       dev,
+      mode,
+      onMode: (m) => { try { storage(deps)?.setItem(MODE_KEY, m); } catch { /* unavailable */ } },
       onGuest: (n) => begin(n, { kind: 'guest' }),
       onSignIn: (n) => void signIn(n),
       onDev: (n, admin) => begin(n, { kind: 'dev', admin }),
@@ -177,7 +183,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     const el =
       r === 'history' ? history.el
       : r === 'landing' ? landing.el
-      : r === 'login' ? login.el
+      : r === 'login' ? (login.setWay(globalThis.location?.hash === FORMS_HASH), login.el)
       : r === 'waking' ? waking.el
       : r === 'classic' ? classic!.el
       : (control?.el ?? login.el);
