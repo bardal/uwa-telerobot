@@ -1007,3 +1007,7 @@ a.back-link {
   max-height: 260px;
   width: auto;
 }
+
+.landing-old li {
+  margin: 0.3em 0;
+}

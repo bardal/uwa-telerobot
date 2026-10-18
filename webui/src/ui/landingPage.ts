@@ -4,6 +4,7 @@
 // like the forms page.
 
 import galleryJson from '../content/gallery.json';
+import oldSiteJson from '../content/old-site.json';
 import { h } from './dom';
 import { DALTON_THESIS, WIKIPEDIA } from './wakingPage';
 
@@ -15,6 +16,10 @@ export interface Gallery { hall: HallEntry[]; towers: TowerEntry[]; creations: C
 
 /** Builds people made, saved from the original site (website/htdocs and MOM/htdocs in the archive). */
 export const GALLERY: Gallery = galleryJson as Gallery;
+
+export interface OldPage { group: string; title: string; href: string; date: string; what: string }
+/** Pages preserved from the original site (public/old, scripts/preserve-old-site.mjs), in groups. */
+export const OLD_SITE: OldPage[] = oldSiteJson as OldPage[];
 
 /** Where each way in goes: the login page, then that interface once the session starts. */
 export const APPLET_HASH = '#/login';
@@ -109,8 +114,11 @@ export class LandingPage {
       ...this.towers(gallery.towers),
       ...this.creations(gallery.creations),
 
+      ...this.oldSite(OLD_SITE),
+
       h('h2', { text: 'In the news' }),
       h('ul', {}, ...PRESS.map((p) => h('li', { text: p }))),
+      h('p', {}, link('The original “In The News” page', '/old/news.html'), ', with radio, television and magazines from 1994 to 1998.'),
 
       h('h2', { text: 'Read more' }),
       h('ul', {},
@@ -121,6 +129,20 @@ export class LandingPage {
         'A re-creation of Australia’s Telerobot on the Web (telerobot.mech.uwa.edu.au). ' +
           'The photos and their captions are from the original site.'),
     );
+  }
+
+  private oldSite(pages: OldPage[]): HTMLElement[] {
+    if (!pages.length) return [];
+    const groups = [...new Set(pages.map((p) => p.group))];
+    return [
+      h('h2', { text: 'From the original site' }),
+      h('p', { text: 'Pages kept as they were, with the links that no longer lead anywhere removed.' }),
+      ...groups.flatMap((g) => [
+        h('h3', { text: g }),
+        h('ul', { class: 'landing-old' }, ...pages.filter((p) => p.group === g).map((p) =>
+          h('li', {}, link(p.title, p.href), ` (${p.date}): ${p.what}`))),
+      ]),
+    ];
   }
 
   private hallOfFame(hall: HallEntry[]): HTMLElement[] {

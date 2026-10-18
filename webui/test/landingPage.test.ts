@@ -47,3 +47,13 @@ describe('landing page', () => {
     expect(longDate(null)).toBe('');
   });
 });
+
+describe('landing page: the original site', () => {
+  it('lists the preserved pages by group, each linking under /old/', () => {
+    const p = new LandingPage();
+    const links = [...p.el.querySelectorAll<HTMLAnchorElement>('.landing-old a')].map((a) => a.getAttribute('href'));
+    expect(links.length).toBeGreaterThan(8);
+    expect(links.every((h) => h!.startsWith('/old/'))).toBe(true);
+    expect(p.el.textContent).toContain('The 1997 interface competition');
+  });
+});

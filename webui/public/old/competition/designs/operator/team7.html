@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+Content-type: text/html
+
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<TITLE>Controller Page for Telerobot</TITLE>
+
+<link rel="stylesheet" href="/old/old.css">
+</head>
+<body BGCOLOR="#ffffff">
+<div class="old-banner">Preserved from the original UWA Telerobot site (<em>1997</em>). Links that no longer lead anywhere have been removed. <a href="/#/about">Back to the UWA Telerobot</a></div>
+<FORM>
+<a name= "top_ref">
+<TABLE>
+<TR><TD VALIGN=TOP bgcolor="#ffc76e" width=138><h3>Controller's Page</TD></TR>
+<TR><TD VALIGN=TOP><a href="/old/home.html" />
+</A></TD>
+<TD width=185></TD>
+<TD VALIGN=TOP></TR></td>
+</TABLE>
+</form><form>
+<TABLE border=2><p>
+<li><a href="#images_ref">Goto controls.
+<li><a href="#comms_ref">Communicate with others/leave comments. 
+<li><a href="#templates_ref">Choose a new template</a><p>
+<hr><a name="images_ref"></a>
+<TR ALIGN=center><TD>
+</TD><TD>
+</TD><TD>
+</TD><TD>
+</TD></TR>
+<TR ALIGN=center>
+<TD>Left Hand Camera</TD><TD>Right Hand Camera</TD><TD>Robot Arm View</TD>
+<TD>Y-Axis Camera</TR><TR ALIGN=center>
+<TD> Off <INPUT TYPE="checkbox" NAME="Im1DontRefresh" Im1DontRefreshCheck disabled> 
+Zoom (0-1) <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Im1Zoom" VALUE="Im1ZoomVal" disabled></TD>
+<TD> Off <INPUT TYPE="checkbox" NAME="Im2DontRefresh" Im2DontRefreshCheck disabled>
+Zoom (0-1) <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Im2Zoom" VALUE="Im2ZoomVal" disabled></TD>
+<TD> Off <INPUT TYPE="checkbox" NAME="Im3DontRefresh" Im3DontRefreshCheck disabled> </TD>
+<TD> Off <INPUT TYPE="checkbox" NAME="Im4DontRefresh" Im4DontRefreshCheck disabled> </TD></TR>
+</TABLE>
+<li><a href="#images_option_ref">Goto image options.</a>
+<li><a href="#top_ref">Goto top.</ul></a>
+ErrorVal
+<TABLE width=82%>
+<TR align=right>
+<TD width=15%><B>X position </td><td width=8%><INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="X" VALUE="XVal" disabled></TD>
+<TD width=20%><B>Y position </td><td width=8%><INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Y" VALUE="YVal" disabled></TD>
+<TD width=20%><B>Z position </td><td width=8% align=left><INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Z" VALUE="ZVal" disabled></TD>
+<TD>Move relative  <INPUT TYPE="checkbox" NAME="MoveType" MoveTypeCheck disabled></TD>
+</TR><TR align=right>
+<TD WIDTH=15%><b>Spin </td><td width=8%><INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Spin" VALUE="SpinVal" disabled></TD>
+<TD WIDTH=20%><b>Tilt </td><td width=8%><INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Tilt" VALUE="TiltVal" disabled></TD>
+<TD width=20%><b>Gripper open </td><td width=8% align=left><INPUT TYPE="checkbox" NAME="Gripper" GripperCheck disabled></TD>
+<td></TD></tr>
+</table><p>
+
+<LI>The grid is <b>100mm SQUARES</b>.The X and Y axis are marked on the table, Z goes up from the table (for Z > 7mm).
+<li>To move the robot, either enter values in the boxes, or use your mouse by clicking on one of the first two camera images.
+<LI>To stand a block up, pick it up with a tilt of -45, then go up and rotate to a tilt of +45. See the Gripper Orientation Index for example pictures.
+<P>You have exclusive control if you use the robot within <B>3 minutes.</B>
+You have made MoveCountVal moves, and have been on since StartTimeVal. 
+Your last move was made at LastTimeVal.
+<p><li>Get ideas from the hall of fame.
+
+<li>About the robot and its use.
+<LI>If it doesn't move you've probably reached a joint angle limitation, try going in a different 
+direction, or if you're trying to do a rotation, go to a different point on the table first.
+
+
+<hr><a name="templates_ref">  </a>
+<H3>Select a different interface:</H3>
+<CENTER><TABLE WIDTH=95% BORDER=1 CELLPADDING=3>
+<TR><TD ALIGN=CENTER>Select Interface Scheme <SELECT NAME="Interface" disabled> InterfaceSelection</SELECT></TD>
+<TD ALIGN=CENTER><B>Or...</B></TD>
+<TD>Enter the filename to use as a template <INPUT TYPE="text" NAME="UserTemplate" SIZE="15" MAXLENGTH="15" VALUE="UserTemplateVal" disabled> <BR>
+(Must be in \pub\template\operator directory; Do not include file extension). 
+</TD></TR>
+<TR><TD COLSPAN=3><B>You can now submit your own page designs.</B> We would really like to know 
+how you prefer to have your information set out. If you would like to try your hand,
+familiarize yourself with the <A HREF="/old/competition/how-to-enter.html">requirements</A>
+of a Telerobot page template. This link also describes how to submit your suggested pages. 
+</TD></TR></TABLE></CENTER>
+
+
+
+<P><p>
+<li><a href="#images_ref">Move back up to images.</a>
+
+<hr><a name="comms_ref"></a>
+<h3>Communicate with other users:</h3>
+If you haven't already done so, please 
+<fontsize=+2>Open a Separate Communications Console.</font><p>
+<table border=0>
+<tr><td align=right>
+</td></tr>
+<tr><td colspan=2>
+
+</td></tr></table><p>
+<ul><li><A HREF="/old/competition/message-form.html">Leave your comments.</A>
+<li><a href="#images_ref">Move back up to images.</a></ul><hr>
+
+<a name="images_option_ref"><h3>Image options</h3></A><p>
+<table width=100% border=2>
+<TR ALIGN=center>
+<TD WIDTH=20%>Camera:</TD>
+<TD WIDTH=20%>Left Hand</TD>
+<TD WIDTH=20%>Right Hand</TD>
+<TD WIDTH=20%>Robot Arm</TD>
+<TD WIDTH=20%>Y Axis</TR><tr align=center>
+<TD WIDTH=20%>Size:</td>
+<TD WIDTH=20%><SELECT NAME="Im1Size" disabled> Im1SizeSelection </SELECT></TD> 
+<TD WIDTH=20%><SELECT NAME="Im2Size" disabled> Im2SizeSelection </SELECT></TD>
+<TD WIDTH=20%><SELECT NAME="Im3Size" disabled> Im3SizeSelection </SELECT></TD>  
+<TD WIDTH=20%><SELECT NAME="Im4Size" disabled> Im4SizeSelection </SELECT></TD></TR>
+<tr align=center>
+<TD WIDTH=20%>Gray Scale:</td> 
+<TD WIDTH=20%><SELECT NAME="Im1Grey" disabled> Im1GreySelection </SELECT></TD>
+<TD WIDTH=20%><SELECT NAME="Im2Grey" disabled> Im1GreySelection </SELECT></TD> 
+<TD WIDTH=20%><SELECT NAME="Im3Grey" disabled> Im1GreySelection </SELECT></TD>
+<TD WIDTH=20%><SELECT NAME="Im4Grey" disabled> Im1GreySelection </SELECT></TD></TR>
+</table>
+For faster response, turn some of the cameras off (Go back to images).<p>
+<p>
+<li>Help on greyscale settings.
+<li><a href="#images_ref">Move back up to images.</a>
+</FORM>
+<HR><p>
+ <a href="http://www.uwa.edu.au" rel="noopener" target="_blank" />UWA Home Page</a> -->
+ <a href="http://www.mech.uwa.edu.au" rel="noopener" target="_blank" />Dept. M & M Engineering</a> -->
+ Robotics and Automation Lab -->
+ <a href="/old/home.html" />Telerobot Home Page</a>
+<P><p></body>
+</html>

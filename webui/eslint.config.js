@@ -6,10 +6,10 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // the e2e stack launcher is a plain Node script
-    files: ['e2e/**/*.mjs'],
+    // the e2e stack launcher and the build scripts are plain Node scripts
+    files: ['e2e/**/*.mjs', 'scripts/**/*.mjs'],
     languageOptions: {
-      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', setTimeout: 'readonly' },
+      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', setTimeout: 'readonly', URL: 'readonly', TextDecoder: 'readonly', Buffer: 'readonly' },
     },
   },
   {

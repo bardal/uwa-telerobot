@@ -1,0 +1,11 @@
+.old-banner {
+  display: block;
+  padding: 6px 10px;
+  background: #ffffcc;
+  border-bottom: 1px solid #c0c0a0;
+  font: 14px Arial, Helvetica, sans-serif;
+  color: #333333;
+  text-align: left;
+}
+.old-banner a { color: #0645ad; }
+.old-banner a:visited { color: #551a8b; }
