@@ -24,6 +24,8 @@ export const FACT_MS = 9000;
 export interface Fact {
   text: string;
   link?: { href: string; label: string };
+  /** Where it comes from, for the link under it (Wikipedia unless said). */
+  source?: 'thesis';
 }
 
 export const WIKIPEDIA = 'https://en.wikipedia.org/wiki/UWA_Telerobot';
@@ -31,7 +33,15 @@ export const WIKIPEDIA = 'https://en.wikipedia.org/wiki/UWA_Telerobot';
 export const DALTON_THESIS =
   'https://web.archive.org/web/20081203110131/http://telerobot.mech.uwa.edu.au/Information/Dalton%20thesis.pdf';
 
-/** Paraphrased from the Wikipedia article (WIKIPEDIA), plus how this site works. */
+const SOURCES = {
+  wikipedia: { href: WIKIPEDIA, label: 'More on Wikipedia' },
+  thesis: { href: DALTON_THESIS, label: 'From Barney Dalton’s PhD thesis (PDF)' },
+} as const;
+
+/**
+ * Paraphrased from the Wikipedia article (WIKIPEDIA), plus how this site works,
+ * then from the thesis (DALTON_THESIS; the page numbers are its printed ones).
+ */
 export const FACTS: readonly Fact[] = [
   { text: 'The UWA Telerobot went online in 1994, one of the first robots anyone on the web could control.' },
   { text: 'It began as Ken Taylor’s PhD project at the University of Western Australia.' },
@@ -44,7 +54,45 @@ export const FACTS: readonly Fact[] = [
   },
   { text: 'Behind this page, the original 2000 server software drives a simulated robot and cameras.' },
   { text: 'While you wait, History shows the moves other people have made.' },
+  // p. 37
+  { source: 'thesis', text: 'From 1994 to 1996 the whole telerobot ran on one 66 MHz PC with just 16 MB of memory.' },
+  // p. 71
+  { source: 'thesis', text: 'Many visitors found it more fun to push every block out of reach than to build anything with them.' },
+  // p. 72
+  { source: 'thesis', text: 'In the late 1990s, fallen blocks were picked up almost every morning, after the busy overnight session when America was online.' },
+  // p. 67, fig. 4.6
+  { source: 'thesis', text: 'One block pyramid built through a web browser took 5 hours of patient work.' },
+  // p. 66 (a conservative estimate)
+  { source: 'thesis', text: 'Between January 1997 and April 1998 the gripper travelled 300 to 500 metres a week, peaking at nearly 600 metres.' },
+  // pp. 188-189
+  { source: 'thesis', text: 'Barney Dalton calibrated the robot’s cameras in Perth from his laptop in London, logged in like any other user.' },
+  // p. 181
+  { source: 'thesis', text: 'Operators chatting online invented their own etiquette: it became bad manners to take control of the robot without asking first.' },
+  // p. 181, conversation C.7
+  { source: 'thesis', text: 'Newcomers often took the chat’s automatic hint robot for a person. One kept asking, “Is anyone here actually a real person?”' },
+  // conversation C.3, p. 222
+  { source: 'thesis', text: 'A user in Alaska, swapping tips over chat with a student in Germany, cheered on finally standing a block on end after 3 hours.' },
+  // p. 182, comment C.23
+  { source: 'thesis', text: 'Only 15% of 1152 visitors surveyed in 2000 knew what a quaternion was. One said it was “exactly one fourth a wholernion”.' },
+  // p. 173
+  { source: 'thesis', text: 'More than 10,000 logins were recorded on the Java version of the telerobot during 2000.' },
+  // comment C.27, p. 228
+  { source: 'thesis', text: 'One visitor left the word “HI” spelled out on the table in blocks.' },
+  // p. 185
+  { source: 'thesis', text: 'The Java applet was squeezed into 130 KB: under a minute’s download on a 56k modem.' },
+  // pp. 39-40
+  { source: 'thesis', text: 'Visitors could design and submit their own control pages; no other website was known to let its users design its interface.' },
 ];
+
+/** 0..n-1 in a random order (Fisher–Yates). */
+export function shuffled(n: number, random: () => number): number[] {
+  const a = [...Array(n).keys()];
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.min(i, Math.floor(random() * (i + 1)));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
 
 const STEPS: readonly { id: WakeStep | 'connect'; label: string }[] = [
   { id: 'computer', label: 'Switching on the lab computer' },
@@ -112,12 +160,18 @@ export class WakingPage {
   private timer: ReturnType<typeof setInterval> | null = null;
   private factTimer: ReturnType<typeof setInterval> | null = null;
   private factIndex = 0;
+  /** Each visitor gets the facts in their own order, so short waits show different ones. */
+  private readonly factOrder: number[];
+  private readonly source: HTMLAnchorElement;
 
   constructor(
     onRetry: () => void,
     onBack: () => void,
     private readonly now: () => number = Date.now,
+    random: () => number = Math.random,
   ) {
+    this.factOrder = shuffled(FACTS.length, random);
+    this.source = h('a', { class: 'waking-source', href: WIKIPEDIA, target: '_blank', rel: 'noopener', text: SOURCES.wikipedia.label });
     this.heading = h('div', { class: 'waking-heading', role: 'status', text: WAKING });
     this.detail = h('div', { class: 'waking-detail' });
     this.expect = h('div', { class: 'waking-expect', text: EXPECT });
@@ -134,7 +188,7 @@ export class WakingPage {
       h('div', { class: 'waking-did-you-know' },
         h('div', { class: 'waking-fact-title', text: 'Did you know?' }),
         this.fact,
-        h('a', { class: 'waking-source', href: WIKIPEDIA, target: '_blank', rel: 'noopener', text: 'More on Wikipedia' })),
+        this.source),
     );
     this.waitBox.hidden = true;
     this.retry = button('Retry', onRetry);
@@ -258,10 +312,13 @@ export class WakingPage {
   }
 
   private showFact(): void {
-    const f = FACTS[this.factIndex % FACTS.length]!;
+    const f = FACTS[this.factOrder[this.factIndex % FACTS.length]!]!;
     this.fact.replaceChildren(f.text);
     if (f.link) {
       this.fact.append(' ', h('a', { href: f.link.href, target: '_blank', rel: 'noopener', text: f.link.label }));
     }
+    const src = SOURCES[f.source ?? 'wikipedia'];
+    this.source.href = src.href;
+    this.source.textContent = src.label;
   }
 }
