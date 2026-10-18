@@ -625,11 +625,11 @@ describe('waking page', () => {
       expect(thesisAt).toBeGreaterThanOrEqual(0);
       vi.advanceTimersByTime(FACT_MS * thesisAt);
       const a = w.el.querySelector('.waking-fact a') as HTMLAnchorElement;
-      expect(a.href).toBe(DALTON_THESIS);
+      expect(a.getAttribute('href')).toBe(DALTON_THESIS);
       expect(a.target).toBe('_blank');
       expect(a.rel).toBe('noopener');
       const source = w.el.querySelector('.waking-source') as HTMLAnchorElement;
-      expect(source.href).toBe(WIKIPEDIA);
+      expect(source.getAttribute('href')).toBe(WIKIPEDIA);
       expect(source.target).toBe('_blank');
       w.stopTimer();
     } finally {
@@ -646,10 +646,10 @@ describe('waking page', () => {
       const thesisAt = FACTS.findIndex((f) => f.source === 'thesis');
       expect(thesisAt).toBeGreaterThan(0);
       vi.advanceTimersByTime(FACT_MS * thesisAt);
-      expect(source.href).toBe(DALTON_THESIS);
+      expect(source.getAttribute('href')).toBe(DALTON_THESIS);
       expect(source.textContent).toMatch(/thesis/);
       vi.advanceTimersByTime(FACT_MS * (FACTS.length - thesisAt)); // round to the first, a Wikipedia one
-      expect(source.href).toBe(WIKIPEDIA);
+      expect(source.getAttribute('href')).toBe(WIKIPEDIA);
       w.stopTimer();
     } finally {
       vi.useRealTimers();
