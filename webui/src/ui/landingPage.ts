@@ -21,6 +21,9 @@ export interface OldPage { group: string; title: string; href: string; date: str
 /** Pages preserved from the original site (public/old, scripts/preserve-old-site.mjs), in groups. */
 export const OLD_SITE: OldPage[] = oldSiteJson as OldPage[];
 
+/** Under the ways in: the old look is on purpose. */
+export const STYLING_NOTE = '2000s styling preserved: the applet page looks as it did in 2000, and the forms page as it did in 1996.';
+
 /** Where each way in goes: the login page, then that interface once the session starts. */
 export const APPLET_HASH = '#/login';
 export const FORMS_HASH = '#/classic';
@@ -95,6 +98,7 @@ export class LandingPage {
           'Live camera views with the robot drawn over them, a command editor, paths, and chat with other operators.'),
         way(FORMS_HASH, 'The forms interface (1996)',
           'One move per page, as it was first driven: type a position, or click the same point in two photos.')),
+      h('p', { class: 'landing-styling', text: STYLING_NOTE }),
       h('p', {}, link('Brief help', '/help.html', true), ' · ', link('Moves people have made here', '#/history')),
       hero ? h('figure', { class: 'landing-hero' }, h('img', { src: hero.src, alt: hero.alt, class: 'landing-photo' }),
         h('figcaption', { text: `${gallery.hall[0]!.title}${gallery.hall[0]!.by ? `, by ${gallery.hall[0]!.by}` : ''}` })) : h('span'),
