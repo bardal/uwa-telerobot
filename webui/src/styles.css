@@ -908,66 +908,168 @@ a.back-link {
   }
 }
 
-/* ---- the landing page: the forms page's 1990s look, a readable column ---- */
+/* ---- the landing page: the original site's last home page (February 2000):
+   Verdana, grey and navy text, orange headings and links, pale-yellow blocks ---- */
 
 .landing-page {
-  padding-left: max(16px, calc((100% - 760px) / 2));
-  padding-right: max(16px, calc((100% - 760px) / 2));
+  height: auto;
+  min-height: 100%;
+  background: #ffffff;
+  color: #202066;
+  font: 15px/1.45 Verdana, Arial, Helvetica, sans-serif;
+  overflow-wrap: anywhere;
+  padding: 0 max(16px, calc((100% - 820px) / 2)) 24px;
 }
 
-.landing-page h2 {
-  color: #000080;
-  margin: 1.4em 0 0.4em;
-  border-bottom: 1px solid #808080;
+.landing-page a:link,
+.landing-page a:visited {
+  color: #ff9900;
+  text-decoration: none;
 }
 
-.landing-page h3 {
-  margin: 0.2em 0;
+.landing-page a:visited {
+  color: #804000;
+}
+
+.landing-page a:hover {
+  text-decoration: underline;
+}
+
+.old-banner {
+  display: block;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  background: #ffffcc;
+  border-bottom: 1px solid #c0c0a0;
+  color: #333333;
+  font: 14px Arial, Helvetica, sans-serif;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.landing-title {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
+.landing-title-img {
+  max-width: 100%;
+  height: auto;
+}
+
+.landing-play {
+  margin: 0;
+  text-align: center;
+  color: #ff6600;
+  font-weight: bold;
+}
+
+.landing-play-big {
+  font-size: 2.6em;
+  line-height: 1.1;
+}
+
+.landing-sub {
+  margin: 0 0 1em;
+  text-align: center;
+  color: #808080;
+  font-weight: bold;
 }
 
 .landing-lede {
+  color: #202066;
+}
+
+.landing-sec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 1.6em 0 0.4em;
+  color: #ff9900;
+  font-size: 1.25em;
+}
+
+.landing-sec img {
+  flex: 0 0 auto;
+}
+
+.landing-page h3 {
+  margin: 0.3em 0;
+  color: #ff9900;
+  font-size: 1.05em;
+}
+
+.landing-drive {
+  background: #ffffcc;
+  padding: 2px 12px 8px;
+}
+
+.landing-drive .landing-sec {
+  margin-top: 0.6em;
+}
+
+.landing-ways {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.landing-way-pic {
+  display: block;
+}
+
+.landing-thumb {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #c0c0a0;
+}
+
+.landing-go {
+  display: block;
+  margin: 6px 0 2px;
   font-size: 1.15em;
+  font-weight: bold;
 }
 
 .landing-hero {
-  margin: 0;
+  margin: 1.2em 0 0;
   text-align: center;
+}
+
+.landing-hero .landing-photo {
+  margin: 0 auto;
 }
 
 .landing-hero figcaption,
 .landing-byline {
+  color: #808080;
   font-style: italic;
-}
-
-.landing-ways {
-  list-style: none;
-  padding: 0;
-}
-
-.landing-way {
-  margin: 0.8em 0;
-}
-
-.landing-go {
-  font-size: 1.25em;
-  font-weight: bold;
 }
 
 .landing-history dt {
   float: left;
   clear: left;
-  width: 3.2em;
+  width: 3.4em;
+  color: #ff9900;
   font-weight: bold;
 }
 
 .landing-history dd {
-  margin: 0 0 0.5em 3.6em;
+  margin: 0 0 0.5em 3.8em;
 }
 
 .landing-build {
   margin: 1em 0;
   padding-bottom: 0.6em;
-  border-bottom: 1px dotted #c0c0c0;
+  border-bottom: 1px dotted #c0c0a0;
 }
 
 .landing-photos {
@@ -983,35 +1085,38 @@ a.back-link {
   border: 1px solid #808080;
 }
 
+.landing-build .landing-photo {
+  max-height: 260px;
+  width: auto;
+}
+
 .landing-page blockquote {
   margin: 0.4em 0 0 1.5em;
+  color: #404040;
 }
 
 .landing-towers {
   border-collapse: collapse;
+  background: #ffffcc;
 }
 
 .landing-towers th,
 .landing-towers td {
   text-align: left;
-  padding: 2px 16px 2px 0;
+  padding: 3px 18px 3px 8px;
 }
 
-.landing-hero .landing-photo {
-  margin: 0 auto;
-  max-height: 360px;
-  width: auto;
-}
-
-.landing-build .landing-photo {
-  max-height: 260px;
-  width: auto;
+.landing-towers th {
+  color: #ff9900;
 }
 
 .landing-old li {
   margin: 0.3em 0;
 }
 
-.landing-styling {
-  font-style: italic;
+.landing-footer {
+  margin-top: 2em;
+  text-align: center;
+  color: #808080;
+  font-size: 11px;
 }

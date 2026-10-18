@@ -22,7 +22,9 @@ export interface OldPage { group: string; title: string; href: string; date: str
 export const OLD_SITE: OldPage[] = oldSiteJson as OldPage[];
 
 /** Under the ways in: the old look is on purpose. */
-export const STYLING_NOTE = '2000s styling preserved: the applet page looks as it did in 2000, and the forms page as it did in 1996.';
+export const STYLING_NOTE =
+  '2000s styling preserved: this page keeps the look of the original site’s last home page (February 2000). ' +
+  'The applet page looks as it did in 2000, and the forms page as it did in 1996.';
 
 /** Where each way in goes: the login page, then that interface once the session starts. */
 export const APPLET_HASH = '#/login';
@@ -69,6 +71,14 @@ function photos(images: GalleryImage[]): HTMLElement {
     ...images.map((i) => h('img', { src: i.src, alt: i.alt, loading: 'lazy', decoding: 'async', class: 'landing-photo' })));
 }
 
+/** The original site's own graphics (copied from its images folder). */
+const SITE = '/gallery/site/';
+
+/** An orange section heading with one of the original site's icons, as on its home page. */
+function section(icon: string, title: string): HTMLElement {
+  return h('h2', { class: 'landing-sec' }, h('img', { src: SITE + icon, alt: '', width: 45, height: 45 }), title);
+}
+
 function link(text: string, href: string, newTab = false): HTMLAnchorElement {
   return newTab ? h('a', { href, text, target: '_blank', rel: 'noopener' }) : h('a', { href, text });
 }
@@ -77,40 +87,52 @@ export class LandingPage {
   readonly el: HTMLElement;
 
   constructor(gallery: Gallery = GALLERY) {
-    const hero = gallery.hall[0]?.images[0];
-    const way = (hash: string, title: string, what: string) =>
-      h('li', { class: 'landing-way' }, h('a', { href: hash, class: 'landing-go', text: title }), h('div', { text: what }));
+    const way = (hash: string, img: string, alt: string, title: string, what: string) =>
+      h('div', { class: 'landing-way' },
+        h('a', { href: hash, class: 'landing-way-pic' }, h('img', { src: img, alt, class: 'landing-thumb' })),
+        h('a', { href: hash, class: 'landing-go', text: title }),
+        h('div', { text: what }));
 
     this.el = h(
       'div',
-      { class: 'page classic-page landing-page' },
-      h('h1', { text: 'The UWA Telerobot' }),
+      { class: 'page landing-page' },
+      h('div', { class: 'old-banner landing-styling', text: STYLING_NOTE }),
+      h('h1', { class: 'landing-title' },
+        h('img', { src: SITE + 'onhead_animated.gif', alt: '', width: 500, height: 80, class: 'landing-title-img' }),
+        h('span', { class: 'sr-only', text: 'The UWA Telerobot' })),
+      h('p', { class: 'landing-play' },
+        h('span', { class: 'landing-play-big', text: 'Play' }), ' with the ', h('span', { class: 'landing-play-big', text: 'Robot' })),
+      h('p', { class: 'landing-sub', text: 'Australia’s Telerobot on the Web, back again' }),
       h('p', { class: 'landing-lede' },
         'From 1994, anyone with a web browser could drive a real industrial robot arm at the University of ' +
           'Western Australia in Perth. Visitors moved wooden blocks around a table, watching through the cameras, ' +
           'and built towers, bridges and castles.'),
 
-      h('h2', { text: 'Drive the robot' }),
-      h('p', {}, 'The robot sleeps when no one is using it; waking it takes under a minute. Log in as a guest with a ' +
-        'nickname, or sign in. Behind the pages, the original 2000 server software drives a simulated robot.'),
-      h('ul', { class: 'landing-ways' },
-        way(APPLET_HASH, 'The Java applet interface (2000)',
-          'Live camera views with the robot drawn over them, a command editor, paths, and chat with other operators.'),
-        way(FORMS_HASH, 'The forms interface (1996)',
-          'One move per page, as it was first driven: type a position, or click the same point in two photos.')),
-      h('p', { class: 'landing-styling', text: STYLING_NOTE }),
-      h('p', {}, link('Brief help', '/help.html', true), ' · ', link('Moves people have made here', '#/history')),
-      hero ? h('figure', { class: 'landing-hero' }, h('img', { src: hero.src, alt: hero.alt, class: 'landing-photo' }),
-        h('figcaption', { text: `${gallery.hall[0]!.title}${gallery.hall[0]!.by ? `, by ${gallery.hall[0]!.by}` : ''}` })) : h('span'),
+      h('div', { class: 'landing-drive' },
+        section('look.gif', 'Drive the robot'),
+        h('p', {}, 'The robot sleeps when no one is using it; waking it takes under a minute. Log in as a guest with a ' +
+          'nickname, or sign in. Behind the pages, the original 2000 server software drives a simulated robot.'),
+        h('div', { class: 'landing-ways' },
+          way(APPLET_HASH, SITE + 'applet-page.jpg', 'The Java applet page: robot, console, camera view and chat panels',
+            'The Java applet interface (2000)',
+            'Live camera views with the robot drawn over them, a command editor, paths, and chat with other operators.'),
+          way(FORMS_HASH, SITE + 'controller_page.jpg', 'The original forms page: four camera photos above a move form',
+            'The forms interface (1996)',
+            'One move per page, as it was first driven: type a position, or click the same point in two photos.')),
+        h('p', {}, link('Brief help', '/help.html', true), ' · ', link('Moves people have made here', '#/history'))),
 
-      h('h2', { text: 'About the telerobot' }),
+      h('figure', { class: 'landing-hero' },
+        h('img', { src: SITE + 'workspace.jpg', alt: 'The orange robot arm over its table of blocks, with two cameras on stands beside it', class: 'landing-photo', width: 320, height: 240 }),
+        h('figcaption', { text: 'The robot, its table of blocks and two of the cameras' })),
+
+      section('pple.gif', 'About the telerobot'),
       h('p', {}, 'The telerobot was part of research at UWA into controlling physical devices over the Internet. ' +
         'Ken Taylor began it; Barney Dalton extended it for his PhD; many other people contributed.'),
       h('p', {}, 'An industrial arm stood over a table of wooden blocks, with cameras around it. Operators asked the ' +
         'robot to move by typing coordinates or clicking on the pictures, then saw new pictures of the table. ' +
         'It ran 24 hours a day: some visitors made a single move, others built for hours.'),
 
-      h('h2', { text: 'History' }),
+      section('publ.gif', 'History'),
       h('dl', { class: 'landing-history' },
         ...HISTORY.flatMap((e) => [h('dt', { text: e.year }), h('dd', { text: e.text })])),
 
@@ -120,18 +142,19 @@ export class LandingPage {
 
       ...this.oldSite(OLD_SITE),
 
-      h('h2', { text: 'In the news' }),
+      section('news.gif', 'In the news'),
       h('ul', {}, ...PRESS.map((p) => h('li', { text: p }))),
       h('p', {}, link('The original “In The News” page', '/old/news.html'), ', with radio, television and magazines from 1994 to 1998.'),
 
-      h('h2', { text: 'Read more' }),
+      section('links.gif', 'Read more'),
       h('ul', {},
         h('li', {}, link('The UWA Telerobot on Wikipedia', WIKIPEDIA, true)),
         h('li', {}, link('Techniques for Web Telerobotics', DALTON_THESIS, true), ', Barney Dalton’s PhD thesis (2001, PDF)')),
-      h('hr'),
-      h('p', { class: 'classic-footer' },
-        'A re-creation of Australia’s Telerobot on the Web (telerobot.mech.uwa.edu.au). ' +
-          'The photos and their captions are from the original site.'),
+      h('p', { class: 'landing-footer' },
+        '| ', link('Applet', APPLET_HASH), ' | ', link('Forms', FORMS_HASH), ' | ', link('History', '#/history'), ' | ',
+        link('Help', '/help.html', true), ' |', h('br'),
+        'A re-creation of Australia’s Telerobot on the Web (telerobot.mech.uwa.edu.au). ',
+        'The photos, graphics and captions are from the original site.'),
     );
   }
 
@@ -139,7 +162,7 @@ export class LandingPage {
     if (!pages.length) return [];
     const groups = [...new Set(pages.map((p) => p.group))];
     return [
-      h('h2', { text: 'From the original site' }),
+      section('sitemap.gif', 'From the original site'),
       h('p', { text: 'Pages kept as they were, with the links that no longer lead anywhere removed.' }),
       ...groups.flatMap((g) => [
         h('h3', { text: g }),
@@ -152,7 +175,7 @@ export class LandingPage {
   private hallOfFame(hall: HallEntry[]): HTMLElement[] {
     if (!hall.length) return [];
     return [
-      h('h2', { text: 'Hall of Fame' }),
+      section('fame.gif', 'Hall of Fame'),
       h('p', { text: 'From the original site’s Hall of Fame, 1996 to 1999, with its captions and some builders’ own words.' }),
       ...hall.map((e) => h('section', { class: 'landing-build' },
         h('h3', { text: e.title }),
@@ -165,7 +188,7 @@ export class LandingPage {
   private towers(towers: TowerEntry[]): HTMLElement[] {
     if (!towers.length) return [];
     return [
-      h('h2', { text: 'The tallest towers, 1999' }),
+      section('stat.gif', 'The tallest towers, 1999'),
       h('p', { text: 'From the original site’s table of “Top Telerobot Builders”, October to December 1999.' }),
       h('table', { class: 'landing-towers' },
         h('tr', {}, h('th', { text: 'Height' }), h('th', { text: 'Built by' }), h('th', { text: 'On' })),
@@ -177,7 +200,7 @@ export class LandingPage {
   private creations(list: CreationEntry[]): HTMLElement[] {
     if (!list.length) return [];
     return [
-      h('h2', { text: 'Saved from the Java applet, 2000' }),
+      section('chat.gif', 'Saved from the Java applet, 2000'),
       h('p', { text: 'Builds saved in February 2000, each with its three camera views.' }),
       ...list.map((c) => h('section', { class: 'landing-build' },
         h('h3', { text: c.title || 'Untitled' }),
