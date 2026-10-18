@@ -155,6 +155,7 @@ export class WakingPage {
   readonly fact: HTMLElement;
   readonly retry: HTMLButtonElement;
   readonly back: HTMLButtonElement;
+  readonly home: HTMLAnchorElement;
   private readonly progress: HTMLElement;
   private readonly waitBox: HTMLElement;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -169,8 +170,16 @@ export class WakingPage {
     onBack: () => void,
     private readonly now: () => number = Date.now,
     random: () => number = Math.random,
+    /** Home: leave (ending any session) for the landing page. */
+    onHome?: () => void,
   ) {
     this.factOrder = shuffled(FACTS.length, random);
+    this.home = h('a', { href: '#/', class: 'home-link', text: 'Home' });
+    this.home.addEventListener('click', (e) => {
+      if (!onHome) return;
+      e.preventDefault();
+      onHome();
+    });
     this.source = h('a', { class: 'waking-source', href: WIKIPEDIA, target: '_blank', rel: 'noopener', text: SOURCES.wikipedia.label });
     this.heading = h('div', { class: 'waking-heading', role: 'status', text: WAKING });
     this.detail = h('div', { class: 'waking-detail' });
@@ -206,7 +215,10 @@ export class WakingPage {
         this.waitBox,
         this.detail,
         h('div', { class: 'button-row' }, this.retry, this.back),
-        h('a', { href: '#/history', class: 'history-link', text: 'History' }),
+        h('div', { class: 'waking-links' },
+          h('a', { href: '#/history', class: 'history-link', text: 'History' }),
+          ' · ',
+          this.home),
       ),
     );
   }

@@ -78,7 +78,7 @@ export class LoginPage {
       h('span', { text: `${ARCHIVE_NOTICE} ` }),
       h('a', { href: '#/history', class: 'history-link', text: 'History' }),
       ' · ',
-      h('a', { href: '#/', class: 'about-link', text: 'About the UWA Telerobot' }),
+      h('a', { href: '#/', class: 'home-link', text: 'Home' }),
     );
     this.el = h('div', { class: 'page login-page' }, row, this.turnstileContainer, help, notice, this.console.el);
   }

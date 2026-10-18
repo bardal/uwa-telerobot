@@ -116,7 +116,17 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   const waking = new WakingPage(
     () => void wakeThenConnect(),
     () => endSession(''),
+    Date.now,
+    Math.random,
+    () => goHome(),
   );
+
+  /** Leaves any session (or wake) for the landing page. */
+  function goHome(): void {
+    endSession('');
+    if (globalThis.location) globalThis.location.hash = '#/';
+    render();
+  }
   let login = makeLogin(false, false);
   login.setBusy(true); // until the config (site key, user pool) is loaded
   let admin = false; // the current session's welcome.level === 'admin'

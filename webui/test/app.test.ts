@@ -581,3 +581,17 @@ describe('landing page', () => {
     expect(back.app.view()).toBe('classic');
   });
 });
+
+describe('home', () => {
+  it('Home on the waking page ends the session and shows the landing page', async () => {
+    const { app, g } = await loggedIn('ann');
+    g.emit(welcome('ann'));
+    g.emit({ t: 'lab', state: 'stopping', message: 'Closed after 10 minutes without input' });
+    expect(app.view()).toBe('waking');
+    app.waking.home.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flush();
+    expect(app.view()).toBe('landing');
+    expect(app.control()).toBeNull();
+    expect(g.closed).toBe(true);
+  });
+});
