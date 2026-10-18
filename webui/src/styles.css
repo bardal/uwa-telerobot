@@ -1011,3 +1011,7 @@ a.back-link {
 .landing-old li {
   margin: 0.3em 0;
 }
+
+.landing-styling {
+  font-style: italic;
+}

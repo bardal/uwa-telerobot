@@ -2,7 +2,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { APPLET_HASH, FORMS_HASH, GALLERY, HISTORY, LandingPage, longDate } from '../src/ui/landingPage';
+import { APPLET_HASH, FORMS_HASH, GALLERY, HISTORY, LandingPage, STYLING_NOTE, longDate } from '../src/ui/landingPage';
 
 const PUBLIC = join(__dirname, '..', 'public');
 const images = [...GALLERY.hall, ...GALLERY.towers, ...GALLERY.creations].flatMap((e) => e.images);
@@ -16,6 +16,8 @@ describe('landing page', () => {
     expect(p.el.querySelectorAll('.landing-build').length).toBe(GALLERY.hall.length + GALLERY.creations.length);
     expect(p.el.querySelectorAll('.landing-towers tr').length).toBe(GALLERY.towers.length + 1);
     expect(text).toContain('785 mm');
+    expect(p.el.querySelector('.landing-styling')!.textContent).toBe(STYLING_NOTE);
+    expect(STYLING_NOTE).toMatch(/^2000s styling preserved/);
     for (const a of p.el.querySelectorAll<HTMLAnchorElement>('a[target=_blank]')) expect(a.rel).toBe('noopener');
   });
 
