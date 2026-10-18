@@ -38,6 +38,8 @@ export interface ControlPageDeps {
   openHelp: () => void;
   /** Help > History. */
   openHistory: () => void;
+  /** Help > Forms Interface (1996): the same session through the CGI-era page. */
+  openClassic?: () => void;
   now?: () => number;
   /** Decodes a JPEG frame; defaults to createImageBitmap. */
   decode?: (b: Blob) => Promise<ImageBitmap>;
@@ -348,7 +350,11 @@ export class ControlPage {
       },
       {
         label: 'Help',
-        items: [item('Brief Help', () => this.deps.openHelp()), item('History', () => this.deps.openHistory())],
+        items: [
+          item('Brief Help', () => this.deps.openHelp()),
+          item('History', () => this.deps.openHistory()),
+          item('Forms Interface (1996)', () => this.deps.openClassic?.()),
+        ],
       },
       {
         // shown only to admins (welcome level); the gateway checks the level again

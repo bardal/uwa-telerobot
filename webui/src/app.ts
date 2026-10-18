@@ -1,5 +1,6 @@
-// The app: routes (#/ is login or control, #/history is History), the waking
-// page while the lab starts, and the session flow login -> wake -> gateway.
+// The app: routes (#/ is login or control, #/classic the 1996 forms interface
+// over the same session, #/history is History), the waking page while the lab
+// starts, and the session flow login -> wake -> gateway.
 
 import { loadConfig, type Config } from './config';
 import { HistoryPage } from './archive/history';
@@ -8,6 +9,7 @@ import { buildHello, Gateway, type GatewayOpts } from './net/gateway';
 import type { In, Out } from './net/protocol';
 import { TurnstileWidget } from './net/turnstile';
 import { ensureAwake, type WakeState } from './net/wake';
+import { ClassicPage } from './ui/classicPage';
 import { ControlPage } from './ui/controlPage';
 import { h } from './ui/dom';
 import { LoginPage } from './ui/loginPage';
@@ -58,8 +60,9 @@ function wsUrl(): string {
 
 export interface App {
   readonly root: HTMLElement;
-  view(): 'login' | 'waking' | 'control' | 'history';
+  view(): 'login' | 'waking' | 'control' | 'classic' | 'history';
   control(): ControlPage | null;
+  classic(): ClassicPage | null;
   readonly login: LoginPage;
   waking: WakingPage;
   ready: Promise<void>;
@@ -100,6 +103,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   let nick = store.get();
   let gateway: GatewayLike | null = null;
   let control: ControlPage | null = null;
+  let classic: ClassicPage | null = null;
   let welcomed = false;
   /** An "unauthorised" error that was the last thing before the socket closed: a kick or a ban. */
   let refusal: string | null = null;
@@ -130,15 +134,34 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     });
   }
 
-  function route(): 'login' | 'waking' | 'control' | 'history' {
-    return (globalThis.location?.hash ?? '') === '#/history' ? 'history' : view;
+  function route(): 'login' | 'waking' | 'control' | 'classic' | 'history' {
+    const hash = globalThis.location?.hash ?? '';
+    if (hash === '#/history') return 'history';
+    // the forms interface is another view of a session: only once there is one
+    return hash === '#/classic' && view === 'control' && classic ? 'classic' : view;
   }
 
+  let classicShown = false;
   function render(): void {
     const r = route();
     if (r === 'history' && !historyShown) void history.load();
     historyShown = r === 'history';
-    const el = r === 'history' ? history.el : r === 'login' ? login.el : r === 'waking' ? waking.el : (control?.el ?? login.el);
+    if ((r === 'classic') !== classicShown) {
+      classicShown = r === 'classic';
+      if (classicShown) classic?.show();
+      else {
+        classic?.hide();
+        // the forms page selected each camera in turn: give the applet page its own back
+        const cam = control?.selectedCamera();
+        if (cam && welcomed) gateway?.send({ t: 'selectCamera', camera: cam });
+      }
+    }
+    const el =
+      r === 'history' ? history.el
+      : r === 'login' ? login.el
+      : r === 'waking' ? waking.el
+      : r === 'classic' ? classic!.el
+      : (control?.el ?? login.el);
     if (viewHost.firstChild !== el) viewHost.replaceChildren(el);
   }
 
@@ -230,8 +253,16 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
         logout: () => void logout(),
         openHelp: () => (deps.openWindow ?? ((u, n) => void globalThis.open(u, n)))('/help.html', 'help'),
         openHistory: () => { globalThis.location.hash = '#/history'; },
+        openClassic: () => { globalThis.location.hash = '#/classic'; },
       });
     control = page;
+    classic ??= new ClassicPage({
+      send: (m) => gateway?.send(m),
+      showApplet: () => { globalThis.location.hash = '#/'; },
+      openHistory: () => { globalThis.location.hash = '#/history'; },
+      logout: () => void logout(),
+    });
+    const forms = classic;
     const make = deps.makeGateway ?? ((u, hl, o) => new Gateway(u, hl, o));
     const g = make(wsUrl(), hello, {
       onClose: () => {
@@ -245,6 +276,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
         }
         welcomed = false;
         page.disconnected();
+        forms.disconnected();
         if (view === 'control') {
           // the lab may have restarted: show the waking page and check it, rather than
           // leaving the last image frozen while the socket retries
@@ -257,12 +289,17 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     });
     gateway = g;
     for (const t of OUT_TYPES) g.on(t, (m: Out) => onMessage(g, page, m));
-    g.onImage((hd, jpeg) => { if (gateway === g) void page.image(hd, jpeg); });
+    g.onImage((hd, jpeg) => {
+      if (gateway !== g) return;
+      void page.image(hd, jpeg);
+      forms.image(hd, jpeg);
+    });
   }
 
   function onMessage(g: GatewayLike, page: ControlPage, m: Out): void {
     if (gateway !== g) return;
     page.handle(m);
+    classic?.handle(m);
     // the gateway closes a kicked or banned session right after telling it why
     // before the welcome, unauthorised / too-many / bad-message (a reserved nick) are terminal: the close
     // that follows must end the session, not retry. Anything else (lab-unavailable while the lab starts)
@@ -284,6 +321,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       admin = false;
       welcomed = false;
       page.disconnected();
+      classic?.disconnected();
       setView('waking');
       waking.stopped(m.message || 'The robot has stopped');
     }
@@ -297,6 +335,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     welcomed = false;
     control?.dispose();
     control = null;
+    classic?.dispose();
+    classic = null;
   }
 
   /** Back to the login page with a message (refused, expired). */
@@ -368,6 +408,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     root,
     view: route,
     control: () => control,
+    classic: () => classic,
     get login() { return login; },
     waking,
     ready,
