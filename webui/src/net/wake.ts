@@ -1,12 +1,19 @@
 export type WakeState =
   | { kind: 'running' }
-  | { kind: 'starting'; since: number }
+  /**
+   * computer: the lab instance is starting and its gateway cannot be reached yet
+   * (including CloudFront catching up with the instance's new address);
+   * robot: the gateway answers and its lab (MOM, the robot, the cameras) is starting.
+   */
+  | { kind: 'starting'; since: number; step: WakeStep }
   | { kind: 'capped' }
   | { kind: 'error'; message: string };
 
+export type WakeStep = 'computer' | 'robot';
+
 export const POLL_MS = 2000;
 export const STOPPING_RETRY_MS = 3000;
-export const WAKE_TIMEOUT_MS = 180_000;
+export const WAKE_TIMEOUT_MS = 300_000;
 
 type Proof = { turnstile?: string; idToken?: string };
 type StatusBody = { state: 'stopped' | 'starting' | 'running' | 'stopping'; healthy: boolean; commit: string | null };
@@ -48,15 +55,20 @@ async function getStatus(fetchImpl: typeof fetch): Promise<StatusBody | null> {
   }
 }
 
-/** The gateway is up and its lab is ready for sessions (MOM, the robot proxy and the cameras). */
-async function healthy(fetchImpl: typeof fetch): Promise<boolean> {
+/**
+ * ready: the gateway is up and its lab is ready for sessions (MOM, the robot proxy
+ * and the cameras); robot: the gateway answers but its lab is still starting;
+ * computer: no answer from the gateway.
+ */
+async function health(fetchImpl: typeof fetch): Promise<'ready' | WakeStep> {
   try {
     const res = await timedFetch(fetchImpl, '/healthz', { cache: 'no-store' });
-    if (!res.ok) return false;
+    if (!res.ok) return 'computer';
     const b = (await res.json()) as { ok?: unknown; lab?: unknown };
-    return b.ok === true && b.lab === 'ready';
+    if (b.ok !== true) return 'computer';
+    return b.lab === 'ready' ? 'ready' : 'robot';
   } catch {
-    return false;
+    return 'computer';
   }
 }
 
@@ -104,16 +116,21 @@ export async function ensureAwake(
   const finish = (s: WakeState): WakeState => { onProgress(s); return s; };
   const timedOut = () => now() - start >= WAKE_TIMEOUT_MS;
   const timeout = (): WakeState => finish({ kind: 'error', message: 'The robot did not wake up in time' });
-  let announced = false;
-  const starting = () => {
-    if (!announced) { announced = true; onProgress({ kind: 'starting', since: start }); }
+  let announced: WakeStep | null = null;
+  // reports each step once; never back from robot to computer (a dropped poll is not news)
+  const starting = (step: WakeStep = 'computer') => {
+    if (announced === step || (announced === 'robot' && step === 'computer')) return;
+    announced = step;
+    onProgress({ kind: 'starting', since: start, step });
   };
 
   let waking = false; // wake POSTed (or lab starting): poll /healthz
   while (!timedOut()) {
     if (waking) {
       starting();
-      if (await healthy(fetchImpl)) return finish({ kind: 'running' });
+      const h = await health(fetchImpl);
+      if (h === 'ready') return finish({ kind: 'running' });
+      starting(h);
       await sleep(POLL_MS);
       continue;
     }

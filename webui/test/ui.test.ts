@@ -4,7 +4,7 @@ import type { In, Out } from '../src/net/protocol';
 import { ChatPanel } from '../src/ui/chatPanel';
 import { ControlPage, HOME } from '../src/ui/controlPage';
 import { LoginPage, HELP_TEXT } from '../src/ui/loginPage';
-import { CAPPED, WAKING, WakingPage } from '../src/ui/wakingPage';
+import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, WAKING, WIKIPEDIA, WakingPage, progressAt } from '../src/ui/wakingPage';
 
 const ctxStub = new Proxy({}, { get: () => () => undefined, set: () => true }) as unknown as CanvasRenderingContext2D;
 
@@ -461,11 +461,11 @@ describe('login page', () => {
 
 describe('waking page', () => {
   it('shows elapsed seconds, the cap and errors with Retry', () => {
-    let t = 10_000;
+    const t = 10_000;
     const retry = vi.fn();
     const back = vi.fn();
     const w = new WakingPage(retry, back, () => t);
-    w.show({ kind: 'starting', since: 7_000 });
+    w.show({ kind: 'starting', since: 7_000, step: 'computer' });
     expect(w.heading.textContent).toBe(WAKING);
     expect(w.detail.textContent).toBe('3 s');
     w.show({ kind: 'capped' });
@@ -479,8 +479,118 @@ describe('waking page', () => {
     expect(w.back.hidden).toBe(false);
     w.back.click();
     expect(back).toHaveBeenCalledOnce();
-    w.show({ kind: 'starting', since: t });
+    w.show({ kind: 'starting', since: t, step: 'computer' });
     expect(w.back.hidden).toBe(true);
-    t += 1;
+    w.stopTimer();
+  });
+
+  const stepClasses = (w: WakingPage) => [...w.steps.children].map((li) => li.className);
+  const waitBox = (w: WakingPage) => w.el.querySelector('.waking-wait') as HTMLElement;
+
+  it('sets expectations, ticks off the steps and fills the bar while waking', () => {
+    vi.useFakeTimers();
+    try {
+      let t = 0;
+      const w = new WakingPage(vi.fn(), vi.fn(), () => t);
+      w.checking();
+      expect(waitBox(w).hidden).toBe(true);
+
+      w.show({ kind: 'starting', since: 0, step: 'computer' });
+      expect(waitBox(w).hidden).toBe(false);
+      expect(w.expect.textContent).toBe(EXPECT);
+      expect(stepClasses(w)).toEqual(['active', 'todo', 'todo']);
+      expect(w.steps.children[0]!.getAttribute('aria-current')).toBe('step');
+      expect(w.el.querySelector('.waking-arm')).not.toBeNull();
+
+      t = 45_000;
+      vi.advanceTimersByTime(1000);
+      expect(w.detail.textContent).toBe('45 s');
+      const bar = w.el.querySelector('[role="progressbar"]')!;
+      expect(bar.getAttribute('aria-valuenow')).toBe(String(Math.round(progressAt(45) * 100)));
+
+      // a new step keeps the clock: since is the wake's start
+      w.show({ kind: 'starting', since: 0, step: 'robot' });
+      expect(stepClasses(w)).toEqual(['done', 'active', 'todo']);
+      expect(w.detail.textContent).toBe('45 s');
+
+      t = 160_000;
+      vi.advanceTimersByTime(1000);
+      expect(w.detail.textContent).toBe(`160 s · ${SLOW}`);
+
+      w.show({ kind: 'running' });
+      expect(w.heading.textContent).toBe('Connecting…');
+      expect(stepClasses(w)).toEqual(['done', 'done', 'active']);
+      expect(bar.getAttribute('aria-valuenow')).toBe('100');
+
+      w.show({ kind: 'error', message: 'The robot did not wake up in time' });
+      expect(waitBox(w).hidden).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a lab that was already up connects without the wait panel', () => {
+    const w = new WakingPage(vi.fn(), vi.fn());
+    w.checking();
+    w.show({ kind: 'running' });
+    expect(w.heading.textContent).toBe('Connecting…');
+    expect(waitBox(w).hidden).toBe(true);
+  });
+
+  it('rotates the facts while waking, and stops when the wait ends', () => {
+    vi.useFakeTimers();
+    try {
+      const w = new WakingPage(vi.fn(), vi.fn());
+      const fact = w.el.querySelector('.waking-fact')!;
+      w.show({ kind: 'starting', since: Date.now(), step: 'computer' });
+      expect(fact.textContent).toBe(FACTS[0]!.text);
+      vi.advanceTimersByTime(FACT_MS);
+      expect(fact.textContent).toBe(FACTS[1]!.text);
+      w.show({ kind: 'starting', since: Date.now(), step: 'robot' }); // a new step does not restart them
+      expect(fact.textContent).toBe(FACTS[1]!.text);
+      w.show({ kind: 'capped' });
+      vi.advanceTimersByTime(FACT_MS * 3);
+      expect(fact.textContent).toBe(FACTS[1]!.text);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('paces the bar on a typical wake and never fills it before the end', () => {
+    expect(progressAt(0)).toBe(0);
+    expect(progressAt(45)).toBeCloseTo(0.425);
+    expect(progressAt(90)).toBeCloseTo(0.85);
+    for (const t of [120, 200, 300]) {
+      expect(progressAt(t)).toBeGreaterThan(progressAt(t - 30));
+      expect(progressAt(t)).toBeLessThan(0.98);
+    }
+    expect(progressAt(3600)).toBeLessThanOrEqual(0.98);
+    expect(progressAt(-5)).toBe(0);
+  });
+
+  it('keeps every fact short, in plain text, with links opening in a new tab', () => {
+    expect(FACTS.length).toBeGreaterThanOrEqual(6);
+    for (const f of FACTS) {
+      expect(f.text.length).toBeLessThanOrEqual(140);
+      expect(f.text).not.toMatch(/[<>]/);
+    }
+    vi.useFakeTimers();
+    try {
+      const w = new WakingPage(vi.fn(), vi.fn());
+      w.show({ kind: 'starting', since: Date.now(), step: 'computer' });
+      const thesisAt = FACTS.findIndex((f) => f.link?.href === DALTON_THESIS);
+      expect(thesisAt).toBeGreaterThanOrEqual(0);
+      vi.advanceTimersByTime(FACT_MS * thesisAt);
+      const a = w.el.querySelector('.waking-fact a') as HTMLAnchorElement;
+      expect(a.href).toBe(DALTON_THESIS);
+      expect(a.target).toBe('_blank');
+      expect(a.rel).toBe('noopener');
+      const source = w.el.querySelector('.waking-source') as HTMLAnchorElement;
+      expect(source.href).toBe(WIKIPEDIA);
+      w.stopTimer();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -62,6 +62,34 @@ describe('ensureAwake', () => {
     expect(await p).toEqual({ kind: 'running' });
     expect(polls).toBe(3);
     expect(seen.filter((s) => s.kind === 'running')).toHaveLength(1);
+    // the gateway answered from the first poll: straight to the robot step
+    expect(seen.filter((s) => s.kind === 'starting').map((s) => s.kind === 'starting' && s.step)).toEqual(['computer', 'robot']);
+  });
+
+  it('reports each step once as the healthz answers change, never going back', async () => {
+    // 504 from CloudFront while the instance is unreachable, then the gateway with its lab starting
+    const answers = [
+      () => new Response('<html>504</html>', { status: 504 }),
+      () => new Response('<html>504</html>', { status: 504 }),
+      () => json({ ok: true, sessions: 0, commit: 'a', lab: 'starting' }),
+      () => new Response('<html>502</html>', { status: 502 }), // one dropped poll
+      () => json({ ok: true, sessions: 0, commit: 'a', lab: 'starting' }),
+      healthzOk,
+    ];
+    const { f } = fakeFetch((url) => {
+      if (url === '/api/status') return json({ state: 'stopped', healthy: false, commit: null });
+      if (url === '/api/wake') return json({}, 202);
+      return answers.shift()!();
+    });
+    const seen: WakeState[] = [];
+    const p = ensureAwake(f, proof, (s) => seen.push(s), () => 1_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await p).toEqual({ kind: 'running' });
+    expect(seen).toEqual([
+      { kind: 'starting', since: 1_000, step: 'computer' },
+      { kind: 'starting', since: 1_000, step: 'robot' },
+      { kind: 'running' },
+    ]);
   });
 
   it('sends the idToken when that is the proof', async () => {
@@ -147,27 +175,29 @@ describe('ensureAwake', () => {
     }
   });
 
-  it('times out at 180 s with an error', async () => {
+  it('times out at 300 s with an error', async () => {
     const { f } = fakeFetch((url) => url === '/api/status'
       ? json({ state: 'starting', healthy: false, commit: null }) : json({ ok: false }, 503));
     const seen: WakeState[] = [];
     const p = ensureAwake(f, proof, (s) => seen.push(s));
-    await vi.advanceTimersByTimeAsync(181_000);
+    await vi.advanceTimersByTimeAsync(299_000);
+    expect(seen.at(-1)?.kind).toBe('starting');
+    await vi.advanceTimersByTimeAsync(2_000);
     expect((await p).kind).toBe('error');
     expect(seen.at(-1)?.kind).toBe('error');
   });
 
-  it('a getProof that never resolves ends in error at 180 s', async () => {
+  it('a getProof that never resolves ends in error at 300 s', async () => {
     const { f } = fakeFetch(() => json({ state: 'stopped', healthy: false, commit: null }));
     const p = ensureAwake(f, () => new Promise(() => {}), () => {});
-    await vi.advanceTimersByTimeAsync(181_000);
+    await vi.advanceTimersByTimeAsync(301_000);
     expect((await p).kind).toBe('error');
   });
 
-  it('a hanging status fetch does not block past 180 s', async () => {
+  it('a hanging status fetch does not block past 300 s', async () => {
     const f = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
     const p = ensureAwake(f, proof, () => {});
-    await vi.advanceTimersByTimeAsync(200_000);
+    await vi.advanceTimersByTimeAsync(320_000);
     expect((await p).kind).toBe('error');
   });
 

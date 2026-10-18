@@ -532,6 +532,194 @@ a.back-link {
   font-variant-numeric: tabular-nums;
 }
 
+.waking-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(360px, 100%);
+}
+
+.waking-wait[hidden] {
+  display: none;
+}
+
+.waking-expect {
+  text-align: center;
+}
+
+.waking-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  align-self: stretch;
+}
+
+.waking-steps li {
+  padding: 1px 0 1px 1.6em;
+  position: relative;
+}
+
+.waking-steps li::before {
+  position: absolute;
+  left: 0.3em;
+  width: 1em;
+  text-align: center;
+}
+
+.waking-steps li.done::before {
+  content: '\2713';
+  color: #006400;
+  font-weight: bold;
+}
+
+.waking-steps li.active {
+  font-weight: bold;
+}
+
+.waking-steps li.active::before {
+  content: '\25CF';
+  color: #000080;
+  animation: waking-pulse 1.2s ease-in-out infinite;
+}
+
+.waking-steps li.todo {
+  color: var(--disabled);
+}
+
+.waking-steps li.todo::before {
+  content: '\25CB';
+}
+
+@keyframes waking-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* an AWT-style sunken field with a solid fill */
+.waking-bar {
+  align-self: stretch;
+  height: 14px;
+  background: var(--field);
+  border: 1px solid;
+  border-color: var(--awt-shadow) var(--field) var(--field) var(--awt-shadow);
+  box-shadow: inset 1px 1px 0 var(--awt-dark);
+}
+
+.waking-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #000080;
+  transition: width 1s linear;
+}
+
+.waking-did-you-know {
+  align-self: stretch;
+  background: var(--field);
+  border: 1px solid var(--awt-shadow);
+  padding: 6px 8px;
+  min-height: 5.2em;
+}
+
+.waking-fact-title {
+  font-weight: bold;
+}
+
+.waking-fact {
+  margin: 2px 0 0;
+}
+
+.waking-did-you-know a {
+  color: #000080;
+}
+
+.waking-source {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* the arm: shoulder at the base, the elbow, and a gripper kept hanging straight
+   down (its angle is minus the sum of the other two, keyframe by keyframe) */
+.waking-arm {
+  width: 160px;
+  height: 124px;
+}
+
+.waking-arm rect,
+.waking-arm circle {
+  fill: var(--awt-dark);
+}
+
+.waking-arm .arm-joint {
+  fill: var(--awt-shadow);
+}
+
+.waking-arm .arm-table {
+  fill: var(--awt-shadow);
+}
+
+.waking-arm .arm-base {
+  fill: var(--awt-dark);
+}
+
+/* the page is salmon: the block needs its own colour */
+.waking-arm .arm-block {
+  fill: #b22222;
+}
+
+.arm-upper {
+  transform: rotate(-115deg);
+  animation: arm-upper 3.6s ease-in-out infinite alternate;
+}
+
+.arm-forearm {
+  transform: rotate(-80deg);
+  animation: arm-forearm 3.6s ease-in-out infinite alternate;
+}
+
+.arm-gripper {
+  transform: rotate(195deg);
+  animation: arm-gripper 3.6s ease-in-out infinite alternate;
+}
+
+/* down over the left spot, up, across, down over the right spot */
+@keyframes arm-upper {
+  0%, 10% { transform: rotate(-125.2deg); }
+  30% { transform: rotate(-115deg); }
+  70% { transform: rotate(-65deg); }
+  90%, 100% { transform: rotate(-54.8deg); }
+}
+
+@keyframes arm-forearm {
+  0%, 10% { transform: rotate(-101.3deg); }
+  30% { transform: rotate(-80deg); }
+  70% { transform: rotate(80deg); }
+  90%, 100% { transform: rotate(101.3deg); }
+}
+
+@keyframes arm-gripper {
+  0%, 10% { transform: rotate(226.5deg); }
+  30% { transform: rotate(195deg); }
+  70% { transform: rotate(-15deg); }
+  90%, 100% { transform: rotate(-46.5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arm-upper,
+  .arm-forearm,
+  .arm-gripper,
+  .waking-steps li.active::before {
+    animation: none;
+  }
+
+  .waking-bar-fill {
+    transition: none;
+  }
+}
+
 /* ---- dialogs ---- */
 
 .dialog-backdrop {
