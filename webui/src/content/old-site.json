@@ -1,0 +1,107 @@
+[
+  {
+    "group": "The original home page",
+    "title": "Home page, January 1998",
+    "href": "/old/home-1998.html",
+    "date": "January 1998",
+    "what": "The telerobot front page as it stood in January 1998, with live lab video and links to the robot."
+  },
+  {
+    "group": "The original home page",
+    "title": "Home page, July 1999",
+    "href": "/old/home-1999.html",
+    "date": "July 1999",
+    "what": "The July 1999 front page, redesigned with a menu of sections: help, development, statistics, publications and links."
+  },
+  {
+    "group": "The original home page",
+    "title": "Home page, final version",
+    "href": "/old/home.html",
+    "date": "February 2000",
+    "what": "The last version of the original front page, as it stood in early 2000."
+  },
+  {
+    "group": "The original home page",
+    "title": "About the robot",
+    "href": "/old/about.html",
+    "date": "26 May 1999",
+    "what": "Barney Dalton's 1999 description of the robot, its cameras, the controller page and a visitor-built castle."
+  },
+  {
+    "group": "The 1997 interface competition",
+    "title": "The Great Telerobot Interface Design Competition",
+    "href": "/old/competition/index.html",
+    "date": "1998",
+    "what": "A US$100 prize for the best idea to improve the operator interface, closing 1 October 1997."
+  },
+  {
+    "group": "The visitor questionnaire",
+    "title": "The visitor questionnaire",
+    "href": "/old/questionnaire/index.html",
+    "date": "1998",
+    "what": "The survey form visitors filled in about themselves, their computers and how they used the robot (fields shown disabled)."
+  },
+  {
+    "group": "The visitor questionnaire",
+    "title": "Questionnaire results",
+    "href": "/old/questionnaire/results/index.html",
+    "date": "1997",
+    "what": "Charts summarising the February to July questionnaire results: demographics, computers, web use and willingness to pay."
+  },
+  {
+    "group": "Usage statistics",
+    "title": "Where visitors came from, by month",
+    "href": "/old/statistics/telerobotmonth.html",
+    "date": "2000",
+    "what": "Which sites sent visitors to the telerobot over a month, as percentages (host names only)."
+  },
+  {
+    "group": "Usage statistics",
+    "title": "Where visitors came from, in total",
+    "href": "/old/statistics/telerobottotals.html",
+    "date": "2000",
+    "what": "Which sites sent the most visitors to the telerobot overall, as percentages (host names only)."
+  },
+  {
+    "group": "Usage statistics",
+    "title": "Traffic from the Carnegie Science Center",
+    "href": "/old/statistics/carnegie.html",
+    "date": "1997",
+    "what": "Where visitors came from around the time the robot was linked from the Carnegie Science Center."
+  },
+  {
+    "group": "Usage statistics",
+    "title": "Web server statistics, Q2 1998",
+    "href": "/old/statistics/logs1998q2.html",
+    "date": "1998",
+    "what": "An Analog report of web server traffic for the second quarter of 1998."
+  },
+  {
+    "group": "In the news",
+    "title": "In The News",
+    "href": "/old/news.html",
+    "date": "22 Apr 1998",
+    "what": "Television, radio, newspaper and magazine coverage of the telerobot between 1994 and 1998."
+  },
+  {
+    "group": "In the news",
+    "title": "The 1996 JARA award",
+    "href": "/old/award.html",
+    "date": "1996",
+    "what": "The Japan Robot Association award won by the telerobot paper, presented in Milan in October 1996."
+  },
+  {
+    "group": "In the news",
+    "title": "Going to America",
+    "href": "/old/going-to-america.html",
+    "date": "1996",
+    "what": "How a second telerobot was planned for the Carnegie Science Center in Pittsburgh."
+  },
+  {
+    "group": "Research",
+    "title": "Robot Task Time",
+    "href": "/old/robot-task-time/index.html",
+    "date": "1998",
+    "what": "A study by Ken Taylor and James Trevelyan of task performance times for a web-based telerobot."
+  }
+]

@@ -1,0 +1,10 @@
+BODY {margin: 3%; background-color: white; color: gray; font-size: medium; font-family: Verdana, Arial, Helvetica, sans-serif } 
+INPUT {font-size: small; font-family: monospace;}
+TEXTAREA {font-size: small; font-family: monospace;}
+SELECT {font-size: small; font-family: monospace;}
+H1 { text-transform: uppercase; font-size: large ; color: #FF9900}
+H2 { color: #ffaa00}
+TD {padding: 0; color: #202066; font-size: medium; font-family: Verdana, Arial, Helvetica, sans-serif}
+A:link {text-decoration: none; color: #FF9900}
+A:active  { color: #008000}
+A:visited { color: #804000}

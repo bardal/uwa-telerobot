@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<HTML>
+<HEAD>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE>Robot Task Time</TITLE>
+<META NAME="doccomm" CONTENT="Measured Task times are removed from this version. They are in robtime3.doc">
+<link rel="stylesheet" href="/old/old.css">
+</head>
+<BODY>
+<div class="old-banner">Preserved from the original UWA Telerobot site (<em>1998</em>). Links that no longer lead anywhere have been removed. <a href="/#/about">Back to the UWA Telerobot</a></div>
+
+<B><FONT FACE="Arial" SIZE=4><P>World Wide Web Telerobot: Task Performance Measurements</P>
+</B></FONT><FONT SIZE=2><P>Authors: Kenneth Taylor and Associate Professor James Trevelyan. </P>
+<B><P>Abstract</P>
+</B><P>We have built an experimental World Wide Web based Telerobot whose address is http://telerobot.mech.uwa.edu.au/ and are investigating the potential of this technique. It is envisaged machinery can be made available to many users by this method however the advantages of teleoperation are balanced against the disadvantages associated with the longer times required to accomplish tasks. With a desire to decrease task times a method is needed to quantify task performance and predict the effects of particular changes to the process. Several methods for measuring telerobot performance are considered but they do not by themselves provide a framework for predicting the effects of changes. A simple model is developed to provide the necessary framework for an investigation of task times. Using the definition of Sheridan and Ferrell the model is of the functional type where it is to be used to predict consequences of design changes on system performance as distinct from the structural which postulates causal mechanisms. The techniques are applicable to the control of any world wide web based device or a telerobot which uses a similar supervisory control paradigm.</P>
+<P>&nbsp;</P>
+<P>We have applied the model to the UWA Telerobot installation for the task of stacking blocks. The reductions that are achievable with differing techniques are predicted. For block stacking, no methods are envisaged that will bring the times close to that achievable by manual handling. Estimated  task times are important when comparing this method of teleoperation with other common methods and when considering the suitability of teleoperation for particular applications.</P>
+<B><P>Introduction</P>
+</B><P>&nbsp;</P>
+<P>In September 1994, our ASEA IRb-6 robot was connected to the internet through a Web server so that anyone with Web access could control the robot  (http://telerobot.mech.uwa.edu.au). The robot server consists of a 486-PC which runs a Web server program running under a Windows 3.11 operating system. The general layout is shown in Figure 1 and is described more fully in [1] and [2].</P>
+<B><P ALIGN="CENTER">Telerobotic System</P>
+</B><P>&nbsp;</P>
+<B><P ALIGN="CENTER"><A NAME="_Ref353861986"><IMG SRC="/old/robot-task-time/images/image31.gif" WIDTH="420" HEIGHT="190"></P>
+<P ALIGN="CENTER"><A NAME="_Ref365858916">Figure 1</A></A></P>
+</B><P>&nbsp;</P>
+<P>Two monochrome CCD cameras are connected to a frame grabber within the server to collect static images of the robot work space.  A serial link provides access to the robot controller.  When a user (operating a Web client program such as Netscape) requests information, the server sends a page containing two images of the robot (from the cameras), a diagram, explanatory text, and a number of information fields.  The diagram shows a wire frame model of the robot and table from several angles as GIF format image. When a movement request is received, the server interprets the data in the fields and sends an appropriate movement command to the robot controller.  When the movement is completed, the server collects new images from the cameras and sends a new page with the new images so the user can see what has happened.</P>
+<P>&nbsp;</P>
+<P>The page delivered to an operator includes a simulated image of the current position of the robot generated in Germany. This is produced by including a HTML element of type IMG which is a regular image. Normally such an element includes a HTML address of the source file. In this case the address is to a script on a German computer. Following the name of the script is a number of variables which include the viewing angle and robot joint angles which are fed by the German server to the script as command line options. The browser, on receiving our page, makes the request to the German server which generates the image and returns it to the browser. The concept is shown in Figure 2.</P>
+<P>&nbsp;</P>
+<B><P ALIGN="CENTER">Generating Images At Another Computer</P>
+</B><P ALIGN="CENTER"><IMG SRC="/old/robot-task-time/images/image32.gif" WIDTH="577" HEIGHT="245"></P>
+<B><P ALIGN="CENTER"><A NAME="_Ref353863714">Figure 2</A></P>
+</B><P>The details of the system are given in [,]. </P>
+<P>&nbsp;</P>
+<B><P ALIGN="CENTER">Operator Visual Feedback From One Of Two Cameras</P>
+<P ALIGN="CENTER"><IMG SRC="/old/robot-task-time/images/image33.gif" WIDTH="320" HEIGHT="320"></P>
+<P ALIGN="CENTER">Figure 3</P>
+</B><P>The robot has a gripper and operates above a table scattered with wooden blocks. There has been more than 54,000 operators recorded as at 30 January 1996 who will usually manipulate and stack blocks or push them off the table.</P>
+<P>&nbsp;</P>
+<P>Our control system fits the supervisory control model (Figure 4) where an operator specifies a goal to be achieved, the robot attempts to achieve the goal and reports back the result. This eliminates instability problems that can occur with long and variable time delay. </P>
+<B><P ALIGN="CENTER">&nbsp;</P>
+</B><P ALIGN="CENTER"><IMG SRC="/old/robot-task-time/images/image34.gif" WIDTH="394" HEIGHT="246"></P>
+<B><P ALIGN="CENTER"><A NAME="_Ref353945890">Figure 4</A></P>
+</B><P>Since we would like to decrease task times we need a method to quantify task performance and predict the effects of particular changes to the process. The authors have not been able to locate such a method and Sheridan states &quot;No suitable scheme exists for notating and interrelating manipulation, mobility, and inspection events.&quot; Methods of measuring teleoperation performance are considered and a simple model is developed to provide the necessary framework for an investigation of task times. Using the definition of Sheridan and Ferrell the model is of the functional type where it is to be used to predict consequences of design changes on system performance as distinct from the structural which postulates causal mechanisms. The model is applied to the Telerobot installation and the reductions that are achievable with differing techniques assessed.</P>
+<P>&nbsp;</P>
+<B><P>Measuring Teleoperation Performance</P>
+</B><P>&nbsp;</P>
+<P>The time taken to complete a manipulation type task is invariably greater in teleoperated systems than with manual handling. Balanced against this is the advantages of making machinery available to a large number of people who do not have to be in the same place as the machinery. Therefore techniques and methods for improving speed and performance are important. The success of the techniques requires an understanding of what represents performance and a method for measuring it. The obvious definition of performance is how long does it take to complete a given task but there are other possibilities. Methods available for measuring performance are:-</P>
+<P>&nbsp;</P>
+<P>(i) Time to complete a task. This is the common method that <A NAME="_Ref350756168">researchers [<A NAME="_Ref350935297"></A>,</A>,,<A NAME="_Ref350833006">,</A>,] use to measure system performance and provide comparisons between systems. It requires a controlled experiment where a number of operators perform the same task. The experimenter then varies either an aspect of the task or an aspect of the interface asks operators to repeat the task. It works well in a controlled laboratory environment but can not be used to monitor ongoing system performance as operators will be performing varying tasks.</P>
+<P>&nbsp;</P>
+<P>(ii) Fitts Law. A method adopted in several studies [<A NAME="_Ref350759416">,</A>] is Fitts Law which relates movement time to a relationship between the distance travelled in reaching the target and the size of the target. It can be given as: <IMG SRC="/old/robot-task-time/images/image35.gif" WIDTH="465" HEIGHT="31"> </P>
+<P>where the the values of <I>a </I>and <I>b </I>are found experimentally. Cannon[] applies control theory to predict from these values the machine dynamics of the system, human reaction time and neuromuscular lag.</P>
+<P>&nbsp;</P>
+<P>(iii) Operator Subjective Assessment. McClean[] et. al. found this was closely correlated to the more generally used time to complete a task. Operators are asked to complete a task as quickly as possible and then rate the task in comparison to a separate baseline task which doesnt involve teleoperation. The baseline task is to manipulate graphic objects with a mouse and its baseline task minmimises variability between operators.</P>
+<P>&nbsp;</P>
+<P>(iv) Average joint velocity. The period over which the velocity is averaged is the entire session for an operator. The rationale for this is that good operation will consist of purposeful motions therefore the more movement the better. It has the advantage that no defined task is required, it being possible to acquire the data while the telerobot is in general use. It offers no predictive value though, in that the effect of a change can not be predicted prior to its implementation. It was proposed by McClean[] et. al. It is fairly closely correlated to the time to complete a task.</P>
+<P>&nbsp;</P>
+<P>(v) Average tip velocity. This is proposed by McClean[] et. al. and is based on the same rationale as (iv) but the measure is in cartesian space rather than joint space. It was found to give very similar results to (iv).</P>
+<P>&nbsp;</P>
+<P>(vi) Dexterity. This is another measure proposed and tested by McClean[] et. al. which is based on the assumption that good performance is associated with the manipulator being maintained in a state from which a variety of motions can be easily achieved. That is that the manipulator is best operated away from singularities near which high ratios of joint rate to task velocities are achieved. The dexterity is based on the determinant of the Jacobiean. This measure of performance was found by McClean[] to be less well correlated to time to complete a task than the methods discussed in (iv) and (v).</P>
+<P>&nbsp;</P>
+<P>(vii) Sum of squares of  the contact forces(SSOF). This measure is used by Uebel[<A NAME="_Ref350936170"></A>] et. al. when assessing the effect of bandwidth on a peg insertion task. The contact forces refer to the contact forces between the peg and environment. It was also used by Hannaford and Wood[]. It is suitable when interacting with the environment and is given by:-</P>
+<P><IMG SRC="/old/robot-task-time/images/image36.gif" WIDTH="165" HEIGHT="60"></P>
+<P>where <IMG SRC="/old/robot-task-time/images/image37.gif" WIDTH="26" HEIGHT="33"> represents the <I>i</I>th sample of the force component along the <I>j</I>th axis of the end effector coordinate system, <I>n</I> is the total number of samples and <IMG SRC="/old/robot-task-time/images/image38.gif" WIDTH="26" HEIGHT="21">is the sampling period. Uebel[] et. al. was able to achieve similar results using this measure of performance as was achieved by the &quot;time to complete a task&quot; method.</P>
+<P>&nbsp;</P>
+<P>(viii) Sum of the squares of the moments. This measure is similar to that described in (vii) but the moments applied to a peg during a peg insertion task are measured rather than the axial forces. It was used Uebel[] et. al. with similar results to that described for method (vii) and also by Hannaford and Wood[].</P>
+<P>&nbsp;</P>
+<P>The applicability of each of these techniques to the UWA telerobot installation is:-</P>
+<P>&nbsp;</P>
+<P>(i) Time to complete a task. This is very suitable for structured experiments.</P>
+<P>&nbsp;</P>
+<P>(ii) Fitts Law. This model is restricted to manipulative tasks on which the theory is based and systems where a human is performing rate and position control with constant and short communication delays. In this telerobot system an operator specifies a target rather than controlling rates of movement the local control system moves the robot at arbitrary speed to  the target so clearly the model does not apply to this system.</P>
+<P>&nbsp;</P>
+<P>(iii) Operator Subjective Assessment. This is the technique used to guide most of the development of the interface thus far but the assessment has not been quantified and the comparison has been between different forms of interface rather than a  base line task.</P>
+<P>&nbsp;</P>
+<P>(iv) Average joint velocity. This would be very useful in our installation which receives a lot of use from many operators who all have different goals and whose goals are unknown. It cant be used to predict the effect of a change prior to its implementation.</P>
+<P>&nbsp;</P>
+<P>(v) Average tip velocity. The applicability is similar to (iv).</P>
+<P>&nbsp;</P>
+<P>(vi) Dexterity. It was found by McClean[] to be less well correlated to time to complete a task than other methods and is likely to be less useful in the case of the UWA telerobot due to a lower operator awareness of joint positions than in McCleans[] installation.</P>
+<P>&nbsp;</P>
+<P>(vii) Sum of squares of  the contact forces(SSOF). The technique is limited to tasks of the peg in hole type. It is not suitable for the method of teleoperation employed by the UWA telerobot installation as the operator specifies goals and interaction with the environment is entirely under machine control. </P>
+<P>&nbsp;</P>
+<P>(viii) Sum of the squares of the moments. As for method (vii) it is not suitable with our method of teleoperation.</P>
+<P>&nbsp;</P>
+<P>With a desire to model the robot operation and predict ways it could be improved a time to task completion is used in this case.</P>
+<P> </P>
+<B><P>Model Of Telerobot/Operator System</P>
+</B><P>When an operator attempts to achieve a goal there will be a number of subgoals required. The number will not be the same for all operators. The operator is usually developing the strategy while pursuing the goal therefore the number of subgoals will not generally be known when beginning a task. However for a given strategy there will be a fixed number of  subgoals providing that each subgoal is successful and there are no unintended consequences of achieving each subgoal. An example of an unintended consequence would be to knock over an existing block structure. A strategy is assumed to be the same regardless of whether teleoperation or local control is used.</P>
+<P>The time it takes to complete a task (<IMG SRC="/old/robot-task-time/images/image39.gif" WIDTH="18" HEIGHT="20">) depends on:-</P>
+<P>&#9;<IMG SRC="/old/robot-task-time/images/image40.gif" WIDTH="16" HEIGHT="18">- Number of subgoals to achieve task. </P><DIR>
+<DIR>
+
+<P><IMG SRC="/old/robot-task-time/images/image41.gif" WIDTH="15" HEIGHT="18">- Time taken for robot to achieve a subgoal. Each subgoal may take a different time to achieve. </P>
+<P><IMG SRC="/old/robot-task-time/images/image42.gif" WIDTH="18" HEIGHT="26">- Time required to generate response and communicate with robot. </P>
+<P><IMG SRC="/old/robot-task-time/images/image43.gif" WIDTH="15" HEIGHT="18">- Communication time. Fixed for a given configuration and operato including time to decode and display data at operators computer.</P>
+<P><IMG SRC="/old/robot-task-time/images/image44.gif" WIDTH="16" HEIGHT="18">- Operator decision making time. Varies for every move but cannot be estimated for each movedepending on complexity.</P>
+<P>&nbsp;</P></DIR>
+</DIR>
+
+<P>The time taken to complete the task is then:-</P>
+<P><IMG SRC="/old/robot-task-time/images/image45.gif" WIDTH="188" HEIGHT="56"></P>
+<P>&nbsp;</P>
+<P>The variables <IMG SRC="/old/robot-task-time/images/image46.gif" WIDTH="56" HEIGHT="28"> can be determined after the goal is achieved.</P>
+<P>&nbsp;</P>
+<P>When the robot is given a subgoal the possible outcomes are:-</P><DIR>
+<DIR>
+
+<P>(i) The subgoal is achieved.</P>
+<P>(ii) The subgoal is not achieved.</P>
+<P>&nbsp;</P></DIR>
+</DIR>
+
+<P>In the case of (ii) a new strategy is required to achieve the goal. This new strategy may require as little as one extra move. This would be the case if the robot was asked to move to a pose that was outside its work space but there was an alternate pose that would be just as effective. Alternatively several new subgoals are required. An example is when a block is not successfully grasped on a close gripper and move robot request and the robot requires repositioning over the block. There would usually not be a large number of extra subgoals required. If this was to occur while there are <IMG SRC="/old/robot-task-time/images/image47.gif" WIDTH="20" HEIGHT="26"> subgoals remaining and the new strategy required <IMG SRC="/old/robot-task-time/images/image48.gif" WIDTH="21" HEIGHT="26"> subgoals then the time taken to complete the task is:-</P>
+<P>&nbsp;</P>
+<P><A NAME="DDE_LINK1"><IMG SRC="/old/robot-task-time/images/image49.gif" WIDTH="378" HEIGHT="90"></P>
+<P></A>If this occurs on <IMG SRC="/old/robot-task-time/images/image50.gif" WIDTH="16" HEIGHT="23"> occasions this can be generalised to:-</P>
+<P>&nbsp;</P>
+<P><IMG SRC="/old/robot-task-time/images/image51.gif" WIDTH="223" HEIGHT="63"></P>
+<P>&nbsp;</P>
+<P>where <IMG SRC="/old/robot-task-time/images/image52.gif" WIDTH="21" HEIGHT="28"> = 0.</P>
+<P>&nbsp;</P>
+<P>Whether the outcome is (i) or (ii) there may be an unintended side effect e.g. The robot moves to the requested location but knocks down a partially built structure or the robot fails to reach the designated point because it crashes along the way causing the block into which it crashed to be flung away. This can be modelled in the same way as (ii). For block stacking it would be usual to destroy the entire structure and require about the same number of subgoals to rebuild as were required initially. That is <IMG SRC="/old/robot-task-time/images/image53.gif" WIDTH="98" HEIGHT="28">. This would be similar for many other applications. For others it would not apply for example if the goal was to push all the blocks on to the floor the additional number of subgoals required is not likely to be correlated with the initial number. </P>
+<P>&nbsp;</P>
+<B><P>Applying Values To The VariablesCalibrating Model</P>
+</B><P>&nbsp;</P>
+<P>Having defined a model values for each of the variables are required. Each variable will have a probability density function but for the purpose of predicting overall task times mean values are sufficient. The aim is to provide an estimate of achievable times for a particular task and to estimate the effect of various possible modifications. The data can also be used to estimate task times for other types of tasks using teleoperation with a World Wide Web interface. Some of the variables will have very different values depending on circumstances, the most obvious of these being communication time, which depends on the bandwidth available to each operator. The data rate to the United States from the University of Western Australia depends on the time of day and the network quality which changes remarkably from week to week. Sometimes data rates averaging 200 bytes a sec are achieved and other times 25 kilobyte per second. Therefore the values will be imprecise. However predicting the effect of system modifications does not require high precision.</P>
+<B><P>&nbsp;</P>
+<P><IMG SRC="/old/robot-task-time/images/image42.gif" WIDTH="18" HEIGHT="26">- Time required to generate response and communicate with robot.</B> With a single request to the server the time is variable. This is measured by specifying a zero movement to the robot with default settings of 256 x 256 pixel images and 16 grey scales. A sample of 9 gave a mean of 11.3 seconds and a standard deviation of 1.1 seconds. If there are multiple users accessing the server this can be increased. It was 16 seconds with one other user requesting files from the server simultaneously. A large proportion of the time is consumed in acquiring and compressing the camera images. The time taken to acquire two images compress them and generate the  HTML document again with default image settings averaged 8.5 seconds with a sample of  7 and a standard deviation of 0.7 seconds. This can be considerably reduced with an improved frame grabber and a more powerful computer.</P>
+<P>&nbsp;</P>
+<B><P><IMG SRC="/old/robot-task-time/images/image41.gif" WIDTH="15" HEIGHT="18">- Time taken for robot to achieve a subgoal. </B>The possible subgoals are operate the gripper or move to a location. The gripper will take 1 second to operate and the robot can move at 100 millimetres per second.  It has been restricted to this to avoid damage when it is brought into contact with a fixed object. The acceleration and deceleration time is negligible for these speeds. The gripper is restricted in software to positions within an imaginary cube with sides of length 600 mm. Assuming the gripper is operated on every third move, a change in orientation adds one second every third move and a mean move interval of 230 mm. An estimate of the mean time taken is 3 seconds.</P>
+<P>&nbsp;</P>
+<B><P><IMG SRC="/old/robot-task-time/images/image43.gif" WIDTH="15" HEIGHT="18">- Communication time. </B>This is dependent on the communications bandwidth, the round trip delay and the speed with which an operators computer can decode and display the incoming data, particularly images. For many the slowest part is the telephone link from the internet access provider to the operator. It is also dependent on the amount of data to be transmitted. With standard settings and excluding the image supplied from Germany the data transmitted is:-</P>
+<P>(i) 7.5K kilobytes for each of two camera images based on a sample of 345 images with a standard deviation of 1.0K. kilobyte</P>
+<P>(ii) 4.6K kilobytes for a wire frame model with 0.2K kilobytes standard deviation based on a sample size of 540 images. </P>
+<P>(iii) 2.8K kilobytes of text.  </P>
+<P>(iv) An overhead of approximately 12% associated with transmission protocols. </P>
+<P>&nbsp;</P>
+<P>This gives a total of 25.1K kilobytes. Assuming a transmission speed of 2.5K kilobytes per second and a decoding time of one second a value of 11 seconds can be estimated. Operators can also select options which will increase or decrease the amount of data to be transmitted. To communicate and display the information on a 486 PC connected by an ethernet local area network takes about 6 seconds.</P>
+<B><P>&nbsp;</P>
+<P><IMG SRC="/old/robot-task-time/images/image44.gif" WIDTH="16" HEIGHT="18">- Operator decision making time.</B> This is hard to measure as it is particularly difficult to separate communication time from operator decision making time. We have observed large differences between operators and decreases in time with practice. It has also become apparent as the interface design has evolved that the interface designvaries for every subgoal depending on cognitive effort required to specify the goal and alters this significantly. It varies for every move alsothe cognitive effort is partly dependant on interface design.</P>
+<P ALIGN="CENTER"><IMG SRC="/old/robot-task-time/images/image54.gif" WIDTH="491" HEIGHT="281"></P>
+<B><P ALIGN="CENTER"><A NAME="_Ref345389568">Figure 5</A></P>
+</B><P>Based on 53,000 requests the distribution of  time between robot requests for requests from the same operator in a single session is shown in Figure 5. This data spans several versions of the interface, includes all operators and includes requests from users not in control of the robot but bidding for control. Hence the small peak on the left hand side of the graph. The peak request interval is 40 to 45 seconds and 65% of all intervals are in the range 24 to 92 seconds.</P>
+<P>&nbsp;</P>
+<P>Taking the peak value of 45 seconds with <B><IMG SRC="/old/robot-task-time/images/image42.gif" WIDTH="18" HEIGHT="26"></B>of<B> </B>12 seconds, <B><IMG SRC="/old/robot-task-time/images/image41.gif" WIDTH="15" HEIGHT="18"></B>of 3 seconds and <I>c</I> of 11 seconds gives <I>o</I> = 19 seconds. If an operator is attempting a complex task <I>o </I>is likely to be longer. Observation of two operators stacking blocks gave average times of 22 and 44 seconds.</P>
+<P>&nbsp;</P>
+<B><P>Estimating The Time To Stack Three Blocks.</P>
+</B><P>&nbsp;</P>
+<P>If three blocks are lying flat and are to be stacked end to end as in Figure 6 a good strategy forfor each block would be:-</P>
+<P>&nbsp;</P>
+<P>(i) Pitch 45 degrees and position just above one block.</P>
+<P>(ii) Move down.</P>
+<P>(iii) Grasp block, lift just above desired position and pitch 45 degrees the other way.</P>
+<P>(iv) Place block.</P>
+<OL START=5 TYPE="i">
+
+<LI>Open gripper and move upwards.</LI></OL>
+
+<P>&nbsp;</P>
+<B><P ALIGN="CENTER">Stacking Three Blocks</P><IMG SRC="/old/robot-task-time/images/image55.gif" WIDTH="529" HEIGHT="194" ALIGN="LEFT" HSPACE="15">
+</B><P>&nbsp;</P>
+<P>&nbsp;</P>
+<P>This strategy requires 15 moves to achieve the goal and at an interval of 45 seconds per move requires 11 minutes 15 seconds to complete. This assumes that each subgoal is achieved and there are no unintended consequences in achieving a goal i.e. in terms of the model <IMG SRC="/old/robot-task-time/images/image56.gif" WIDTH="45" HEIGHT="21">. More likely scenarios are that an operator would not adopt such an optimum strategy and some of the specified subgoals would be outside the robots joint space. Nearly all poses with the gripper held vertically are valid. Otherwise it is difficult to predict which poses will be outside the joint space. This is because it is not obvious which joint angles will produce a particular pose and neither is an operator aware of the limits for any particular joint. Experience therefore is not much help in avoiding this. If goals outside the joint space were requested twice during the construction and each time required two extra moves the time taken becomes 14 minutes 15 seconds. This scenario will be regarded as the standard task for the rest of this discussion. Knocking down a partially built structure becomes much less likely with experience. If this were to occur once after two blocks were stacked and the previous scenario occurred during the first and second construction attempts, the time taken becomes 24 minutes and 45 seconds. </P>
+<B><P>Speeding Up The Process</P>
+</B><P>&nbsp;</P>
+<P>What methods could be adopted to decrease the time taken for this task? They are:-</P>
+<P>(i) Shorten time required to generate response and communicate with robot (<IMG SRC="/old/robot-task-time/images/image42.gif" WIDTH="18" HEIGHT="26">).</P>
+<P>(ii) Shorten time taken for robot to achieve a subgoal<B> </B>(<IMG SRC="/old/robot-task-time/images/image41.gif" WIDTH="15" HEIGHT="18">).</P>
+<P>(iii) Shorten communication time<B> </B>(<IMG SRC="/old/robot-task-time/images/image43.gif" WIDTH="15" HEIGHT="18">).</P>
+<P>(iv) Shorten the operator decision making time (<IMG SRC="/old/robot-task-time/images/image44.gif" WIDTH="16" HEIGHT="18">).</P>
+<P>(v) Overlap operator decision making time with other times.</P>
+<P>(vi) Lessen the number of unsuccessful subgoals i.e. <IMG SRC="/old/robot-task-time/images/image57.gif" WIDTH="16" HEIGHT="21"> is small.</P>
+<P>(vi) Ensure there are no unintended  consequences i.e. <IMG SRC="/old/robot-task-time/images/image58.gif" WIDTH="63" HEIGHT="26">.</P>
+<P>(vii). Increase the sophistication of each subgoal so as to require less of them to complete the task.</P>
+<P>&nbsp;</P>
+<P>Considering each of these options:-</P>
+<P>&nbsp;</P>
+<B><P>Shorten time required to generate response and communicate with robot (<IMG SRC="/old/robot-task-time/images/image42.gif" WIDTH="18" HEIGHT="26">).</P>
+</B><P>This is long, more than a quarter of the total time per subgoal. Reducing it to requires an engineering effort but does not require innovation. Strategies which could be adopted include, optimising the code, using a more powerful processor,  using parallel processors. For example using a second networked computer to capture the images with the robot triggering the image acquisition at the end of its move sequence. and supplying them from this source. Goldberg achieved a turn around from move to move of five to ten seconds for his raiders robot operated from a browser on the same ethernet network which implies only a few seconds required for this task. A modest engineering effort should be able to achieve two seconds. This would reduce the time for the standard task by 3 minutes and 10 seconds.</P>
+<B><P>&nbsp;</P>
+<P>&nbsp;</P>
+<P>Shorten time taken for robot to achieve a subgoal (<IMG SRC="/old/robot-task-time/images/image41.gif" WIDTH="15" HEIGHT="18">).</P>
+<P>&nbsp;</P>
+</B><P>At three seconds this represents 7% of the cycle time. The robot moves slowly to avoid risk of damage. The speed could be increased significantly whenever the robot was not moving towards the table. Gripper time can not easily be changed. This would perhaps halve the average movement time to 1.5 seconds. This would reduce the standard task time by 28 seconds.</P>
+<B><P>&nbsp;</P>
+<P>Shorten communication time (<IMG SRC="/old/robot-task-time/images/image43.gif" WIDTH="15" HEIGHT="18">).</P>
+<P>&nbsp;</P>
+</B><P>Multimedia capabilities of computers are increasing at a dramatic rate and in the longer term the bandwidth of the internet will increase. This can perhaps be expected to halve within a few years. Eighty eight percent of the data is associated with image transmission. Currently a java script is being developed which will generate the wire frame model on the users computer rather than transmitting an image. This will reduce the 4.6K kilobytes to about 100 bytes and with the viewing angle being able to be changed by the operator interactively will convey much more information. Assuming a transmission speed of 2.5K kilobytes per second this will reduce the transmission  time per subgoal by 2 seconds. The standard task time would be reduced by 38 seconds. Reducing image size will reduce the data content considerably. With clickable images it also reduces the resolution of the position that can be selected. The standard size gives a resolution of about 5 millimetres per pixel in the centre of the table. New images are only required when the operator alters the environment and not every move will do this apart from repositioning the robot. Operators can currently select not to update an image but this is rarely done. A change in the interface design could encourage this strategy. For the standard task, if images were updated only after placing each block 7.4 seconds could be saved on 16 of the 19 subgoal requests resulting in a saving in 1 minute 68 seconds for the task. One change which might encourage operators to adopt this strategy is updating each image alternatively unless an operator requests both to be updated. This would reduce the standard task time by 1 minute and 10 seconds.</P>
+<P>&nbsp;</P>
+<P>Using jpeg coding rather than gif can lessen the amount of data per image but jpeg images take longer to compress and to decompress at the operators site. While compression times can be made small with a more powerful processor whether there is an overall gain in speed depends on the speed of the operators computer in decoding and the transmission rate. As multi media capabilities of computers increase it can be expected decoding times will be insignificant in the future and transmission times will be the overriding consideration. Large areas of a single colour are coded well by the gif method. Using the usual jpeg quality setting of 75% and with only sixteen shades of grey and a large proportion of the background being  a single colour similar amounts of data are required with either coding scheme and jpeg can sometimes be larger. A sample of five images coded by both methods produced a mean saving of only 2% for jpeg encoding. However if higher quality jpeg images or colour were provided a significant advantage could be expected also by accepting lower quality images data can be reduced by more than half.</P>
+<P>&nbsp;</P>
+<B><P>Shorten the operator decision making time (<IMG SRC="/old/robot-task-time/images/image44.gif" WIDTH="16" HEIGHT="18">).</P>
+</B><P>This can be achieved by increasing the quality of the feedback to operators. Often this will require increased data to be transmitted to the operator so there is sometimes a trade off with communication time. It is apparent that the layout of the interface is important. Operators currently have difficulty in interpreting the wire frame images, and in relating block position data to this image and images to the coordinate data. The vast majority of current operators are very inexperienced so a lot of operator decision making time is  directed to understanding the interface. The java interface will show robot position and allow the wire frame model to be dragged around the screen a cross will move to the corresponding location in each of the two camera images. This is likely to be more intuitive and encourage a higher percentage of users to use graphical instructions rather than typing position data. The camera views are currently orthogonal. It can be difficult to identify the same locations in two views and it may be more intuitive to mount the cameras with some other angle between them. A view from the robot gripper may impart more information also. For a human attempting this task with one arm the quality of the visual and other sensory feedback is sufficient to reduce decision making time isto very close to zero. This level is not likely to be achievable with a screen but reducing it to 5 seconds seems reasonable.</P>
+<B><P>&nbsp;</P>
+<P>Overlap operator decision making time with other times.</P>
+</B><P>At present an operator will have the old page on the screen until the new page is ready for transmission which will be 15 seconds or so. An operator could be planning the next move but it requires that the move be remembered until the screen is updated. The model assumes this doesnt occur. With the envisaged java interface the screen will blank out at the start of the transmission phase and gradually emerge. However any modifications can be preserved as static variables. Therefore the next subgoal can be requested while the previous is being achieved and the feedback generated ie during the interval <IMG SRC="/old/robot-task-time/images/image59.gif" WIDTH="46" HEIGHT="26">. In this case the images the operator sees are not current though the wire frame image can show the expected outcome of the previous request. If an operator wishes to verify the outcome of the previous request before submitting the next, some operator decision making time is required outside the interval <IMG SRC="/old/robot-task-time/images/image59.gif" WIDTH="46" HEIGHT="26">. As the images will emerge slowly it is assumed this can occur during the communication phase. When the previous subgoal was not achieved extra operator decision making time is required The model then becomes:-</P>
+<P><IMG SRC="/old/robot-task-time/images/image60.gif" WIDTH="185" HEIGHT="65"></P>
+<P>&nbsp;</P>
+<P>where:-</P>
+<P><IMG SRC="/old/robot-task-time/images/image61.gif" WIDTH="33" HEIGHT="26">the greater of <IMG SRC="/old/robot-task-time/images/image62.gif" WIDTH="33" HEIGHT="26"> and <IMG SRC="/old/robot-task-time/images/image63.gif" WIDTH="51" HEIGHT="26"></P>
+<P>&nbsp;</P>
+<P>Applying this to the standard task reduces the time taken by three minutes and forty eight seconds.</P>
+<B><P>&nbsp;</P>
+<P>Lessen the number of unsuccessful subgoals</P>
+</B><P>This can be done by making it apparent to an operator subgoals that can not be achieved. For our application the local simulation, possible with a java interface, can eliminate subgoals outside the joint space of the robot by the simulated robot failing to move to these poses. For the standard application the time saved is 3 minutes. </P>
+<P>&nbsp;</P>
+<B><P>Ensure there are no unintended  consequences </P>
+</B><P>This requires that all possible effects of a move be considered and strategies developed to counter them. This is the principle difficulty of full automation as the number of things to be considered can be very large and developing a strategy for each can be very time consuming. It is the lack of a requirement to do this that makes supervisory control an attractive strategy. As well the methods developed are likely to be specific to a particular task. </P>
+<P>&nbsp;</P>
+<P>For block stacking this requires recognising the existence of a stack probably by image analysis and planning a path for every point on the robot that will not intersect the stack space.  It is probably better to rely on an operators ability to avoid this.</P>
+<P>&nbsp;</P>
+<B><P>Increase the sophistication of each subgoal.</P>
+</B><P>This can be expected to produce large reductions in task completion  times. Where subgoals can be combined to a single subgoal is reduced by the number so combined. <IMG SRC="/old/robot-task-time/images/image64.gif" WIDTH="18" HEIGHT="26"> will be increased to a minimum of <IMG SRC="/old/robot-task-time/images/image65.gif" WIDTH="43" HEIGHT="56"> where <I>l </I>is the number of subgoals combined. It is likely there will be increased processing time required at the server end which would increase this value. There may also be an increase in operator decision making time for more sophisticated goals. The more sophisticated the subgoal created the more application specific it will become.   </P>
+<P>&nbsp;</P>
+<P>For the block stacking application where there are only a small number of objects a strategy could be. Select object type to be manipulated which will then appear as a wire frame in the images. Drag it around with the mouse to overlay an object in the image and indicate this position. Then drag it to the desired location and submit the request. This would change the standard task to just three moves. Assuming there is no increased processing time at the server end and operator decision making time is doubled to 30 seconds the standard task will take 3 minutes 36 seconds. </P>
+<P>&nbsp;</P>
+<P>One way of doing this is to allow multiple subgoals to be submitted in a single request. The number of subgoals that should be combined is limited by the probability of an unexpected outcome occurring at each step and the operators capacity to model the intermediate system states and provide further correct subgoals. Conceivably all of the subgoals could be combined and submitted as a as a single request but if any produced an unexpected outcome then pursuing the following subgoals would be sure to destroy the structure.</P>
+<B><P>Combining Options</P>
+</B><P>&nbsp;</P>
+<P>A strategy of using a java interface which will allow an overlap of operator decision making times with other times, eliminate unsuccessful subgoals, remove the requirement for wire frame image transmission. As well as shortening feedback time <I>f </I>to 2 seconds, subgoal time <I>s </I>to 1.5 seconds, image updates only after placing each block, an operator decision making time <I>o </I>of 5 seconds. The standard task would then take 2 minutes and 25 seconds a saving of 11 minutes and 50 seconds. </P>
+<P>&nbsp;</P><DIR>
+<DIR>
+
+<B><P>Applying The Model To A Human Stacking Blocks</P>
+</B><P>&nbsp;</P></DIR>
+</DIR>
+
+<P>A human does not share tasks so the model is not strictly applicable however it can be applied by providing an arbitrary split of tasks along the lines they are split with the robot and restricting the human to using one arm only. In this case the number of tasks remains the same. Observation of a human performing the task gave task completion times of 3.3 and 5.2 seconds. A response did not require generation so the variable <I>f = 0</I> and communication time <I>c</I> = <I>0.  </I>There was no observable time required for decision making <I>o.</I> It appeared this was overlapped with time taken to achieve subgoal <I>s </I>so that after the achievement of each subgoal the work on the next was immediately commenced. A human also can generally accomplish the task without unsuccessful subgoals or unintended consequences. The model then collapses to <IMG SRC="/old/robot-task-time/images/image66.gif" WIDTH="76" HEIGHT="56">. The time taken to achieve a subgoal <I>s</I> is also very fast due to the dexterity and speed of a human arm and hand.</P>
+<B><P>Conclusion</P>
+</B><P>&nbsp;</P>
+<P>A model has been presented which is useful for analysing a telerobotic task and predicting the effects of applying different telerobotic methods on the time it takes to complete a task. The model has been applied to the task of stacking three blocks using a telerobot we have built. The effect of different changes to the process on task times has been investigated. The model predicts large improvements are possible by implementing a combination of changes to the telerobot and its interface, reducing the time taken for this task to about 20% of the time currently required. </P>
+<P>&nbsp;</P>
+<P>The model is applied to a human performing the task without a robot. This is compared to what might be achievable by increasing the efficiency of telerobotic operation and a human performing the task of block stacking. It is apparent that the task could never be completed using telerobotic methods in the time a human alone could complete the task. The more automated the task the smaller the additional time associated with teleoperation is as a proportion of the total task time. The classes of tasks for which telerobotics with this technique are likely to be suitable are:- </P>
+<P>(i) Environments inhospitable to humans including space, undersea and underground mining.</P>
+<P>(ii) Tasks requiring forces greater than a human can achieve e.g. machining with the robot holding a tool.</P>
+<P>(iii) Tasks requiring greater precision in movements than a human can achieve.</P>
+<P>(iv) As a means of sharing equipment among many users, for example sign writing or engraving equipment.</P>
+<P>(v) Entertainment.</P>
+<P>&nbsp;</P></FONT></BODY>
+</HTML>

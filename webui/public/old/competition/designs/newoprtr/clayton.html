@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+Content-type: text/html
+
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<TITLE><h1><center>New Operator</center></h1></TITLE>
+
+
+<link rel="stylesheet" href="/old/old.css">
+</head>
+<body BGCOLOR=#ffffff>
+<div class="old-banner">Preserved from the original UWA Telerobot site (<em>1998</em>). Links that no longer lead anywhere have been removed. <a href="/#/about">Back to the UWA Telerobot</a></div>
+
+<P>You have exclusive control if you use the robot within 3 minutes.
+You gained control at Tue May 13 15:09:14 1997
+.<P>
+<form>
+<TABLE>
+<TR><TD WIDTH=200></TD>
+<TD><FONT SIZE=+1>Relinquish Control <INPUT TYPE="checkbox" NAME="JustWatch" disabled></FONT></TD>
+</TABLE>
+
+
+</FORM>
+
+<ul>
+<li>About the robot and its use
+<li><a href="#Instruction_ref"> How To Move Blocks.</a>
+<li><a href="#Greyscale_ref">Image and Greyscale.</a>
+</ul>
+
+<TABLE WIDTH=100%>
+<TR><TD VALIGN=TOP >
+
+Congratulations you have gained control of the robot. The images below show it in its current state and
+the boxes show the current pose of the robot. Change the values to move the robot to a new 
+pose and press the move robot button.
+<P><FORM>
+<TABLE>
+<TR ALIGN=center bgcolor="#hhc3e"><TD>
+</TD><TD>
+</TD><TD>
+</TD><TD>
+</TD></TR>
+<TR ALIGN=center>
+<TD>Left Hand Camera</TD><TD>Right Hand Camera</TD><TD>Robot mounted camera</TD>
+<TD>Y Axis Camera</TR><TR ALIGN=center>
+<TD>Camera Off<INPUT TYPE="checkbox" NAME="Im1DontRefresh" disabled>  </TD>
+<TD>Camera Off<INPUT TYPE="checkbox" NAME="Im2DontRefresh" disabled> </TD>
+<TD>Camera Off<INPUT TYPE="checkbox" NAME="Im3DontRefresh" disabled> </TD>
+<TD>Camera Off<INPUT TYPE="checkbox" NAME="Im4DontRefresh" disabled> </TD></TR></TABLE>
+</TD></TR></TABLE>
+<p>
+<a name="Instruction_ref"><b>How To Move Blocks!!</b></A><p>
+The first two pictures are from cameras at 45 degrees to each other. 
+X increases to the right and Y increases away (in the first two images). The grid is 100mm spacing, positions are in mm. To stand a block up, pick it up with a tilt of -45, then 
+go up and rotate to a tilt of +45. If it doesn't move you've probably reached a joint angle limitation, try going in a different direction, or if you're trying to do a rotation, go to a different point on the table first.
+<p>
+If you want a faster response turn some of the cameras off.
+<p>
+The X and Y axis are marked on the table, Z goes up from the table (you cannot go below 7). 
+The grid lines are 100mm apart and positions are in mm.
+<p> 
+<p>
+You are logged in as <i>Telerobot Team</i><br>
+
+<HR> 
+<ul>
+<a name="Greyscale_ref"></a>
+<li>Find out what greyscale setting you need
+</ul>
+<TABLE>
+ <TR> 
+  <TD>Image 1 : Greyscale <SELECT NAME="Im1Grey" disabled> <OPTION> 2<OPTION> 4<OPTION> 8<OPTION SELECTED> 16<OPTION> 32<OPTION> 64<OPTION> 128<OPTION> 256 </SELECT></TD> 
+  <TD> Size <SELECT NAME="Im1Size" disabled> <OPTION> 100<OPTION SELECTED> 150<OPTION> 175<OPTION> 200<OPTION> 300<OPTION> 400<OPTION> 500 </SELECT></TD> 
+ </TR>
+ <TR>
+  <TD>Image 2 : Greyscale <SELECT NAME="Im2Grey" disabled> <OPTION> 2<OPTION> 4<OPTION> 8<OPTION SELECTED> 16<OPTION> 32<OPTION> 64<OPTION> 128<OPTION> 256 </SELECT></TD> 
+  <TD>Size <SELECT NAME="Im2Size" disabled><OPTION> 100<OPTION SELECTED> 150<OPTION> 175<OPTION> 200<OPTION> 300<OPTION> 400<OPTION> 500</SELECT></TD> 
+ </TR>
+ <TR>
+  <TD>Image 3 : Greyscale <SELECT NAME="Im3Grey" disabled><OPTION> 2<OPTION> 4<OPTION> 8<OPTION SELECTED> 16<OPTION> 32<OPTION> 64<OPTION> 128<OPTION> 256 </SELECT></TD> 
+  <TD>Size <SELECT NAME="Im3Size" disabled><OPTION> 100<OPTION SELECTED> 150<OPTION> 175<OPTION> 200<OPTION> 300<OPTION> 400<OPTION> 500</SELECT></TD> 
+ </TR>
+ <TR>
+  <TD>Image 4 : Greyscale <SELECT NAME="Im4Grey" disabled><OPTION> 2<OPTION> 4<OPTION> 8<OPTION SELECTED> 16<OPTION> 32<OPTION> 64<OPTION> 128<OPTION> 256</SELECT></TD> 
+  <TD>Size <SELECT NAME="Im4Size" disabled><OPTION> 100<OPTION SELECTED> 150<OPTION> 175<OPTION> 200<OPTION> 300<OPTION> 400<OPTION> 500</SELECT></TD> 
+ </TR>
+</TABLE><P>
+<TABLE >
+ <TR ALIGN=right> 
+  <TD>X position <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="X" VALUE="254" disabled></TD>
+  <TD>Y position <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Y" VALUE="210" disabled></TD>
+  <TD>Z position <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Z" VALUE="15" disabled></TD></TR>
+ <TR ALIGN=right>
+  <TD>Spin  <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Spin" VALUE="0" disabled></TD>
+  <TD>Tilt <INPUT TYPE="TEXT" SIZE="4" MAXLENGTH="4" NAME="Tilt" VALUE="-45" disabled></TD>
+ <TR ALIGN=right>
+  <TD>Gripper open<INPUT TYPE="checkbox" NAME="Gripper" CHECKED disabled></TD>
+  <TD>Move relative<INPUT TYPE="checkbox" NAME="MoveType" disabled></TD>
+ </TR>
+</TABLE><P>
+
+<ul>
+<li><A HREF="/old/competition/message-form.html">Leave your comments</A>
+<li>Ken Taylor 
+  Barney Dalton
+</ul> 
+
+
+<HR>
+ <a href="/old/home.html" />Telerobot Home Page|
+ Robotics and Automation Lab|
+ <a href="http://www.mech.uwa.edu.au" rel="noopener" target="_blank" />Dept. M & M Engineering</a>|
+ <a href="http://www.uwa.edu.au" rel="noopener" target="_blank" />UWA Home Page</a>|
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<HTML>
+<HEAD>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<TITLE> Designing An Interface Layout </TITLE>
+<link rel="stylesheet" href="/old/old.css">
+</head>
+
+<BODY BGCOLOR=#ffe4e4>
+<div class="old-banner">Preserved from the original UWA Telerobot site (<em>1997</em>). Links that no longer lead anywhere have been removed. <a href="/#/about">Back to the UWA Telerobot</a></div>
+<H1> Designing your very own layout</H1>
+
+<A HREF="#Intro">Introduction</A> | <A HREF="#Labels"> Labels to be replaced</A>
+| <A HREF="#HowTo">How to submit your page</A> | <A HREF="#NewOp">Choosing your New
+Operator interface</A>
+<P>
+
+<A NAME="Intro"><H3>Introduction</H3>
+
+Part of what we do here is research on what is the best method to tackle 
+certain tasks or more realistically, the most popular choices. For this we encourage
+user feedback so that we may implement peoples ideas and possibly develop a more favourable
+relationship between person and machine. In the end, people still have to use the interface. 
+<P>
+We are preparing to take it one step further by allowing the public to design their own 
+interfaces for interaction with the robot server. We will observe which of these interfaces
+seem to be the more popular, ask the question why, and then draw some sort of conclusion
+as to what people look for in an ideal interface.
+<P>
+Points under consideration are:
+<UL>
+  <LI> How much is crammed onto a page at any one time
+  <LI> How much scrolling is necessary
+  <LI> Which options are frequently used and so should not be placed in an obscure position
+  <LI> Is the "Move Robot" button in a convenient position
+</UL>
+
+<H3>How the template works.</H3>
+When a robot move or a request for control of the robot has been made, a HTML page is
+returned indicating the success of the request. The layout of the returned page is determined
+by the relevent template. The template file is copied to the output with the values of such
+fields as position and image attributes inserted into it, the result being the page as
+seen by the users. This means that the template (when viewed with a browser) is almost identical
+to the pages that users get sent to them but instead of containing numbers, contains labels
+that indicate where these numbers are meant to go. Some of these fields are meant for text as
+well.
+<P>
+The idea is then to design the template such that it has a convenient layout because the
+pages that people will eventually see will be structured the same way. The layout you design
+can be previewed by viewing it through a browser locally.
+<P>
+The javascript section that appears before the main body of the HTML document should not be
+changed without good reason. You may find that javascript can be a very powerful tool in 
+enhancing the visual structure of the interface but should be used with caution. If you
+are not familiar with it, we recommend that you omit it altogether and then
+we will add it again at our end. Java Applets should not be used at all. 
+
+<H3>Templates</H3>
+As a starting point we suggest that you investigate the default templates. Save them using
+your browser so that you can examine the HTML coding.
+<UL>
+  <LI> New Operator
+  <LI> Operator
+  <LI> Observer
+</UL>
+
+There are several critical components in a template (ie, don't leave them out). Firstly, take
+note of the form tags and their placement. If fields aren't contained within the form tags 
+they will not get submitted. Secondly, the hidden fields that specify the OperatorID and 
+SessionID. It is these numbers that allow for the same user to keep control. When a new 
+operator first gains control, they are assigned an OperatorID and the robot program uses
+this ID to determine whether or not it should execute a submitted request.
+<P>
+
+<A NAME="Labels"><H4>Labels in the template</H4>
+
+Perhaps the most important part of the template is the labels that get 
+substituted for particular values. These labels are:<P>
+
+<CENTER><TABLE WIDTH=90% CELLSPACING=2 BORDER=1>
+<TR ALIGN=LEFT><TH>Label</TH><TH>What gets substituted in</TH></TR>
+<TR ALIGN=LEFT><TD COLSPAN=2><EM><FONT COLOR="#b3106f"> Operator details </EM></TD></TR>
+<TR ALIGN=LEFT><TD>HostNameVal</TD><TD>The host name of the current controller</TD></TR>
+<TR ALIGN=LEFT><TD>OperatorIdVal</TD><TD>A unique number that is necessary to determine who has 
+	authority to control the robot</TD></TR>
+<TR ALIGN=LEFT><TD>SessionIdVal</TD><TD>For logging purposes, to keep track of a single
+	session</TD></TR>
+<TR ALIGN=LEFT><TD COLSPAN=2><EM><FONT COLOR="#b3106f"> Position & orientation details </EM></TD></TR>
+<TR ALIGN=LEFT><TD>XVal</TD><TD>Robot's current X-coordinate value</TD></TR>
+<TR ALIGN=LEFT><TD>YVal</TD><TD>Robot's current Y-coordinate value</TD></TR>
+<TR ALIGN=LEFT><TD>ZVal</TD><TD>Robot's current Z-coordinate value</TD></TR>
+<TR ALIGN=LEFT><TD>SpinVal</TD><TD>Robot's current Spin value</TD></TR>
+<TR ALIGN=LEFT><TD>TiltVal</TD><TD>Robot's current Tilt value</TD></TR>
+<TR ALIGN=LEFT><TD>GripperCheck</TD><TD>Whether gripper should be open</TD></TR>
+<TR ALIGN=LEFT><TD>MoveTypeCheck</TD><TD>Robot's movement method</TD></TR>
+<TR ALIGN=LEFT><TD COLSPAN=2><EM><FONT COLOR="#b3106f"> Movement details </EM></TD></TR>
+<TR ALIGN=LEFT><TD>MoveCountVal</TD><TD>Number of moves made by current controller</TD></TR>
+<TR ALIGN=LEFT><TD>StartTimeVal</TD><TD>Time when operator first gained control of the robot</TD></TR>
+<TR ALIGN=LEFT><TD>LastTimeVal</TD><TD>Time when operator made their laast move</TD></TR>
+<TR ALIGN=LEFT><TD COLSPAN=2><EM><FONT COLOR="#b3106f"> Image details </EM></TD></TR>
+<TR ALIGN=LEFT><TD>Im1FileVal-Im4FileVal</TD><TD>File names of the 4 image files</TD></TR>
+<TR ALIGN=LEFT><TD>Im1SizeVal-Im4SizeVal</TD><TD>Dimensions of the 4 images</TD></TR>
+<TR ALIGN=LEFT><TD>Im1DontRefreshCheck-<BR>....Im4DontRefreshCheck</TD>
+	<TD>Whether or not particular images should be displayed</TD></TR>
+<TR ALIGN=LEFT><TD>Im1ZoomVal-Im2ZoomVal.</TD><TD>Magnification level in cameras 1 & 2</TD></TR>
+<TR ALIGN=LEFT><TD COLSPAN=2><EM><FONT COLOR="#b3106f"> Message details </EM></TD></TR>
+<TR ALIGN=LEFT><TD>ErrorVal</TD><TD>If an error occurred, the message is displayed here</TD></TR>
+<TR ALIGN=LEFT><TD COLSPAN=2><EM><FONT COLOR="#b3106f"> Interface details </EM></TD></TR>
+<TR ALIGN=LEFT><TD>InterfaceSelection</TD><TD>Interface choices available</TD></TR>
+<TR ALIGN=LEFT><TD>UserTemplate</TD><TD>If using a personalised template, carry it over from previous requests</TD></TR>
+<TR ALIGN=LEFT><TD>CheckedVal</TD><TD>Is the user trying to gain control or just watch</TD></TR>
+</TABLE></CENTER>
+
+<P>
+If any of the form fields are missing, default values will be used by the robot move program
+and so will restrict what can be done. If labels are omitted, details concerning the position
+of the robot and other useful information may not be displayed. Most critical are that 
+the Operator Details labels are included or the operator will not be able to keep 
+control beyond 1 move.
+<P>
+
+<A NAME="HowTo"><H3>Submitting your page</H3>
+
+<FORM>
+<TABLE BORDER=1>
+
+<TR><TD bgcolor="#cfcfff"><TABLE WIDTH=90%>
+<TR><TD></TD><TD WIDTH=50%>What to call the file<BR>(no extension please)<br>Max 8 letters</TD><TD><INPUT TYPE="TEXT" NAME="L" disabled></TD></TR>
+<TR><TD></TD><TD>What type of page is it?</TD>
+<TD><SELECT NAME="T" disabled><OPTION VALUE="0" SELECTED>Observer
+	<OPTION VALUE="1">Operator
+	<OPTION VALUE="2">New Operator
+	<OPTION VALUE="3">Clicked one image</SELECT></TD></TR>
+<TR><TD></TD><TD>Path to your HTML document</TD><TD></TD></TR>
+</TABLE></TD></TR>
+
+<TR ALIGN=CENTER><TD></TD></TR>
+</TABLE>
+</FORM>
+
+Once you are happy with how the pages seem to appear (using Netscape on your local machine) you
+can submit the HTML document by filling the above form. Enter the full pathname of your source
+file in the <EM>File</EM> box (or browse your local disk) and the stem of what you want the 
+file to be called on our machine. We suggest using your name as a file stem (eg,
+joeoprtr.htm). <font color=red><em>For your templates to work properly they should all have the same name - each
+type (observer, operator etc) is saved in different directories so don't worry about overwriting
+them. This enables the telerobot code to pick the right template when you change from observer to
+new operator or vice versa </em></font>. If you do not specify one, a default name will be allocated - this
+is not recommended. Also make sure that you have correctly indicated the type of template you are
+submitting. 
+<P>
+Once you have submitted your file it shouls be available immediately. You can use it by going to 
+the interface selection part of the page and enter the stem of the file name in the text box 
+on the right (eg, joeoprtr). If you enter the name of the file incorrectly or the file does 
+not exist, the default page will be returned.
+<P>
+When you are satisfied with your sumbission and think that it could be included as a standard 
+template, leave us a comment or send us some mail to tell us about it. Mail should be sent  
+to .
+<P>
+
+<A NAME="NewOp"><H3>Choose your interface now</H3>
+
+<FORM>
+  <CENTER><TABLE WIDTH=450 BORDER=1>
+  <TR><TD ALIGN=CENTER bgcolor="#d0a0ff"><TABLE BORDER=0>
+    <TR ALIGN=CENTER><TD WIDTH="50%">
+    </TD>
+    <TD><FONT SIZE=+1>Observe only <INPUT TYPE="checkbox" NAME="JustWatch" VALUE="observe" disabled></FONT></TD></TR>
+    <TR ALIGN=CENTER><TD COLSPAN=2>Select Interface Scheme 
+    <SELECT NAME="Interface" disabled> 
+      <OPTION SELECTED Value=0> Default new operator interface
+    </SELECT>
+    <BR><B>Or...</B></TD></TR>
+    <TR ALIGN=CENTER><TD COLSPAN=2>Enter a template filename <INPUT TYPE="text" NAME="UserTemplate" SIZE="8" MAXLENGTH="8" VALUE="" disabled> <BR>
+    <SMALL>(Do not include file extension).</SMALL> </TD></TR>
+  </TABLE></TD></TR>
+  </TABLE></CENTER>
+</FORM>
+<HR><FONT COLOR="#207f20">Gintaras Radzivanas</FONT>
+<BR>
+
+Last modified: Tue 27 May 13:27 1997
+
+</BODY>
+</HTML>
