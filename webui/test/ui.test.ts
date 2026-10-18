@@ -4,7 +4,7 @@ import type { In, Out } from '../src/net/protocol';
 import { ChatPanel } from '../src/ui/chatPanel';
 import { ControlPage, HOME } from '../src/ui/controlPage';
 import { LoginPage, HELP_TEXT } from '../src/ui/loginPage';
-import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, WAKING, WIKIPEDIA, WakingPage, progressAt } from '../src/ui/wakingPage';
+import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, SLOW_AFTER_S, TYPICAL_WAKE_S, WAKING, WIKIPEDIA, WakingPage, progressAt } from '../src/ui/wakingPage';
 
 const ctxStub = new Proxy({}, { get: () => () => undefined, set: () => true }) as unknown as CanvasRenderingContext2D;
 
@@ -502,20 +502,23 @@ describe('waking page', () => {
       expect(w.steps.children[0]!.getAttribute('aria-current')).toBe('step');
       expect(w.el.querySelector('.waking-arm')).not.toBeNull();
 
-      t = 45_000;
+      t = 25_000;
       vi.advanceTimersByTime(1000);
-      expect(w.detail.textContent).toBe('45 s');
+      expect(w.detail.textContent).toBe('25 s');
       const bar = w.el.querySelector('[role="progressbar"]')!;
-      expect(bar.getAttribute('aria-valuenow')).toBe(String(Math.round(progressAt(45) * 100)));
+      expect(bar.getAttribute('aria-valuenow')).toBe(String(Math.round(progressAt(25) * 100)));
 
       // a new step keeps the clock: since is the wake's start
       w.show({ kind: 'starting', since: 0, step: 'robot' });
       expect(stepClasses(w)).toEqual(['done', 'active', 'todo']);
-      expect(w.detail.textContent).toBe('45 s');
+      expect(w.detail.textContent).toBe('25 s');
 
-      t = 160_000;
+      t = (SLOW_AFTER_S - 1) * 1000;
       vi.advanceTimersByTime(1000);
-      expect(w.detail.textContent).toBe(`160 s · ${SLOW}`);
+      expect(w.detail.textContent).toBe(`${SLOW_AFTER_S - 1} s`);
+      t = (SLOW_AFTER_S + 10) * 1000;
+      vi.advanceTimersByTime(1000);
+      expect(w.detail.textContent).toBe(`${SLOW_AFTER_S + 10} s · ${SLOW}`);
 
       w.show({ kind: 'running' });
       expect(w.heading.textContent).toBe('Connecting…');
@@ -559,9 +562,10 @@ describe('waking page', () => {
 
   it('paces the bar on a typical wake and never fills it before the end', () => {
     expect(progressAt(0)).toBe(0);
-    expect(progressAt(45)).toBeCloseTo(0.425);
-    expect(progressAt(90)).toBeCloseTo(0.85);
-    for (const t of [120, 200, 300]) {
+    expect(progressAt(TYPICAL_WAKE_S / 2)).toBeCloseTo(0.425);
+    expect(progressAt(TYPICAL_WAKE_S)).toBeCloseTo(0.85);
+    expect(SLOW_AFTER_S).toBeGreaterThan(TYPICAL_WAKE_S);
+    for (const t of [60, 120, 200]) {
       expect(progressAt(t)).toBeGreaterThan(progressAt(t - 30));
       expect(progressAt(t)).toBeLessThan(0.98);
     }

@@ -8,13 +8,17 @@ import { button, h } from './dom';
 
 export const WAKING = 'Turning the robot on…';
 export const CAPPED = 'The robot is resting until next month';
-export const EXPECT = 'The robot sleeps when no one is using it. Waking it usually takes 1–2 minutes.';
+export const EXPECT = 'The robot sleeps when no one is using it. Waking it usually takes under a minute.';
 export const SLOW = 'Taking longer than usual…';
 
-/** A typical wake, from the click to the control page; the bar is paced on it. */
-export const TYPICAL_WAKE_S = 90;
+/**
+ * A typical wake, from the click to the control page; the bar is paced on it.
+ * Measured 2026-10-18 on the live site: 39 s (the instance answered 32-33 s
+ * after it was started, through both the London and Manchester edges).
+ */
+export const TYPICAL_WAKE_S = 40;
 /** Past this the page says the wake is slow. */
-export const SLOW_AFTER_S = 150;
+export const SLOW_AFTER_S = 90;
 export const FACT_MS = 9000;
 
 export interface Fact {
@@ -55,7 +59,7 @@ const STEPS: readonly { id: WakeStep | 'connect'; label: string }[] = [
 export function progressAt(t: number): number {
   const s = Math.max(0, t);
   if (s <= TYPICAL_WAKE_S) return (0.85 * s) / TYPICAL_WAKE_S;
-  return 0.85 + 0.13 * (1 - Math.exp(-(s - TYPICAL_WAKE_S) / 60));
+  return 0.85 + 0.13 * (1 - Math.exp(-(s - TYPICAL_WAKE_S) / 30));
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
