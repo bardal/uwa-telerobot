@@ -81,7 +81,7 @@ describe("edge stack", () => {
     const [rule] = acl.Rules.filter((r: any) => r.Statement.RateBasedStatement);
     expect(rule.Action).toEqual({ Block: {} });
     expect(rule.Statement.RateBasedStatement).toEqual({
-      Limit: 300,
+      Limit: 1000,
       EvaluationWindowSec: 300,
       AggregateKeyType: "IP",
     });

@@ -35,7 +35,7 @@ export class EdgeStack extends Stack {
           priority: 0,
           action: { block: {} },
           statement: {
-            rateBasedStatement: { limit: 300, evaluationWindowSec: 300, aggregateKeyType: "IP" },
+            rateBasedStatement: { limit: 1000, evaluationWindowSec: 300, aggregateKeyType: "IP" },
           },
           visibilityConfig: visibility("RatePerIp"),
         },

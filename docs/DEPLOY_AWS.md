@@ -250,6 +250,10 @@ So the web ACL is `RatePerIp`, `AWSManagedRulesCommonRuleSet` and
 it falls under `RatePerIp`, a wake still needs a Turnstile or Cognito token
 and the origin secret, and the 150-hour cap bounds what wakes can cost.
 
+`RatePerIp` was raised from 300 to 1000 requests per 5 minutes on 2026-10-18:
+the landing page and the preserved `/old/` pages are full of photos, and 300
+blocked a keen visitor (or a shared office connection) browsing them.
+
 Once subscribed, the web ACL can't be detached from the distribution; leaving
 the plan means cancelling the subscription (Free plans cancel at once).
 
