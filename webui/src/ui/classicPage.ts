@@ -271,6 +271,9 @@ export class ClassicPage {
       }
       this.dropWaitersFrom(pending);
       this.fillFromState();
+      // back to the top, as the CGI's reloaded page was, to see the new photos come in
+      // (on a phone the button is three photos down); an error stays in view by the form
+      if (!this.error.textContent) this.el.scrollIntoView?.({ block: 'start' });
       await this.refreshPhotos();
     } finally {
       this.dropWaitersFrom(pending);

@@ -767,8 +767,14 @@ a.back-link {
     width: auto;
   }
 
+  /* as tall as its contents: the settings may wrap onto two or three lines */
   .cameras-border {
+    flex: 0 0 auto;
     min-height: 360px;
+  }
+
+  .canvas-wrap {
+    min-height: 220px;
   }
 }
 
@@ -870,4 +876,26 @@ a.back-link {
 
 .classic-footer {
   font-size: 0.8em;
+}
+
+/* ---- touch screens: iOS Safari zooms the page into any text field under 16px
+   when it is tapped, and 1996-sized buttons are hard to hit with a finger ---- */
+
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([readonly]),
+  textarea:not([readonly]),
+  select {
+    font-size: 16px;
+  }
+
+  .classic-page input:not([type='checkbox']):not([type='radio']),
+  .classic-page button {
+    font-size: 16px;
+    padding: 6px 10px;
+  }
+
+  .classic-page input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+  }
 }
