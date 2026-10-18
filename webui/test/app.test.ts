@@ -431,3 +431,62 @@ describe('e2e hook', () => {
     globalThis.history.replaceState(null, '', '/');
   });
 });
+
+describe('the 1996 forms interface (#/classic)', () => {
+  const go = (hash: string) => {
+    globalThis.location.hash = hash;
+    globalThis.dispatchEvent(new HashChangeEvent('hashchange'));
+  };
+
+  it('is another view of the session: it shows the forms page, and back gives the applet page its camera again', async () => {
+    const { app, root, g } = await loggedIn('ann');
+    g.emit(welcome('ann'));
+    expect(app.view()).toBe('control');
+    const appletCam = app.control()!.selectedCamera();
+    go('#/classic');
+    expect(app.view()).toBe('classic');
+    expect(root.querySelector('.classic-page')).not.toBeNull();
+    await flush();
+    // the forms page asks for each camera's latest photo in turn
+    expect(g.sent.filter((m) => m.t === 'selectCamera').at(-1)).toEqual({ t: 'selectCamera', camera: 'Colour' });
+    g.sent.length = 0;
+    go('#/');
+    expect(app.view()).toBe('control');
+    expect(root.querySelector('.control-page')).not.toBeNull();
+    expect(g.sent).toContainEqual({ t: 'selectCamera', camera: appletCam });
+  });
+
+  it('messages reach the forms page too', async () => {
+    const { app, g } = await loggedIn('ann');
+    g.emit(welcome('ann'));
+    g.emit({ t: 'controller', nick: 'bob' });
+    go('#/classic');
+    expect(app.classic()!.mode()).toBe('observer');
+  });
+
+  it('needs a session: before one it is the login page', async () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    globalThis.location.hash = '#/classic';
+    const app = startApp(root, deps());
+    await app.ready;
+    expect(app.view()).toBe('login');
+  });
+
+  it('Help > Forms Interface (1996) opens it', async () => {
+    const { app, g } = await loggedIn('ann');
+    g.emit(welcome('ann'));
+    app.control()!.menuBar.item('Help', 'Forms Interface (1996)').el.click();
+    expect(globalThis.location.hash).toBe('#/classic');
+  });
+
+  it('logging out from it ends the session', async () => {
+    const { app, g } = await loggedIn('ann');
+    g.emit(welcome('ann'));
+    go('#/classic');
+    [...app.root.querySelectorAll('.classic-page a')].find((a) => a.textContent === 'Log out')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flush();
+    expect(app.view()).toBe('login');
+    expect(app.classic()).toBeNull();
+  });
+});

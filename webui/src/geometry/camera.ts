@@ -41,6 +41,26 @@ function mul3(m: M3, v: [number, number, number]): [number, number, number] {
   ];
 }
 
+/**
+ * The point nearest two rays (each through a and b): the midpoint of their
+ * shortest connecting segment, as the 1996 image server did for two clicked
+ * images. Null when the rays are (nearly) parallel.
+ */
+export function triangulate(r1: { a: Vec3; b: Vec3 }, r2: { a: Vec3; b: Vec3 }): Vec3 | null {
+  const d1 = { x: r1.b.x - r1.a.x, y: r1.b.y - r1.a.y, z: r1.b.z - r1.a.z };
+  const d2 = { x: r2.b.x - r2.a.x, y: r2.b.y - r2.a.y, z: r2.b.z - r2.a.z };
+  const w = { x: r1.a.x - r2.a.x, y: r1.a.y - r2.a.y, z: r1.a.z - r2.a.z };
+  const dot = (p: Vec3, q: Vec3) => p.x * q.x + p.y * q.y + p.z * q.z;
+  const a = dot(d1, d1), b = dot(d1, d2), c = dot(d2, d2), d = dot(d1, w), e = dot(d2, w);
+  const den = a * c - b * b;
+  if (Math.abs(den) < 1e-9 * a * c) return null;
+  const s = (b * e - c * d) / den;
+  const t = (a * e - b * d) / den;
+  const p = { x: r1.a.x + s * d1.x, y: r1.a.y + s * d1.y, z: r1.a.z + s * d1.z };
+  const q = { x: r2.a.x + t * d2.x, y: r2.a.y + t * d2.y, z: r2.a.z + t * d2.z };
+  return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 };
+}
+
 export class Camera {
   private readonly p: P34;
   private readonly mInv: M3;

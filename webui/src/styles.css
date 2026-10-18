@@ -786,3 +786,88 @@ a.back-link {
 .history-viewer { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.8); cursor: zoom-out; z-index: 20; }
 .history-viewer[hidden] { display: none; }
 .history-full { max-width: 96vw; max-height: 96vh; }
+
+/* ---- the 1996 forms interface: a plain page as Netscape 2 showed it ---- */
+
+.classic-page {
+  height: auto;
+  min-height: 100%;
+  padding: 8px 16px 24px;
+  background: #ffffff;
+  color: #000000;
+  font: 16px/1.25 'Times New Roman', Times, serif;
+  overflow-wrap: anywhere;
+}
+
+.classic-page h1 {
+  color: #000080;
+  font-size: 2em;
+  margin: 0.67em 0;
+}
+
+.classic-page a {
+  color: #0000ee;
+}
+
+.classic-page a:visited {
+  color: #551a8b;
+}
+
+.classic-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.classic-camera {
+  margin: 0;
+  text-align: center;
+}
+
+.classic-photo {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+
+.classic-photo-off {
+  width: 200px;
+  height: 150px;
+  background: #c0c0c0;
+  cursor: default;
+}
+
+.classic-photo-clicked {
+  outline: 3px solid #ff0000;
+}
+
+.classic-error {
+  color: #ff0000;
+  font-weight: bold;
+}
+
+.classic-error:empty,
+.classic-status:empty,
+.classic-notice:empty {
+  display: none;
+}
+
+.classic-form td {
+  padding: 2px 8px 2px 0;
+  text-align: right;
+}
+
+/* the browser's own controls, not the applet's AWT ones */
+.classic-page input,
+.classic-page button {
+  font: 13px Arial, Helvetica, sans-serif;
+}
+
+.classic-busy {
+  cursor: progress;
+}
+
+.classic-footer {
+  font-size: 0.8em;
+}
