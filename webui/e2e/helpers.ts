@@ -40,7 +40,7 @@ export async function shot(page: Page, name: string): Promise<void> {
 }
 
 export async function open(page: Page, query = ''): Promise<void> {
-  await page.goto(`/?e2e=1${query ? `&${query}` : ''}`);
+  await page.goto(`/?e2e=1${query ? `&${query}` : ''}#/login`);
   // the config is loaded once the Guest button is enabled
   await expect(page.getByRole('button', { name: 'Guest', exact: true })).toBeEnabled();
 }

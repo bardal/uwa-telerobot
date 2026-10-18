@@ -1,4 +1,5 @@
-// The app: routes (#/ is login or control, #/classic the 1996 forms interface
+// The app: routes (#/ is the landing page before a session and control in one,
+// #/about the landing page, #/login the login page, #/classic the 1996 forms interface
 // over the same session, #/history is History), the waking page while the lab
 // starts, and the session flow login -> wake -> gateway.
 
@@ -12,10 +13,13 @@ import { ensureAwake, type WakeState } from './net/wake';
 import { ClassicPage } from './ui/classicPage';
 import { ControlPage } from './ui/controlPage';
 import { h } from './ui/dom';
+import { APPLET_HASH, FORMS_HASH, LandingPage } from './ui/landingPage';
 import { LoginPage } from './ui/loginPage';
 import { WakingPage } from './ui/wakingPage';
 
 const NICK_KEY = 'telerobot.nick';
+/** The way in (#/login or #/classic) chosen before a sign-in redirect. */
+const AFTER_SIGN_IN = 'telerobot.afterSignIn';
 const OUT_TYPES: Out['t'][] = [
   'welcome', 'robotState', 'controller', 'commandStatus', 'users', 'chat', 'workspace',
   'cameraSettings', 'archived', 'lab', 'console', 'error',
@@ -60,7 +64,7 @@ function wsUrl(): string {
 
 export interface App {
   readonly root: HTMLElement;
-  view(): 'login' | 'waking' | 'control' | 'classic' | 'history';
+  view(): 'landing' | 'login' | 'waking' | 'control' | 'classic' | 'history';
   control(): ControlPage | null;
   classic(): ClassicPage | null;
   readonly login: LoginPage;
@@ -116,6 +120,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   let login = makeLogin(false, false);
   login.setBusy(true); // until the config (site key, user pool) is loaded
   let admin = false; // the current session's welcome.level === 'admin'
+  const landing = new LandingPage();
   const history = new HistoryPage({
     fetchImpl,
     canDelete: () => admin && welcomed && gateway !== null,
@@ -134,9 +139,12 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     });
   }
 
-  function route(): 'login' | 'waking' | 'control' | 'classic' | 'history' {
+  function route(): 'landing' | 'login' | 'waking' | 'control' | 'classic' | 'history' {
     const hash = globalThis.location?.hash ?? '';
     if (hash === '#/history') return 'history';
+    if (hash === '#/about') return 'landing';
+    // before a session the site opens on the landing page; its two ways in (#/login, #/classic) log in first
+    if (view === 'login' && hash !== APPLET_HASH && hash !== FORMS_HASH) return 'landing';
     // the forms interface is another view of a session: only once there is one
     return hash === '#/classic' && view === 'control' && classic ? 'classic' : view;
   }
@@ -158,6 +166,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
     const el =
       r === 'history' ? history.el
+      : r === 'landing' ? landing.el
       : r === 'login' ? login.el
       : r === 'waking' ? waking.el
       : r === 'classic' ? classic!.el
@@ -211,6 +220,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       return;
     }
     login.setBusy(true); // one redirect, however many clicks
+    // the redirect back lands on the bare site: remember which interface was chosen
+    try { globalThis.sessionStorage?.setItem(AFTER_SIGN_IN, globalThis.location?.hash ?? ''); } catch { /* unavailable */ }
     try {
       await auth.signIn();
     } catch (e) {
@@ -345,7 +356,14 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     mode = null;
     login.setBusy(false);
     setView('login');
-    if (message) login.println(message);
+    if (message) {
+      login.println(message);
+      // a message needs the login page, not the landing page
+      if (route() === 'landing' && globalThis.location) {
+        globalThis.location.hash = APPLET_HASH;
+        render();
+      }
+    }
   }
 
   /** TA200001.finishSession. */
@@ -399,6 +417,12 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       login.println(e instanceof Error ? e.message : String(e));
     }
     if (signedIn) {
+      let back: string | null = null;
+      try {
+        back = globalThis.sessionStorage?.getItem(AFTER_SIGN_IN) ?? null;
+        globalThis.sessionStorage?.removeItem(AFTER_SIGN_IN);
+      } catch { /* unavailable */ }
+      if (back === APPLET_HASH || back === FORMS_HASH) globalThis.location.hash = back;
       if (nick) begin(nick, { kind: 'signedIn' });
       else login.println('Signed in: type a nickname and press Sign in');
     }

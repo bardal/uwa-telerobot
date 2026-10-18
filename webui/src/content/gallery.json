@@ -1,0 +1,408 @@
+{
+  "hall": [
+    {
+      "title": "Eiffel Tower",
+      "by": "Some Slacker",
+      "date": "1999-08-09",
+      "note": "I really really enjoy playing with your Robotic arm, please please don't take it away. EVER !!!! I can't believe it took me 2 hours and 9 min. to complete this, but I couldn't make up my mind on what to build, so I finally decided to just keep it simple...",
+      "moves": 72,
+      "images": [
+        {
+          "src": "/gallery/hall/eiffel-1.jpg",
+          "alt": "A tall, narrow tower of dark and pale blocks on a four-legged base, seen beside the robot gripper"
+        },
+        {
+          "src": "/gallery/hall/eiffel-2.jpg",
+          "alt": "Close view of a slender block tower rising from the table grid"
+        }
+      ]
+    },
+    {
+      "title": "Wobbly Tower",
+      "by": "Some Slacker",
+      "date": "1999-08-09",
+      "note": "My horrible leaning tower! This was it, I had to jet off to work. I took this pic just before I tried to pick up the one block in the foreground of the second pic. and set it on top all in one move, it all came crashing down, its amazing what 5 mm can do!",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/wobbly-1.jpg",
+          "alt": "A tall stack of blocks topped by a curved piece, standing on the table with loose blocks around it"
+        },
+        {
+          "src": "/gallery/hall/wobbly-2.jpg",
+          "alt": "A leaning tower of blocks at the far edge of the table grid beside the robot arm"
+        }
+      ]
+    },
+    {
+      "title": "Four legs",
+      "by": "Stephen",
+      "date": "1999-07-10",
+      "note": "Here's a new entry for you \"Hall of Fame\"... Please consider it. The hardest part was the four corner posts. Keeping from knocking them over when placing the last one was an interesting affair! The top piece was no piece of cake either.",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/four-legs-1.jpg",
+          "alt": "A table-like structure of block posts with a flat top, seen close up"
+        },
+        {
+          "src": "/gallery/hall/four-legs-2.jpg",
+          "alt": "The four-legged block structure held beside the robot gripper"
+        }
+      ]
+    },
+    {
+      "title": "The definitive castle",
+      "by": null,
+      "date": "1996-11-21",
+      "note": null,
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/castle-1.jpg",
+          "alt": "A colourful block castle with a small red roof on the robot table, orange arm at left"
+        },
+        {
+          "src": "/gallery/hall/castle-2.gif",
+          "alt": "A black and grey block archway on legs, with the gripper above it"
+        }
+      ]
+    },
+    {
+      "title": "Bridge over the River Kwai",
+      "by": null,
+      "date": null,
+      "note": "Truly impressive",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/kwai-1.jpg",
+          "alt": "A bridge of red and blue blocks spanning a gap, with a red triangular block on top and the gripper above"
+        },
+        {
+          "src": "/gallery/hall/kwai-2.jpg",
+          "alt": "The block bridge collapsed in a heap of red and blue blocks on the table"
+        }
+      ]
+    },
+    {
+      "title": "A Tower",
+      "by": "Stephen",
+      "date": "July 1999",
+      "note": null,
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/tower-1.jpg",
+          "alt": "A tall tower of blocks with a block-with-hole near the base, beside the robot gripper"
+        }
+      ]
+    },
+    {
+      "title": "The Pyramid",
+      "by": null,
+      "date": "1998-05-15",
+      "note": "this project took me just under 3 hours to complete, and approximately 120 moves.",
+      "moves": 120,
+      "images": [
+        {
+          "src": "/gallery/hall/pyramid-1.jpg",
+          "alt": "Five small camera frames showing a brick pyramid being built on the table"
+        }
+      ]
+    },
+    {
+      "title": "The Round House",
+      "by": null,
+      "date": "1998-02-18",
+      "note": "Another three dimensional structure. These are in the minority.",
+      "moves": 290,
+      "images": [
+        {
+          "src": "/gallery/hall/roundhouse-1.jpg",
+          "alt": "A round house of red, yellow and blue blocks with an arched base and triangular roof"
+        }
+      ]
+    },
+    {
+      "title": "Three-dimensional structure",
+      "by": null,
+      "date": "1997-09-29",
+      "note": "Matt spent four hours here on 29 September 1997 but not all of it building this.",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/matt-1.jpg",
+          "alt": "A three-dimensional block structure standing on the table with the gripper at right"
+        }
+      ]
+    },
+    {
+      "title": "All the way from Los Angeles",
+      "by": null,
+      "date": "1996-11-13",
+      "note": "Not bad for 6 hours! The peg in the hole was a nice touch.",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/la-1.jpg",
+          "alt": "A small block structure on the table seen from across the room, with the orange arm behind"
+        },
+        {
+          "src": "/gallery/hall/la-2.gif",
+          "alt": "A block structure with a round peg pushed into a hole, grey-scale close-up"
+        }
+      ]
+    },
+    {
+      "title": "A castle",
+      "by": null,
+      "date": "1997-02-04",
+      "note": "Here is a castle made on the 4th of February, 1997, by someone! If this is yours, we'd love to hear from you :)",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/entry3-1.jpg",
+          "alt": "A castle of coloured blocks on the table, with the orange arm and gripper above"
+        }
+      ]
+    },
+    {
+      "title": "The “highest” structure yet built",
+      "by": null,
+      "date": "1996-02-10",
+      "note": "Hats off to your patience John! Taking the structure from table height to maximum Z (450) in 5mm steps must have taken ages!",
+      "moves": 156,
+      "images": [
+        {
+          "src": "/gallery/hall/highest-1.jpg",
+          "alt": "A very tall thin column of blocks held at the end of the orange robot arm"
+        },
+        {
+          "src": "/gallery/hall/highest-2.gif",
+          "alt": "Grey-scale view of the tall column rising above the gripper"
+        }
+      ]
+    },
+    {
+      "title": "The Acropolis",
+      "by": null,
+      "date": null,
+      "note": null,
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/acropolis-1.jpg",
+          "alt": "Red and blue block columns with a pediment roof standing on the table, gripper above"
+        },
+        {
+          "src": "/gallery/hall/acropolis-2.gif",
+          "alt": "Grey-scale view of two block columns carrying a lintel across the top"
+        }
+      ]
+    },
+    {
+      "title": "A more recent effort",
+      "by": null,
+      "date": null,
+      "note": null,
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/recent-1.gif",
+          "alt": "A structure of coloured blocks on the table, seen from the corner with the robot arm at left"
+        }
+      ]
+    },
+    {
+      "title": "Is this for real?",
+      "by": null,
+      "date": "1998-07-20",
+      "note": "Sure is!!",
+      "moves": null,
+      "images": [
+        {
+          "src": "/gallery/hall/entry7-1.jpg",
+          "alt": "A brick arch standing on two legs on the table grid, with the gripper at left"
+        },
+        {
+          "src": "/gallery/hall/entry7-2.jpg",
+          "alt": "Close view of the gripper placing blocks on a brick archway"
+        }
+      ]
+    }
+  ],
+  "towers": [
+    {
+      "heightMm": 785,
+      "by": "sacoo",
+      "date": "1999-11-25",
+      "images": []
+    },
+    {
+      "heightMm": 779,
+      "by": "hcscott",
+      "date": "1999-10-29",
+      "images": []
+    },
+    {
+      "heightMm": 746,
+      "by": null,
+      "date": "1999-11-01",
+      "images": []
+    },
+    {
+      "heightMm": 511,
+      "by": "sacoo",
+      "date": "1999-11-23",
+      "images": []
+    },
+    {
+      "heightMm": 458,
+      "by": null,
+      "date": "1999-11-15",
+      "images": []
+    },
+    {
+      "heightMm": 450,
+      "by": null,
+      "date": "1999-11-02",
+      "images": []
+    }
+  ],
+  "creations": [
+    {
+      "title": "four block stack!",
+      "by": "barney",
+      "date": "2000-02-02",
+      "images": [
+        {
+          "src": "/gallery/creations/barney-four-block-stack-1-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/barney-four-block-stack-1-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/barney-four-block-stack-1-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    },
+    {
+      "title": "five blocks",
+      "by": "barney",
+      "date": "2000-02-02",
+      "images": [
+        {
+          "src": "/gallery/creations/barney-five-blocks-2-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/barney-five-blocks-2-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/barney-five-blocks-2-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    },
+    {
+      "title": "stapeltje",
+      "by": "calimero",
+      "date": "2000-02-06",
+      "images": [
+        {
+          "src": "/gallery/creations/calimero-stapeltje-9-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/calimero-stapeltje-9-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/calimero-stapeltje-9-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    },
+    {
+      "title": "Stonehenge",
+      "by": "drjim",
+      "date": "2000-02-07",
+      "images": [
+        {
+          "src": "/gallery/creations/drjim-stonehenge-10-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/drjim-stonehenge-10-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/drjim-stonehenge-10-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    },
+    {
+      "title": "Ode to Linux",
+      "by": "calimero",
+      "date": "2000-02-07",
+      "images": [
+        {
+          "src": "/gallery/creations/calimero-ode-to-linux-11-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/calimero-ode-to-linux-11-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/calimero-ode-to-linux-11-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    },
+    {
+      "title": "Stack",
+      "by": "calimero",
+      "date": "2000-02-08",
+      "images": [
+        {
+          "src": "/gallery/creations/calimero-stack-12-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/calimero-stack-12-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/calimero-stack-12-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    },
+    {
+      "title": "Five Stack",
+      "by": "calimero",
+      "date": "2000-02-08",
+      "images": [
+        {
+          "src": "/gallery/creations/calimero-five-stack-13-colour.jpg",
+          "alt": "Colour camera view of the robot arm and the block table"
+        },
+        {
+          "src": "/gallery/creations/calimero-five-stack-13-ycam.jpg",
+          "alt": "Grey-scale side camera view of the table and blocks"
+        },
+        {
+          "src": "/gallery/creations/calimero-five-stack-13-zcam.jpg",
+          "alt": "Grey-scale overhead camera view of the table grid and blocks"
+        }
+      ]
+    }
+  ]
+}

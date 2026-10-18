@@ -25,7 +25,7 @@ test('csp: the dev gateway sends the CloudFront policy, and an inline script is 
   }
 
   // the page itself runs under the policy (its own scripts load; the UI comes up)
-  const main = await page.goto('/?e2e=1');
+  const main = await page.goto('/?e2e=1#/login');
   expect(await main!.headerValue('content-security-policy')).toBe(SOURCE);
   await open(page);
 

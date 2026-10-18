@@ -354,6 +354,7 @@ export class ControlPage {
           item('Brief Help', () => this.deps.openHelp()),
           item('History', () => this.deps.openHistory()),
           item('Forms Interface (1996)', () => this.deps.openClassic?.()),
+          item('About the UWA Telerobot', () => { globalThis.location.hash = '#/about'; }),
         ],
       },
       {
