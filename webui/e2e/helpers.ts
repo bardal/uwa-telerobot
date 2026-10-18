@@ -42,7 +42,7 @@ export async function shot(page: Page, name: string): Promise<void> {
 export async function open(page: Page, query = ''): Promise<void> {
   await page.goto(`/?e2e=1${query ? `&${query}` : ''}#/login`);
   // the config is loaded once the Guest button is enabled
-  await expect(page.getByRole('button', { name: 'Guest', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Continue as guest', exact: true })).toBeEnabled();
 }
 
 async function welcomed(page: Page): Promise<string> {
@@ -54,7 +54,7 @@ async function welcomed(page: Page): Promise<string> {
 export async function guestLogin(page: Page, nick: string, query = ''): Promise<string> {
   await open(page, query);
   await page.getByLabel('nickname').fill(nick);
-  await page.getByRole('button', { name: 'Guest', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue as guest', exact: true }).click();
   return welcomed(page);
 }
 

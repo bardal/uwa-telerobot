@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { In, Out } from '../src/net/protocol';
 import { ChatPanel } from '../src/ui/chatPanel';
 import { ControlPage, HOME } from '../src/ui/controlPage';
-import { LoginPage, HELP_TEXT } from '../src/ui/loginPage';
+import { GUEST_HINT, LoginPage, REGISTERED_HINT } from '../src/ui/loginPage';
 import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, SLOW_AFTER_S, TYPICAL_WAKE_S, WAKING, WIKIPEDIA, WakingPage, progressAt, shuffled } from '../src/ui/wakingPage';
 
 /** Fisher–Yates with this random leaves the facts in their listed order. */
@@ -432,12 +432,15 @@ describe('cameras', () => {
 });
 
 describe('login page', () => {
-  it('requires a nickname and shows the applet help text', () => {
+  it('requires a nickname, as a guest by default', () => {
     const onGuest = vi.fn();
     const l = new LoginPage({ nick: '', signInAvailable: false, dev: false, onGuest, onSignIn: vi.fn(), onDev: vi.fn() });
     document.body.appendChild(l.el);
-    expect((l.el.querySelector('.login-help') as HTMLTextAreaElement).value).toBe(HELP_TEXT);
-    const guest = [...l.el.querySelectorAll('button')].find((b) => b.textContent === 'Guest')!;
+    expect(l.currentMode()).toBe('guest');
+    expect(l.el.textContent).toContain(GUEST_HINT);
+    expect(l.el.querySelector('input[type=password]')).toBeNull(); // the account is asked for on Cognito's page
+    const guest = l.guestButton;
+    expect(guest.textContent).toBe('Continue as guest');
     guest.click();
     expect(onGuest).not.toHaveBeenCalled();
     expect(l.console.text()).toContain('Please type a nickname');
@@ -451,6 +454,38 @@ describe('login page', () => {
     expect(signIn.disabled).toBe(true);
     expect(l.el.querySelector('a.history-link')!.getAttribute('href')).toBe('#/history');
     expect(l.el.textContent).toContain('public');
+  });
+
+  it('switches between guest and registered user, remembering the choice', () => {
+    const onMode = vi.fn();
+    const onSignIn = vi.fn();
+    const l = new LoginPage({ nick: 'ann', signInAvailable: true, dev: false, onMode, onGuest: vi.fn(), onSignIn, onDev: vi.fn() });
+    document.body.appendChild(l.el);
+    expect(l.guestButton.hidden).toBe(false);
+    expect(l.signInButton.hidden).toBe(true);
+    const registered = l.el.querySelector<HTMLInputElement>('input[value=registered]')!;
+    registered.checked = true;
+    registered.dispatchEvent(new Event('change'));
+    expect(onMode).toHaveBeenCalledWith('registered');
+    expect(l.signInButton.hidden).toBe(false);
+    expect(l.guestButton.hidden).toBe(true);
+    expect(l.el.textContent).toContain(REGISTERED_HINT);
+    l.nicknameField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(onSignIn).toHaveBeenCalledWith('ann');
+    const again = new LoginPage({ nick: '', signInAvailable: true, dev: false, mode: 'registered', onGuest: vi.fn(), onSignIn: vi.fn(), onDev: vi.fn() });
+    expect(again.currentMode()).toBe('registered');
+    const unconfigured = new LoginPage({ nick: '', signInAvailable: false, dev: false, mode: 'registered', onGuest: vi.fn(), onSignIn: vi.fn(), onDev: vi.fn() });
+    expect(unconfigured.currentMode()).toBe('guest');
+    expect(unconfigured.el.querySelector<HTMLInputElement>('input[value=registered]')!.disabled).toBe(true);
+  });
+
+  it('says which interface the session opens, with a link to the other', () => {
+    const l = new LoginPage({ nick: '', signInAvailable: true, dev: false, onGuest: vi.fn(), onSignIn: vi.fn(), onDev: vi.fn() });
+    expect(l.el.querySelector('.login-way')!.textContent).toContain('Java applet interface (2000)');
+    expect(l.el.querySelector('.login-switch')!.getAttribute('href')).toBe('#/classic');
+    l.setWay(true);
+    expect(l.el.querySelector('.login-way strong')!.textContent).toBe('the forms interface (1996)');
+    expect(l.el.querySelector('.login-switch')!.getAttribute('href')).toBe('#/login');
   });
 
   it('offers the dev sign-in in dev builds', () => {

@@ -1,15 +1,21 @@
-// The login page: mom/gui/LoginPanel's row over the applet's help text and its
-// console (TA200001's loginPage). Guests pass Turnstile; Sign in uses Cognito.
+// The login page: a guest / registered-user switch, a nickname, and which
+// interface the session will open (the 2000 applet page or the 1996 forms page),
+// over a console for messages. Guests pass Turnstile; Sign in uses Cognito's
+// hosted page for the email and password. (The applet's LoginPanel row of
+// username, PIN and nickname boxes was replaced: Cognito asks for the account.)
 
 import { ConsolePanel } from './consolePanel';
 import { button, h } from './dom';
 
-/** TA200001's help text, verbatim. */
-export const HELP_TEXT =
-  "Login using your username, PIN and type a nickname.\nGuests don't need to worry about a PIN, but you should use a nickname.\n After you login you should see images of the robot.\nTry and gain control and move it.\nNo help is available for the interface yet!!!!";
-
 export const ARCHIVE_NOTICE =
   'Chat, moves and camera images are public and are kept in the archive. The administrator can remove them.';
+
+export const GUEST_HINT = 'Anyone can drive as a guest. Choose a nickname; other people will see it.';
+export const REGISTERED_HINT =
+  'Sign in on the next page with your email and password, or create an account there. ' +
+  'Your nickname is what other people will see.';
+
+export type LoginMode = 'guest' | 'registered';
 
 /** The gateway's nick rule (Limits.cleanNick): 1 to 20 of letters, digits, space, _ . - after trimming. */
 export function cleanNick(raw: string): string | null {
@@ -23,6 +29,9 @@ export interface LoginPageOpts {
   signInAvailable: boolean;
   /** Dev builds: a dev sign-in with an optional admin group. */
   dev: boolean;
+  /** Guest or registered user, as last chosen (registered needs signInAvailable). */
+  mode?: LoginMode;
+  onMode?: (mode: LoginMode) => void;
   onGuest: (nick: string) => void;
   onSignIn: (nick: string) => void;
   onDev: (nick: string, admin: boolean) => void;
@@ -33,54 +42,98 @@ export class LoginPage {
   readonly nicknameField: HTMLInputElement;
   readonly turnstileContainer: HTMLElement;
   readonly console = new ConsolePanel(4, 'login-console');
+  readonly guestButton: HTMLButtonElement;
+  readonly signInButton: HTMLButtonElement;
   private readonly buttons: HTMLButtonElement[] = [];
+  private readonly radios: Record<LoginMode, HTMLInputElement>;
+  private readonly hint: HTMLElement;
+  private readonly way: HTMLElement;
+  private mode: LoginMode;
 
   constructor(private readonly opts: LoginPageOpts) {
-    const username = h('input', { type: 'text', class: 'awt-text', size: 7, value: 'guest', 'aria-label': 'username', disabled: true, title: 'Sign in asks for your account on the next page' });
-    const password = h('input', { type: 'password', class: 'awt-text', size: 3, 'aria-label': 'password', disabled: true, title: 'Sign in asks for your password on the next page' });
-    this.nicknameField = h('input', { type: 'text', class: 'awt-text', size: 10, maxlength: 20, 'aria-label': 'nickname', autocomplete: 'nickname' });
+    this.mode = opts.mode === 'registered' && opts.signInAvailable ? 'registered' : 'guest';
+
+    const radio = (m: LoginMode, label: string) => {
+      const r = h('input', { type: 'radio', name: 'login-mode', value: m, class: 'login-mode-input' });
+      r.addEventListener('change', () => { if (r.checked) this.setMode(m, true); });
+      return { r, el: h('label', { class: 'login-mode' }, r, h('span', { text: label })) };
+    };
+    const guestRadio = radio('guest', 'Guest');
+    const registeredRadio = radio('registered', 'Registered user');
+    registeredRadio.r.disabled = !opts.signInAvailable;
+    if (!opts.signInAvailable) registeredRadio.el.title = 'Sign-in is not configured here';
+    this.radios = { guest: guestRadio.r, registered: registeredRadio.r };
+
+    this.nicknameField = h('input', {
+      type: 'text', class: 'login-input', maxlength: 20, 'aria-label': 'nickname', autocomplete: 'nickname', spellcheck: 'false',
+    });
     this.nicknameField.value = opts.nick;
 
-    const guest = button('Guest', () => this.go((n) => this.opts.onGuest(n)));
-    const signIn = button('Sign in', () => this.go((n) => this.opts.onSignIn(n)));
-    signIn.disabled = !opts.signInAvailable;
-    if (!opts.signInAvailable) signIn.title = 'Sign-in is not configured here';
-    this.buttons.push(guest, signIn);
+    this.guestButton = button('Continue as guest', () => this.go((n) => this.opts.onGuest(n)), 'login-go');
+    this.signInButton = button('Sign in', () => this.go((n) => this.opts.onSignIn(n)), 'login-go');
+    this.signInButton.disabled = !opts.signInAvailable;
+    this.buttons.push(this.guestButton, this.signInButton);
     this.nicknameField.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') guest.click();
+      if (e.key === 'Enter') (this.mode === 'guest' ? this.guestButton : this.signInButton).click();
     });
 
-    const row = h(
+    this.hint = h('p', { class: 'login-hint' });
+    this.way = h('p', { class: 'login-way' });
+
+    const card = h(
       'div',
-      { class: 'login-panel' },
-      h('label', { class: 'awt-label', text: 'username' }),
-      username,
-      h('label', { class: 'awt-label', text: 'password' }),
-      password,
-      h('label', { class: 'awt-label', text: 'nickname' }),
-      this.nicknameField,
-      guest,
-      signIn,
+      { class: 'login-card' },
+      h('h1', { class: 'login-title', text: 'Drive the robot' }),
+      this.way,
+      h('div', { class: 'login-modes', role: 'radiogroup', 'aria-label': 'How to log in' }, guestRadio.el, registeredRadio.el),
+      h('label', { class: 'login-field' }, h('span', { text: 'Nickname' }), this.nicknameField),
+      this.hint,
+      h('div', { class: 'login-actions' }, this.guestButton, this.signInButton),
     );
     if (opts.dev) {
       const admin = h('input', { type: 'checkbox', class: 'awt-check', 'aria-label': 'admin' });
       const dev = button('Dev sign in', () => this.go((n) => this.opts.onDev(n, admin.checked)));
       this.buttons.push(dev);
-      row.append(dev, h('label', { class: 'awt-label dev-admin' }, admin, ' admin'));
+      card.append(h('div', { class: 'login-actions' }, dev, h('label', { class: 'awt-label dev-admin' }, admin, ' admin')));
     }
 
     this.turnstileContainer = h('div', { class: 'turnstile-container' });
-    const help = h('textarea', { class: 'login-help', readonly: true, rows: 6, 'aria-label': 'Help' });
-    help.value = HELP_TEXT;
     const notice = h(
-      'div',
+      'p',
       { class: 'archive-notice' },
       h('span', { text: `${ARCHIVE_NOTICE} ` }),
       h('a', { href: '#/history', class: 'history-link', text: 'History' }),
       ' · ',
       h('a', { href: '#/', class: 'home-link', text: 'Home' }),
     );
-    this.el = h('div', { class: 'page login-page' }, row, this.turnstileContainer, help, notice, this.console.el);
+    card.append(this.turnstileContainer, this.console.el, notice);
+    this.el = h('div', { class: 'page login-page' }, card);
+    this.setMode(this.mode, false);
+    this.setWay(false);
+  }
+
+  /** Which interface the session opens: the 1996 forms page, or the 2000 applet page. */
+  setWay(forms: boolean): void {
+    const [now, other, otherHash] = forms
+      ? ['the forms interface (1996)', 'the Java applet interface (2000)', '#/login']
+      : ['the Java applet interface (2000)', 'the forms interface (1996)', '#/classic'];
+    this.way.replaceChildren(
+      'You’ll use ', h('strong', { text: now }), '. ',
+      h('a', { href: otherHash, class: 'login-switch', text: `Use ${other} instead` }),
+    );
+  }
+
+  currentMode(): LoginMode {
+    return this.mode;
+  }
+
+  private setMode(m: LoginMode, chosen: boolean): void {
+    this.mode = m;
+    this.radios[m].checked = true;
+    this.guestButton.hidden = m !== 'guest';
+    this.signInButton.hidden = m !== 'registered';
+    this.hint.textContent = m === 'guest' ? GUEST_HINT : REGISTERED_HINT;
+    if (chosen) this.opts.onMode?.(m);
   }
 
   println(s: string): void {
@@ -90,7 +143,7 @@ export class LoginPage {
   /** LoginPanel disables its button while a login is under way. */
   setBusy(b: boolean): void {
     for (const x of this.buttons) {
-      if (x.textContent === 'Sign in' && !this.opts.signInAvailable) continue;
+      if (x === this.signInButton && !this.opts.signInAvailable) continue;
       x.disabled = b;
     }
   }
