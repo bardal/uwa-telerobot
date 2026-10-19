@@ -71,7 +71,11 @@ public final class Session implements MomBridge.Listener {
         this.id = id;
         this.limits = new Limits(registry.clock());
         this.serial = new Serial(registry.executor());
-        this.outbox = new Outbox(conn, () -> close("too-many", "the connection is too slow", 1008));
+        this.outbox = new Outbox(conn, () -> {
+            LOG.info("closing session {}: the browser is not keeping up ({} bytes, {} messages queued)",
+                id, conn.queuedBytes(), conn.queuedMessages());
+            close("too-many", "the connection is too slow", 1008);
+        });
     }
 
     public String id() { return id; }
@@ -219,6 +223,7 @@ public final class Session implements MomBridge.Listener {
 
     /** As {@link #close}, telling the browser {@code notice} (if not null) first. */
     void end(Out notice, int wsCode, String reason) {
+        if (!closed) LOG.info("session {} closed by the gateway: {} {}", id, wsCode, reason);
         if (!closed && notice != null) outbox.sendNow(notice);
         closed = true;
         outbox.close();

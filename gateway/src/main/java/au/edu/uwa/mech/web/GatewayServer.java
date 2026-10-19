@@ -344,6 +344,12 @@ public final class GatewayServer {
 
         @Override
         public void onWebSocketClose(int statusCode, String reason) {
+            // why a session ended, when the browser (or its network) ended it rather than us
+            if (helloSeen && !closing) {
+                Object s = attachment;
+                LOG.info("session {} closed by the browser: {} {}",
+                    s instanceof au.edu.uwa.mech.web.Session x ? x.id() : "?", statusCode, reason == null ? "" : reason);
+            }
             finish();
         }
 
