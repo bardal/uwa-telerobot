@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { startApp, type AppDeps, type GatewayLike } from '../src/app';
+import { KEEPS_DROPPING, MAX_QUICK_DROPS, QUICK_DROP_MS, startApp, type AppDeps, type GatewayLike } from '../src/app';
 import type { Config } from '../src/config';
 import type { GatewayOpts } from '../src/net/gateway';
 import type { In, Out } from '../src/net/protocol';
@@ -79,10 +79,10 @@ function deps(extra: Partial<AppDeps> = {}): AppDeps {
 
 const guestButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Continue as guest')!;
 
-async function loggedIn(nick = 'ann') {
+async function loggedIn(nick = 'ann', extra: Partial<AppDeps> = {}) {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const app = startApp(root, deps());
+  const app = startApp(root, deps(extra));
   await app.ready;
   app.login.nicknameField.value = nick;
   guestButton(root).click();
@@ -206,6 +206,56 @@ describe('app flow', () => {
     g2.emit(welcome('ann'));
     expect(app.control()).toBe(page);
     expect(app.view()).toBe('control');
+  });
+
+  it('sessions that keep dropping just after the welcome stop with Try again, which reconnects', async () => {
+    let t = 1_000_000;
+    const { app, g } = await loggedIn('ann', { now: () => t });
+    const page = app.control();
+    for (let i = 1; i < MAX_QUICK_DROPS; i++) {
+      g.emit(welcome('ann'));
+      t += 1000;
+      g.opts.onClose!();
+      await flush();
+      expect(g.reconnects).toBe(i);
+    }
+    g.emit(welcome('ann'));
+    t += 1000;
+    g.opts.onClose!();
+    await flush();
+    expect(g.closed).toBe(true);
+    expect(g.reconnects).toBe(MAX_QUICK_DROPS - 1);
+    expect(app.view()).toBe('waking');
+    expect(app.waking.heading.textContent).toBe(KEEPS_DROPPING);
+    expect(app.waking.retry.textContent).toBe('Try again');
+    expect(app.waking.retry.hidden).toBe(false);
+    app.waking.retry.click();
+    await flush();
+    const g2 = FakeGateway.all.at(-1)!;
+    expect(g2).not.toBe(g);
+    g2.emit(welcome('ann'));
+    expect(app.control()).toBe(page);
+    expect(app.view()).toBe('control');
+    // the count starts again: one more quick drop just reconnects
+    t += 1000;
+    g2.opts.onClose!();
+    await flush();
+    expect(g2.closed).toBe(false);
+    expect(g2.reconnects).toBe(1);
+  });
+
+  it('drops after a session that lasted keep reconnecting', async () => {
+    let t = 1_000_000;
+    const { app, g } = await loggedIn('ann', { now: () => t });
+    for (let i = 1; i <= MAX_QUICK_DROPS + 2; i++) {
+      g.emit(welcome('ann'));
+      t += QUICK_DROP_MS;
+      g.opts.onClose!();
+      await flush();
+    }
+    expect(g.closed).toBe(false);
+    expect(g.reconnects).toBe(MAX_QUICK_DROPS + 2);
+    expect(app.waking.heading.textContent).not.toBe(KEEPS_DROPPING);
   });
 
   it('a refused hello returns to the login page with the reason', async () => {

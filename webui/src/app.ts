@@ -49,7 +49,14 @@ export interface AppDeps {
   makeGateway?: (url: string, hello: () => Promise<In & { t: 'hello' }>, opts: GatewayOpts) => GatewayLike;
   ensureAwake?: (getProof: () => Promise<Proof>, onProgress: (s: WakeState) => void) => Promise<WakeState>;
   openWindow?: (url: string, name: string) => void;
+  now?: () => number;
 }
+
+/** A session that drops sooner than this after its welcome counts as a quick drop. */
+export const QUICK_DROP_MS = 20_000;
+/** After this many quick drops in a row the page stops reconnecting and offers Try again. */
+export const MAX_QUICK_DROPS = 3;
+export const KEEPS_DROPPING = 'The connection to the robot keeps dropping';
 
 function storage(deps: AppDeps): Storage | null {
   try {
@@ -114,9 +121,16 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   /** An "unauthorised" error that was the last thing before the socket closed: a kick or a ban. */
   let refusal: string | null = null;
   let wakeRun = 0;
+  const now = deps.now ?? Date.now;
+  let welcomedAt = 0;
+  /** Sessions in a row that dropped within QUICK_DROP_MS of their welcome (iPhone Safari once did this forever). */
+  let quickDrops = 0;
 
   const waking = new WakingPage(
-    () => void wakeThenConnect(),
+    () => {
+      quickDrops = 0;
+      void wakeThenConnect();
+    },
     () => endSession(''),
     Date.now,
     Math.random,
@@ -224,6 +238,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     nick = n;
     mode = m;
     store.set(n);
+    quickDrops = 0;
     login.setBusy(true);
     void wakeThenConnect();
   }
@@ -301,9 +316,20 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
           endSession(why);
           return;
         }
+        if (welcomed) quickDrops = now() - welcomedAt < QUICK_DROP_MS ? quickDrops + 1 : 0;
         welcomed = false;
         page.disconnected();
         forms.disconnected();
+        if (quickDrops >= MAX_QUICK_DROPS) {
+          // something between here and the gateway keeps closing a working session: stop, don't loop
+          wakeRun++;
+          g.close();
+          gateway = null;
+          admin = false;
+          setView('waking');
+          waking.stopped(KEEPS_DROPPING, 'Try again');
+          return;
+        }
         if (view === 'control') {
           // the lab may have restarted: show the waking page and check it, rather than
           // leaving the last image frozen while the socket retries
@@ -335,6 +361,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
     refusal = m.t === 'error' && terminal.includes(m.code) ? m.message : null;
     if (m.t === 'welcome') {
       welcomed = true;
+      welcomedAt = now();
       admin = m.level === 'admin';
       login.setBusy(false);
       setView('control');
