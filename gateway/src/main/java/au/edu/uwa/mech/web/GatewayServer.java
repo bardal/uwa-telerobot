@@ -34,6 +34,8 @@ public final class GatewayServer {
 
     public static final int MAX_TEXT_BYTES = Protocol.MAX_MESSAGE_BYTES;
     public static final Duration IDLE_TIMEOUT = Duration.ofMinutes(11);
+    /** Bigger than any camera JPEG, so each goes out as one frame. */
+    public static final int MAX_OUT_FRAME_BYTES = 128 * 1024;
     /** How long a client has to complete a close we started before its TCP connection is dropped. */
     public static final long CLOSE_GRACE_MILLIS = 2_000;
 
@@ -95,7 +97,11 @@ public final class GatewayServer {
             // Binary is never valid from a client. Let frames up to the text limit reach the listener,
             // which closes with 1003 (policy: unsupported data); bigger ones die as 1009 anyway.
             container.setMaxBinaryMessageSize(MAX_TEXT_BYTES);
-            container.setMaxFrameSize(MAX_TEXT_BYTES);
+            // The message limits above bound what a browser may send. What we send is cut into frames of
+            // the output buffer size: at Jetty's 4 KB each camera JPEG (tens of KB) went out as several
+            // continuation frames, and iPhone Safari closed with 1002 on those. One frame per image.
+            container.setMaxFrameSize(MAX_OUT_FRAME_BYTES);
+            container.setOutputBufferSize(MAX_OUT_FRAME_BYTES);
             container.setIdleTimeout(IDLE_TIMEOUT);
             container.addMapping("/*", this::createWebSocket);
         }));
@@ -230,6 +236,8 @@ public final class GatewayServer {
             Response.writeError(request, response, callback, status, status == 403 ? "forbidden" : "too many");
             return null;
         }
+        // no permessage-deflate: the JPEGs don't compress, and iPhone Safari mishandles compressed frames
+        response.setExtensions(java.util.List.of());
         return new Connection(admitted.reservation());
     }
 
