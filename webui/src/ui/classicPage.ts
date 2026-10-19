@@ -289,6 +289,7 @@ export class ClassicPage {
 
   private async tryControl(): Promise<void> {
     if (this.busy) return;
+    this.error.textContent = '';
     this.setBusy(true, 'Trying to get control…');
     try {
       await this.ensureControl(true);

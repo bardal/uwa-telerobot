@@ -249,6 +249,32 @@ describe('classic (1996 forms) page', () => {
     expect(page.controlButton.hidden).toBe(true);
   });
 
+  it('a refused Try to get control says so, and a later one that works clears the sorry', async () => {
+    const { page, sent } = setup();
+    const snap = photographer(page, sent);
+    page.handle(welcome('ann'));
+    page.handle({ t: 'controller', nick: 'bob' });
+    page.controlButton.click();
+    await flush();
+    vi.advanceTimersByTime(TIMEOUTS.control); // bob's turn has not run out: no answer
+    for (let i = 0; i < 3; i++) {
+      await flush();
+      snap();
+    }
+    await flush();
+    expect(page.error.textContent).toBe('Sorry, the robot is currently being used by bob.');
+    page.controlButton.click();
+    await flush();
+    page.handle({ t: 'controller', nick: 'ann' });
+    for (let i = 0; i < 3; i++) {
+      await flush();
+      snap();
+    }
+    await flush();
+    expect(page.mode()).toBe('operator');
+    expect(page.error.textContent).toBe('');
+  });
+
   it('one image clicked asks for the other; the second triangulates and moves there', async () => {
     const { page, sent } = setup();
     const snap = photographer(page, sent);
