@@ -7,6 +7,7 @@ import au.edu.uwa.mech.mom.MOMListener;
 import au.edu.uwa.mech.mom.SessionRoot;
 import au.edu.uwa.mech.mom.server.MOMServer;
 import au.edu.uwa.mech.sim.Block;
+import au.edu.uwa.mech.sim.MotionTime;
 import au.edu.uwa.mech.sim.VirtualLab;
 import au.edu.uwa.mech.sim.VirtualRobotServer;
 import au.edu.uwa.mech.sim.World;
@@ -71,9 +72,14 @@ public final class InProcessLab {
      * pick-and-place takes a few seconds; it applies only to the first call.
      */
     public static synchronized InProcessLab shared(Ports ports, boolean fast) throws Exception {
+        return shared(ports, fast, MotionTime.REAL);
+    }
+
+    /** As {@link #shared(Ports, boolean)}, with the arm moving in {@code time} (tests step it). */
+    public static synchronized InProcessLab shared(Ports ports, boolean fast, MotionTime time) throws Exception {
         if (shared == null) {
             InProcessLab lab = new InProcessLab(ports);
-            lab.start(fast);
+            lab.start(fast, time);
             shared = lab;
         }
         return shared;
@@ -110,7 +116,7 @@ public final class InProcessLab {
         return world.snapshot().blocks.stream().filter(b -> b.name.equals(name)).findFirst();
     }
 
-    private void start(boolean fast) throws Exception {
+    private void start(boolean fast, MotionTime time) throws Exception {
         // the 2000 servers write logs/users.log and logs/RobotCommands.log under the working directory
         Files.createDirectories(Path.of("logs"));
         Path users = write("users.ini", usersIni());
@@ -141,7 +147,7 @@ public final class InProcessLab {
         mom.listen();
 
         world = World.withDefaultBlocks();
-        VirtualRobotServer robot = new VirtualRobotServer(world);
+        VirtualRobotServer robot = new VirtualRobotServer(world, time);
         robot.start(ports.control(), ports.position());
         robot.serveAdmin(ports.admin());
 

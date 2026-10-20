@@ -33,6 +33,7 @@ public class VirtualRobotServer
   private static final String AXES = "xyzst";
 
   private final World world;
+  private final MotionTime time;
   private final Object motionLock = new Object();
   private InetAddress bound;
   /** Set by {@link #resetWorld()} to make a move in progress stop where it is. */
@@ -71,7 +72,13 @@ public class VirtualRobotServer
   /** The address the control socket is bound to (after {@link #start}). */
   public InetAddress boundTo() { return bound; }
 
-  public VirtualRobotServer(World world) { this.world = world; }
+  public VirtualRobotServer(World world) { this(world, MotionTime.REAL); }
+
+  public VirtualRobotServer(World world, MotionTime time)
+  {
+    this.world = world;
+    this.time = time;
+  }
 
   public void start(int controlPort, int positionPort) throws IOException
   {
@@ -235,16 +242,16 @@ public class VirtualRobotServer
     double dist = Math.sqrt(sq(target.x - start.x) + sq(target.y - start.y) + sq(target.z - start.z));
     double rot = Math.max(Math.abs(target.spin - start.spin), Math.abs(target.tilt - start.tilt));
     double duration = Math.max(Math.max(dist / SPEED_MM_PER_S, rot / ROTATION_DEG_PER_S), 0.3);
-    long t0 = System.nanoTime();
+    long t0 = time.nanos();
     while (true) {
       checkAbort();
-      double f = Math.min((System.nanoTime() - t0) / 1e9 / duration, 1);
+      double f = Math.min((time.nanos() - t0) / 1e9 / duration, 1);
       double e = f * f * (3 - 2 * f); // ease in and out
       world.setPose(new RobotPose(lerp(start.x, target.x, e), lerp(start.y, target.y, e), lerp(start.z, target.z, e),
                                   lerp(start.spin, target.spin, e), lerp(start.tilt, target.tilt, e), start.open), true);
       if (f >= 1)
         break;
-      Thread.sleep(40);
+      time.step();
     }
     if (target.open != start.open)
       moveGripper(target.open);
@@ -257,14 +264,14 @@ public class VirtualRobotServer
       world.opened();
     double from = world.snapshot().fingerGap;
     double to = open ? World.OPEN_GAP : world.closedGap();
-    long t0 = System.nanoTime();
+    long t0 = time.nanos();
     while (true) {
       checkAbort();
-      double f = Math.min((System.nanoTime() - t0) / 1e9 / GRIPPER_SECONDS, 1);
+      double f = Math.min((time.nanos() - t0) / 1e9 / GRIPPER_SECONDS, 1);
       world.setFingerGap(lerp(from, to, f));
       if (f >= 1)
         break;
-      Thread.sleep(40);
+      time.step();
     }
     checkAbort();
     world.setPose(p.withGripper(open), true);
