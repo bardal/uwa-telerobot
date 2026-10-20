@@ -67,12 +67,11 @@ class MainDevIT {
             JsonNode health = json(get(dev.port(), "/healthz"));
             assertTrue(health.get("ok").asBoolean(), health.toString());
             // the probe finds the robot and the cameras in MOM within a check or two
-            long end = System.currentTimeMillis() + 20_000;
-            while (!"ready".equals(health.get("lab").asText()) && System.currentTimeMillis() < end) {
-                Thread.sleep(100);
-                health = json(get(dev.port(), "/healthz"));
-            }
-            assertEquals("ready", health.get("lab").asText(), health.toString());
+            JsonNode[] latest = {health};
+            Await.until(() -> "healthz " + latest[0], () -> {
+                latest[0] = healthz(dev.port());
+                return "ready".equals(latest[0].get("lab").asText());
+            }, 20_000);
             assertEquals("running", json(get(dev.port(), "/api/status")).get("state").asText());
 
             JsonNode welcome = hello(dev.port(), null, "welcome");
@@ -170,6 +169,14 @@ class MainDevIT {
     }
 
     // ---- helpers -------------------------------------------------------------------------------
+
+    JsonNode healthz(int port) {
+        try {
+            return json(get(port, "/healthz"));
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
 
     JsonNode hello(int port, String secret, String wanted) throws Exception {
         return hello(port, secret, wanted, ORIGIN);

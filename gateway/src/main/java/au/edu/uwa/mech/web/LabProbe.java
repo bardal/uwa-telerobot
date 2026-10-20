@@ -45,13 +45,19 @@ public final class LabProbe implements AutoCloseable {
     }
 
     private final Check check;
-    private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(
-        Thread.ofPlatform().name("lab-probe").daemon(true).inheritInheritableThreadLocals(false).factory());
+    private final ScheduledExecutorService timer;
     private volatile boolean ready;
     private volatile boolean closed;
 
     public LabProbe(Check check) {
+        this(check, Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().name("lab-probe").daemon(true).inheritInheritableThreadLocals(false).factory()));
+    }
+
+    /** With its checks scheduled on {@code timer} (tests pass one that runs when they move the clock). */
+    LabProbe(Check check, ScheduledExecutorService timer) {
         this.check = check;
+        this.timer = timer;
     }
 
     /** {@value #READY} or {@value #STARTING}, as the last check found. */

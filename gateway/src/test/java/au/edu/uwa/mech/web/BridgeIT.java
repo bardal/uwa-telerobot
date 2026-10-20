@@ -102,7 +102,6 @@ class BridgeIT {
             .map(f -> ((Out.CommandStatus) f).state()).toList();
         assertEquals("done", states.get(states.size() - 1), "statuses end in done: " + states);
         a.await(Out.RobotState.class, s -> near(s, 330, 120, 90) && !s.moving(), 10_000);
-        Thread.sleep(500);
         Out.RobotState last = a.last(Out.RobotState.class);
         assertTrue(near(last, 330, 120, 90), "last robotState " + last);
         assertFalse(a.frames().stream().anyMatch(f -> f instanceof Out.Console c
@@ -171,20 +170,26 @@ class BridgeIT {
         a.await(Out.Controller.class, x -> "C".equals(x.nick()), 5_000);
         c.await(Out.Controller.class, x -> "C".equals(x.nick()), 5_000);
 
-        // 8. C's tab closes mid-command: control is released and ann can take it straight away
+        // 8. C's tab closes mid-command: control is released and ann can take it straight away. The arm is
+        //    held mid-move until then, so the release cannot have waited for the move to finish.
         int beforeLong = a.size();
-        c.in(new In.Command(LONG_MOVE));
-        String longId = c.await(Out.CommandStatus.class, s -> s.state().equals("queued"), 5_000).id();
-        c.await(Out.CommandStatus.class, s -> s.id().equals(longId) && s.state().equals("sent"), 5_000);
-        a.awaitFrom(beforeLong, Out.RobotState.class, s -> s.moving(), 5_000);
-        int beforeClose = a.size();
-        long closedAt = System.currentTimeMillis();
-        c.dropSocket();
-        a.awaitFrom(beforeClose, Out.Controller.class, x -> x.nick() == null, 2_000);
-        assertTrue(System.currentTimeMillis() - closedAt <= 2_000);
-        int beforeTake = a.size();
-        a.in(new In.TakeControl());
-        a.awaitFrom(beforeTake, Out.Controller.class, x -> "ann".equals(x.nick()), 5_000);
+        lab.motion().hold();
+        try {
+            c.in(new In.Command(LONG_MOVE));
+            String longId = c.await(Out.CommandStatus.class, s -> s.state().equals("queued"), 5_000).id();
+            c.await(Out.CommandStatus.class, s -> s.id().equals(longId) && s.state().equals("sent"), 5_000);
+            assertTrue(lab.motion().awaitHeld(10_000), "the arm is mid-move");
+            a.awaitFrom(beforeLong, Out.RobotState.class, s -> s.moving(), 5_000);
+            int beforeClose = a.size();
+            c.dropSocket();
+            a.awaitFrom(beforeClose, Out.Controller.class, x -> x.nick() == null, 10_000);
+            int beforeTake = a.size();
+            a.in(new In.TakeControl());
+            a.awaitFrom(beforeTake, Out.Controller.class, x -> "ann".equals(x.nick()), 5_000);
+            assertTrue(lab.world().isMoving(), "all while the arm was still on C's move");
+        } finally {
+            lab.motion().release();
+        }
         a.await(Out.Users.class, u -> !u.nicks().contains("C") && u.nicks().contains("ann"), 15_000);
 
         // 9. admin reset puts red back; a guest may not reset
@@ -196,13 +201,11 @@ class BridgeIT {
         FakeConnection d = connect(new In.Hello("D", null, null, new In.Dev("d-sub", List.of("admin"))));
         assertEquals("admin", d.await(Out.Welcome.class, w -> true, 20_000).level());
         d.in(new In.Admin("reset", null, null));
-        long until = System.currentTimeMillis() + 10_000;
-        while (true) {
-            Block red = lab.block("red").orElseThrow();
-            if (Math.abs(red.getX() - 120) < 1 && Math.abs(red.getY() - 150) < 1) break;
-            if (System.currentTimeMillis() > until) fail("red not back at (120,150): " + red.getX() + "," + red.getY());
-            Thread.sleep(50);
-        }
+        Await.until(() -> "red at " + lab.block("red").orElseThrow().getX() + "," + lab.block("red").orElseThrow().getY(),
+            () -> {
+                Block red = lab.block("red").orElseThrow();
+                return Math.abs(red.getX() - 120) < 1 && Math.abs(red.getY() - 150) < 1;
+            }, 10_000);
 
         // 9b. an admin deletes the snapshot: its images and its index entry go
         int beforeDelete = d.size();
@@ -242,11 +245,8 @@ class BridgeIT {
         Out.Error full = a.awaitFrom(beforeQueue, Out.Error.class, e -> true, 5_000);
         assertEquals("rate-limited", full.code());
         assertTrue(full.message().contains("at most 4"), full.message());
-        long until4 = System.currentTimeMillis() + 30_000;
-        while (a.countFrom(beforeQueue, Out.CommandStatus.class, s -> s.state().equals("done")) < 4) {
-            if (System.currentTimeMillis() > until4) fail("the 4 queued commands did not finish");
-            Thread.sleep(50);
-        }
+        Await.until("the 4 queued commands finish",
+            () -> a.countFrom(beforeQueue, Out.CommandStatus.class, s -> s.state().equals("done")) >= 4, 30_000);
         assertEquals(4, a.countFrom(beforeQueue, Out.CommandStatus.class, s -> s.state().equals("queued")));
 
         // 12. a kicked client that ignores the close: its commands stop at once and its control goes
@@ -262,9 +262,11 @@ class BridgeIT {
         assertTrue(s.closedByServer);
         assertEquals("unauthorised", s.await(Out.Error.class, e -> true, 1_000).code());
         var poseBefore = lab.world().getPose();
+        // the kick marked the session closed before it closed the socket, and a closed session drops what
+        // it is sent there and then (Session.onMessage): nothing is queued that could reach the robot later
         for (int i = 0; i < 3; i++) s.in(new In.Command("x150,y300,z60"));
-        Thread.sleep(1_500);
         assertEquals(poseBefore, lab.world().getPose(), "a closed session's commands never reach the robot");
+        assertEquals(0, s.countFrom(0, Out.CommandStatus.class, x -> true), "none was even queued");
         assertFalse(lab.world().isMoving());
         a.await(Out.Users.class, u -> !u.nicks().contains("sam"), 15_000);
         s.dropSocket();

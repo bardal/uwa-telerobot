@@ -36,12 +36,21 @@ class LabProbeIT {
     @Test
     void startChecksAtOnceThenAgainUntilReady() throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        try (LabProbe p = new LabProbe(() -> calls.incrementAndGet() >= 2)) {
+        ManualTime time = new ManualTime();
+        try (LabProbe p = new LabProbe(() -> calls.incrementAndGet() >= 2, time.scheduler())) {
             p.start();
-            long end = System.currentTimeMillis() + 10_000;
-            while (!"ready".equals(p.state()) && System.currentTimeMillis() < end) Thread.sleep(20);
+            time.advance(0);
+            assertEquals(1, calls.get(), "checked at once");
+            assertEquals("starting", p.state());
+            time.advance(LabProbe.STARTING_POLL_MILLIS - 1);
+            assertEquals(1, calls.get(), "not again before the starting interval");
+            time.advance(1);
+            assertEquals(2, calls.get());
             assertEquals("ready", p.state());
-            assertTrue(calls.get() >= 2);
+            time.advance(LabProbe.READY_POLL_MILLIS - 1);
+            assertEquals(2, calls.get(), "then only on the slower ready interval");
+            time.advance(1);
+            assertEquals(3, calls.get());
         }
     }
 

@@ -14,17 +14,19 @@ import org.eclipse.jetty.websocket.client.WebSocketClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+/** Leases, the hello deadline and pings, on a {@link ManualTime}: the test moves the clock. */
 class LeaseAndDeadlineTest {
     static final String ORIGIN = "https://robot.example";
     static final String SECRET = "s3cret";
 
+    final ManualTime time = new ManualTime();
     GatewayServer server;
     WebSocketClient client;
 
     void start(GatewayServer.Timing timing) throws Exception {
         GatewayConfig cfg = GatewayConfig.parse(new String[] {
             "--port", "0", "--allowed-origin", ORIGIN, "--origin-secret", SECRET, "--commit", "abc"}, Map.of());
-        server = new GatewayServer(cfg, new StubSessionHandler(cfg), System::currentTimeMillis, timing);
+        server = new GatewayServer(cfg, new StubSessionHandler(cfg), time, timing, time.scheduler());
         server.start();
         client = new WebSocketClient();
         client.start();
@@ -37,9 +39,7 @@ class LeaseAndDeadlineTest {
     }
 
     private void awaitSessions(int n) {
-        assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
-            while (server.sessions() != n) Thread.sleep(20);
-        });
+        Await.until(() -> "sessions " + server.sessions() + ", wanted " + n, () -> server.sessions() == n, 10_000);
     }
 
     @Test
@@ -56,7 +56,12 @@ class LeaseAndDeadlineTest {
                 out.flush();
             } // aborted before reading the 101
         }
-        awaitSessions(0);
+        // each abandoned upgrade holds its slot until its lease runs out and a sweep frees it; the server
+        // takes them on its own threads, so keep moving the clock until every one has been swept
+        Await.until(() -> "sessions " + server.sessions(), () -> {
+            time.advance(350);
+            return server.sessions() == 0;
+        }, 10_000);
         // and the caps are intact: a normal client still connects
         ClientUpgradeRequest req = new ClientUpgradeRequest();
         req.setHeader("Origin", ORIGIN);
@@ -74,7 +79,13 @@ class LeaseAndDeadlineTest {
         req.setHeader("X-Telerobot-Origin", SECRET);
         GatewayServerTest.Recorder r = new GatewayServerTest.Recorder();
         client.connect(r, URI.create("ws://127.0.0.1:" + server.port() + "/ws"), req).get(5, TimeUnit.SECONDS);
-        String err = r.texts.poll(5, TimeUnit.SECONDS);
+        // the deadline is set when the server opens the socket, on its own thread: move the clock past it
+        // until it has gone off
+        Await.until("the deadline closed the socket", () -> {
+            time.advance(300);
+            return !r.texts.isEmpty();
+        }, 10_000);
+        String err = r.texts.poll();
         assertNotNull(err);
         assertTrue(err.startsWith("{\"t\":\"error\",\"code\":\"unauthorised\""), err);
         assertEquals(1008, r.closed.get(5, TimeUnit.SECONDS));
@@ -87,12 +98,25 @@ class LeaseAndDeadlineTest {
         ClientUpgradeRequest req = new ClientUpgradeRequest();
         req.setHeader("Origin", ORIGIN);
         req.setHeader("X-Telerobot-Origin", SECRET);
-        GatewayServerTest.Recorder r = new GatewayServerTest.Recorder();
+        PongRecorder r = new PongRecorder();
         client.connect(r, URI.create("ws://127.0.0.1:" + server.port() + "/ws"), req).get(5, TimeUnit.SECONDS);
         r.session.sendText("{\"t\":\"hello\",\"nick\":\"bob\"}", org.eclipse.jetty.websocket.api.Callback.NOOP);
-        assertNotNull(r.texts.poll(5, TimeUnit.SECONDS));
-        Thread.sleep(900);
+        assertNotNull(r.texts.poll(5, TimeUnit.SECONDS)); // the welcome: the server has seen the hello
+        time.advance(1_000); // well past the deadline: it runs now, on this thread
+        // a ping's pong comes back behind anything the deadline sent, so by then a close would be here
+        r.session.sendPing(java.nio.ByteBuffer.allocate(0), org.eclipse.jetty.websocket.api.Callback.NOOP);
+        r.pong.get(5, TimeUnit.SECONDS);
         assertFalse(r.closed.isDone());
+        assertEquals(null, r.texts.poll(), "no error after the welcome");
+    }
+
+    /** Notes the first pong. */
+    public static class PongRecorder extends GatewayServerTest.Recorder {
+        final java.util.concurrent.CompletableFuture<Boolean> pong = new java.util.concurrent.CompletableFuture<>();
+
+        @Override public void onWebSocketPong(java.nio.ByteBuffer payload) {
+            pong.complete(true);
+        }
     }
 
     /** Counts the server's pings and answers each with a pong, as browsers do. */
@@ -115,16 +139,16 @@ class LeaseAndDeadlineTest {
         req.setHeader("X-Telerobot-Origin", SECRET);
         client.connect(r, URI.create("ws://127.0.0.1:" + server.port() + "/ws"), req).get(5, TimeUnit.SECONDS);
         r.session.sendText("{\"t\":\"hello\",\"nick\":\"bob\"}", org.eclipse.jetty.websocket.api.Callback.NOOP);
-        assertNotNull(r.texts.poll(5, TimeUnit.SECONDS));
-        Thread.sleep(1_000);
-        assertTrue(pings.get() >= 4, "about one ping every 150 ms: " + pings.get());
+        assertNotNull(r.texts.poll(5, TimeUnit.SECONDS)); // the welcome: the socket is open, its pings are set
+        for (int i = 0; i < 4; i++) time.advance(150);
+        Await.until(() -> "pings " + pings.get(), () -> pings.get() == 4, 10_000);
         assertFalse(r.closed.isDone(), "pongs do not upset the session");
         assertEquals(1, server.sessions());
         r.session.close();
         awaitSessions(0);
-        int after = pings.get();
-        Thread.sleep(500);
-        assertEquals(after, pings.get(), "no pings once the socket is closed");
+        assertEquals(1, time.pending(), "only the admission sweep is left: the socket's pings are cancelled");
+        time.advance(500);
+        assertEquals(4, pings.get(), "no pings once the socket is closed");
     }
 
     @Test

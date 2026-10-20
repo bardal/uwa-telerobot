@@ -84,7 +84,7 @@ class GatewayServerTest {
         assertTrue(welcome.contains("\"commit\":\"abc123\""), welcome);
         assertEquals(1, server.sessions());
         r.session.close();
-        assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> { while (server.sessions() != 0) Thread.sleep(20); });
+        Await.until(() -> "sessions " + server.sessions(), () -> server.sessions() == 0, 5_000);
     }
 
     @Test

@@ -9,10 +9,15 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-/** Archive store on a local directory, for dev mode and tests. */
+/**
+ * Archive store on a local directory, for dev mode and tests. {@link #bytesUsed} walks the directory
+ * once, then keeps count of what this store writes and deletes (it is asked before every image).
+ */
 public final class FileArchiveStore implements ArchiveStore {
     private static final Pattern KEY = Pattern.compile("^[a-z0-9/_.-]+$");
     private final Path root;
+    /** Bytes under root, or -1 until the first {@link #bytesUsed} walks it. */
+    private long bytes = -1;
 
     public FileArchiveStore(Path root) {
         this.root = root.toAbsolutePath().normalize();
@@ -35,7 +40,9 @@ public final class FileArchiveStore implements ArchiveStore {
             Files.createDirectories(p.getParent());
             Path tmp = p.resolveSibling(p.getFileName() + ".tmp");
             Files.write(tmp, body);
+            long replaced = Files.isRegularFile(p) ? Files.size(p) : 0;
             Files.move(tmp, p, StandardCopyOption.REPLACE_EXISTING);
+            if (bytes >= 0) bytes += body.length - replaced;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -54,7 +61,9 @@ public final class FileArchiveStore implements ArchiveStore {
     @Override
     public synchronized void delete(String key) {
         try {
-            Files.deleteIfExists(resolve(key));
+            Path p = resolve(key);
+            long size = Files.isRegularFile(p) ? Files.size(p) : 0;
+            if (Files.deleteIfExists(p) && bytes >= 0) bytes -= size;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -62,6 +71,11 @@ public final class FileArchiveStore implements ArchiveStore {
 
     @Override
     public synchronized long bytesUsed() {
+        if (bytes < 0) bytes = walk();
+        return bytes;
+    }
+
+    private long walk() {
         if (!Files.isDirectory(root)) return 0;
         try (Stream<Path> s = Files.walk(root)) {
             return s.filter(Files::isRegularFile).mapToLong(f -> {

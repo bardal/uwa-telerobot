@@ -63,12 +63,8 @@ public final class GatewayServer {
     private final Server server = new Server();
     private final ServerConnector connector = new ServerConnector(server);
     private final Timing timing;
-    private final java.util.concurrent.ScheduledExecutorService timers =
-        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "gateway-timers");
-            t.setDaemon(true);
-            return t;
-        });
+    /** Hello deadlines, pings, close timeouts and the admission sweep. */
+    private final java.util.concurrent.ScheduledExecutorService timers;
     private volatile Supplier<String> labState = () -> "ready";
     private volatile Runnable devFlush = () -> { };
     /** Where the dev fakeStatus sequence is: 0 stopped, 1 starting, 2 running. */
@@ -79,6 +75,17 @@ public final class GatewayServer {
     }
 
     public GatewayServer(GatewayConfig config, SessionHandler handler, LongSupplier clockMillis, Timing timing) {
+        this(config, handler, clockMillis, timing, java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "gateway-timers");
+            t.setDaemon(true);
+            return t;
+        }));
+    }
+
+    /** With the timers on {@code timers} (tests pass one that runs when they move the clock). */
+    public GatewayServer(GatewayConfig config, SessionHandler handler, LongSupplier clockMillis, Timing timing,
+            java.util.concurrent.ScheduledExecutorService timers) {
+        this.timers = timers;
         this.config = config;
         this.handler = handler;
         this.timing = timing;
