@@ -107,8 +107,13 @@ public class SocketTransceiver
       translator.writeObject(arg, memoryOut);
       //could block here, but that shouldn't matter to anyone
       memoryOut.writeTo(socketOut);
-      
+
       //bo.flush(); - done by flusher now
+      // 2026: and flushed here as well. Left to the flusher, every message waited up to its 250 ms
+      // sendWait, a quarter of a second on each hop (a join took 1.5 s, a command 0.5 s).
+      synchronized(socketOut){
+        socketOut.flush();
+      }
     } catch (java.net.SocketException e){
       throw new MOMConnectionLostException("MOMConnectionImpl::send Lost SOCKET connection");
     } catch (IOException e){
