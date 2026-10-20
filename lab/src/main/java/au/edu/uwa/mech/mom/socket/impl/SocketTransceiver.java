@@ -73,8 +73,15 @@ public class SocketTransceiver
     try{
       if (connected) {
         sender.stop();
-        receiver.stop();
-        s.close();
+        // 2026: the socket is closed before waiting for the receiver. It is blocked reading, which an
+        // interrupt does not end, so stop() used to wait out its full second first (on each of a
+        // connection's two sockets). Closing ends the read as it did before, just without the wait.
+        receiver.stayActive=false;
+        try {
+          s.close();
+        } finally {
+          receiver.stop();
+        }
       }
     } catch (IOException e){
       TheLog.logException(e);

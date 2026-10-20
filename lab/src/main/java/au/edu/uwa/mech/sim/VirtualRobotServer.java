@@ -173,24 +173,38 @@ public class VirtualRobotServer
 
   private void servePosition(Socket s)
   {
-    final Object signal = new Object();
-    World.Listener l = w -> { synchronized (signal) { signal.notifyAll(); } };
+    // counts changes, so one between reading the world and waiting is not missed (the line would
+    // otherwise wait a second for the next change, which never comes at the end of a move)
+    final long[] changes = {0};
+    World.Listener l = w -> { synchronized (changes) { changes[0]++; changes.notifyAll(); } };
     world.addListener(l);
     String last = null;
     try (Socket sock = s) {
       OutputStream out = sock.getOutputStream();
       while (true) {
-        String now = world.getPose().toPositionLine(world.isMoving());
+        long seen;
+        synchronized (changes) { seen = changes[0]; }
+        String now = positionLine();
         if (!now.equals(last)) {
           out.write((now + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
           out.flush();
           last = now;
         }
-        synchronized (signal) { signal.wait(1000); }
+        synchronized (changes) {
+          if (changes[0] == seen)
+            changes.wait(1000);
+        }
       }
     } catch (IOException | InterruptedException e) {
       System.out.println("VirtualRobot: position client gone: " + e.getMessage());
     }
+  }
+
+  /** The pose and whether the arm is moving, read together: a pose from mid-move never says Stopped. */
+  private String positionLine()
+  {
+    World.Snapshot s = world.snapshot();
+    return s.pose.toPositionLine(s.moving);
   }
 
   /** Execute one command line, returning the Result line. */
@@ -200,7 +214,7 @@ public class VirtualRobotServer
     if (words.length < 2 || !words[0].equalsIgnoreCase("gbh"))
       return "4 1 \"language not recognised :" + words[0] + "\"";
     if (words[1].equalsIgnoreCase("pos"))
-      return "1 0 \"Position follows\" " + world.getPose().toPositionLine(world.isMoving());
+      return "1 0 \"Position follows\" " + positionLine();
     if (!words[1].equalsIgnoreCase("move"))
       return "4 1 \"command not recognised :" + words[1] + "\"";
     synchronized (motionLock) { // one move at a time, like the real controller

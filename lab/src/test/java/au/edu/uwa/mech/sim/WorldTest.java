@@ -25,9 +25,7 @@ public class WorldTest
   public void pickUpAndStack()
   {
     World w = World.withDefaultBlocks();
-    VirtualRobotServer robot = new VirtualRobotServer(w);
-    VirtualRobotServer.SPEED_MM_PER_S = 5000;   // keep the test quick
-    VirtualRobotServer.GRIPPER_SECONDS = 0.05;
+    VirtualRobotServer robot = new VirtualRobotServer(w, new SteppedTime());
     // start where a cursor move left the arm, tilted and with the gripper closed
     robot.execute("gbh move x186,y313,s-19,t-24,z387,gclosed");
     // the help page's example: red block onto the blue one
@@ -43,9 +41,7 @@ public class WorldTest
   public void closingOnNothingLeavesBlocksAlone()
   {
     World w = World.withDefaultBlocks();
-    VirtualRobotServer robot = new VirtualRobotServer(w);
-    VirtualRobotServer.SPEED_MM_PER_S = 5000;
-    VirtualRobotServer.GRIPPER_SECONDS = 0.05;
+    VirtualRobotServer robot = new VirtualRobotServer(w, new SteppedTime());
     robot.execute("gbh move x50,y50,z15;g1;z100");
     assertEquals(0, find(w, "red").getZ(), 0);
     assertEquals(0, w.snapshot().fingerGap, 0);
@@ -91,9 +87,7 @@ public class WorldTest
   public void resetPutsMovedAndHeldBlocksBack()
   {
     World w = World.withDefaultBlocks();
-    VirtualRobotServer robot = new VirtualRobotServer(w);
-    VirtualRobotServer.SPEED_MM_PER_S = 5000;
-    VirtualRobotServer.GRIPPER_SECONDS = 0.05;
+    VirtualRobotServer robot = new VirtualRobotServer(w, new SteppedTime());
     robot.execute("gbh move x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90;x50,y50,z15;g1;z80");
     assertEquals(330, find(w, "red").getX(), 1e-6);
     w.reset();
@@ -121,38 +115,38 @@ public class WorldTest
   public void resetAbortsAMoveInProgress() throws Exception
   {
     World w = World.withDefaultBlocks();
-    VirtualRobotServer robot = new VirtualRobotServer(w);
-    double oldSpeed = VirtualRobotServer.SPEED_MM_PER_S, oldGrip = VirtualRobotServer.GRIPPER_SECONDS;
-    VirtualRobotServer.SPEED_MM_PER_S = 100;
-    VirtualRobotServer.GRIPPER_SECONDS = 0.05;
-    try {
-      String[] reply = new String[1];
-      // a long script: pick up red, then wander for about ten seconds more
-      Thread mover = new Thread(() -> reply[0] = robot.execute(
-          "gbh move x120,y150,z60,s-90,t0,g0;z15;g1;z80;x500,y500;x0,y0;x500,y500"));
-      mover.start();
-      Thread.sleep(2500);   // mid-script, red in hand or on its way
-      assertTrue(mover.isAlive());
-      long t0 = System.nanoTime();
-      robot.resetWorld();
-      assertTrue("reset must not wait for the script", (System.nanoTime() - t0) / 1e9 < 2);
-      mover.join(5000);
-      assertTrue(!mover.isAlive());
-      assertTrue(reply[0], reply[0].startsWith("4 9 "));
-      assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
-      assertTrue(w.getPose().open);
-      assertEquals(World.OPEN_GAP, w.snapshot().fingerGap, 0);
-      Block red = find(w, "red");
-      assertEquals(120, red.getX(), 0);
-      assertEquals(150, red.getY(), 0);
-      assertEquals(0, red.getZ(), 0);
-      Thread.sleep(300);   // and nothing moves it afterwards
-      assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
-      assertEquals(120, find(w, "red").getX(), 0);
-    } finally {
-      VirtualRobotServer.SPEED_MM_PER_S = oldSpeed;
-      VirtualRobotServer.GRIPPER_SECONDS = oldGrip;
-    }
+    SteppedTime time = new SteppedTime();
+    VirtualRobotServer robot = new VirtualRobotServer(w, time);
+    // the arm stops where it is once red is off the table (once: after that it may move on)
+    java.util.concurrent.atomic.AtomicBoolean held = new java.util.concurrent.atomic.AtomicBoolean();
+    w.addListener(x -> { if (find(x, "red").getZ() > 1 && held.compareAndSet(false, true)) time.hold(); });
+    String[] reply = new String[1];
+    // a long script: pick up red, then wander a long way
+    Thread mover = new Thread(() -> reply[0] = robot.execute(
+        "gbh move x120,y150,z60,s-90,t0,g0;z15;g1;z80;x500,y500;x0,y0;x500,y500"));
+    mover.start();
+    assertTrue("the arm lifts red and is held", time.awaitHeld(10_000));
+    assertTrue(find(w, "red").getZ() > 1);
+    // the reset flags the move to stop, then waits for the arm: let it take one more step
+    Thread resetter = new Thread(robot::resetWorld);
+    resetter.start();
+    long end = System.currentTimeMillis() + 10_000;
+    while (resetter.getState() != Thread.State.BLOCKED && System.currentTimeMillis() < end)
+      Thread.yield();
+    assertEquals("the reset waits for the move", Thread.State.BLOCKED, resetter.getState());
+    time.release();
+    resetter.join(10_000);
+    mover.join(10_000);
+    assertTrue("the reset did not wait for the rest of the script", !resetter.isAlive() && !mover.isAlive());
+    assertTrue(reply[0], reply[0].startsWith("4 9 "));
+    // the mover has finished, so nothing can move the arm or red now
+    assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
+    assertTrue(w.getPose().open);
+    assertEquals(World.OPEN_GAP, w.snapshot().fingerGap, 0);
+    Block red = find(w, "red");
+    assertEquals(120, red.getX(), 0);
+    assertEquals(150, red.getY(), 0);
+    assertEquals(0, red.getZ(), 0);
   }
 
   @Test
