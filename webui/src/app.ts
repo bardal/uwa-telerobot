@@ -57,6 +57,8 @@ export const QUICK_DROP_MS = 20_000;
 /** After this many quick drops in a row the page stops reconnecting and offers Try again. */
 export const MAX_QUICK_DROPS = 3;
 export const KEEPS_DROPPING = 'The connection to the robot keeps dropping';
+/** Turnstile tokens last 300 s; one fetched ahead is used only while younger than this. */
+export const EARLY_TOKEN_MS = 240_000;
 
 function storage(deps: AppDeps): Storage | null {
   try {
@@ -98,6 +100,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   // The Turnstile widget lives in a host that stays attached whichever page shows,
   // because every reconnect needs a fresh token.
   const turnstileHost = h('div', { class: 'turnstile-host' });
+  const now = deps.now ?? Date.now;
   let widget: TurnstileWidget | null = null;
   const turnstileToken =
     deps.turnstileToken ??
@@ -105,6 +108,22 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       widget ??= new TurnstileWidget({ siteKey, container });
       return widget.token();
     });
+
+  // A token is fetched while the login page shows, so pressing Continue doesn't wait the second
+  // or two Turnstile takes. Tokens are single use: the next proof asked for takes this one.
+  let early: { at: number; token: Promise<string> } | null = null;
+  function fetchEarlyToken(): void {
+    if (!config.turnstileSiteKey || (early && now() - early.at < EARLY_TOKEN_MS)) return;
+    const token = turnstileToken(turnstileHost, config.turnstileSiteKey);
+    token.catch(() => { if (early?.token === token) early = null; });
+    early = { at: now(), token };
+  }
+  function nextToken(): Promise<string> {
+    const e = early;
+    early = null;
+    if (e && now() - e.at < EARLY_TOKEN_MS) return e.token;
+    return turnstileToken(turnstileHost, config.turnstileSiteKey);
+  }
 
   const viewHost = h('div', { class: 'view-host' });
   root.replaceChildren(viewHost, turnstileHost);
@@ -121,7 +140,6 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   /** An "unauthorised" error that was the last thing before the socket closed: a kick or a ban. */
   let refusal: string | null = null;
   let wakeRun = 0;
-  const now = deps.now ?? Date.now;
   let welcomedAt = 0;
   /** Sessions in a row that dropped within QUICK_DROP_MS of their welcome (iPhone Safari once did this forever). */
   let quickDrops = 0;
@@ -183,6 +201,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
   function render(): void {
     const r = route();
     if (r === 'history' && !historyShown) void history.load();
+    if (r === 'login') fetchEarlyToken();
     historyShown = r === 'history';
     if ((r === 'classic') !== classicShown) {
       classicShown = r === 'classic';
@@ -218,7 +237,7 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (!t) throw new Error('Your sign-in has expired');
       return { idToken: t };
     }
-    return { turnstile: await turnstileToken(turnstileHost, config.turnstileSiteKey) };
+    return { turnstile: await nextToken() };
   }
 
   async function hello(): Promise<In & { t: 'hello' }> {

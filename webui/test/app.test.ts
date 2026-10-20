@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { KEEPS_DROPPING, MAX_QUICK_DROPS, QUICK_DROP_MS, startApp, type AppDeps, type GatewayLike } from '../src/app';
+import { EARLY_TOKEN_MS, KEEPS_DROPPING, MAX_QUICK_DROPS, QUICK_DROP_MS, startApp, type AppDeps, type GatewayLike } from '../src/app';
 import type { Config } from '../src/config';
 import type { GatewayOpts } from '../src/net/gateway';
 import type { In, Out } from '../src/net/protocol';
@@ -77,6 +77,12 @@ function deps(extra: Partial<AppDeps> = {}): AppDeps {
   };
 }
 
+/** A running lab: the check needs no proof, so the hello takes the first token. */
+const noProofWake: AppDeps['ensureAwake'] = async (_getProof, onProgress) => {
+  onProgress(wakeResult);
+  return wakeResult;
+};
+
 const guestButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Continue as guest')!;
 
 async function loggedIn(nick = 'ann', extra: Partial<AppDeps> = {}) {
@@ -109,6 +115,39 @@ describe('app flow', () => {
     expect(app.view()).toBe('control');
     expect(app.control()!.nick()).toBe('ann~2');
     expect(g.sent).toContainEqual({ t: 'selectCamera', camera: 'Colour' });
+  });
+
+  it('fetches a Turnstile token while the login page shows; the next proof uses it', async () => {
+    let n = 0;
+    const turnstileToken = vi.fn(async () => `tok${++n}`);
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const app = startApp(root, deps({ turnstileToken, ensureAwake: noProofWake }));
+    await app.ready;
+    expect(turnstileToken).toHaveBeenCalledTimes(1);
+    app.login.nicknameField.value = 'ann';
+    guestButton(root).click();
+    await flush();
+    const g = FakeGateway.all.at(-1)!;
+    expect(await g.hello()).toEqual({ t: 'hello', nick: 'ann', turnstile: 'tok1' });
+    // single use: a reconnect's hello gets a fresh one
+    expect((await g.hello()).turnstile).toBe('tok2');
+  });
+
+  it('a token fetched too long before the click is not used', async () => {
+    let t = 0;
+    let n = 0;
+    const turnstileToken = vi.fn(async () => `tok${++n}`);
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const app = startApp(root, deps({ turnstileToken, ensureAwake: noProofWake, now: () => t }));
+    await app.ready;
+    t += EARLY_TOKEN_MS;
+    app.login.nicknameField.value = 'ann';
+    guestButton(root).click();
+    await flush();
+    expect((await FakeGateway.all.at(-1)!.hello()).turnstile).toBe('tok2');
+    expect(turnstileToken).toHaveBeenCalledTimes(2);
   });
 
   it('shows the cap message and does not connect', async () => {

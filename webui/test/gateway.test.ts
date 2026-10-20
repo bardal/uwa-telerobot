@@ -39,6 +39,29 @@ describe('Gateway', () => {
     expect(ws.sent[1]).toBe('{"t":"activity"}');
   });
 
+  it('asks for the hello while the socket opens, and sends it once open', async () => {
+    const asked = vi.fn(hello);
+    new Gateway('ws://x/ws', asked, { WebSocketImpl: WS });
+    expect(asked).toHaveBeenCalledTimes(1);
+    const ws = FakeWS.instances[0]!;
+    await Promise.resolve();
+    expect(ws.sent).toHaveLength(0);
+    ws.open();
+    await Promise.resolve();
+    expect(JSON.parse(ws.sent[0]!).t).toBe('hello');
+    expect(asked).toHaveBeenCalledTimes(1);
+  });
+
+  it('a hello that fails closes the socket once it opens', async () => {
+    new Gateway('ws://x/ws', () => Promise.reject(new Error('no token')), { WebSocketImpl: WS });
+    const ws = FakeWS.instances[0]!;
+    await Promise.resolve();
+    ws.open();
+    await Promise.resolve();
+    expect(ws.closed).toBe(true);
+    expect(ws.sent).toHaveLength(0);
+  });
+
   it('dispatches typed messages', () => {
     const g = new Gateway('ws://x/ws', hello, { WebSocketImpl: WS });
     const got: string[] = [];

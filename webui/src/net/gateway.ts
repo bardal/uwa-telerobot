@@ -93,10 +93,13 @@ export class Gateway {
     const ws = new this.WS(this.url);
     ws.binaryType = 'blob';
     this.ws = ws;
+    // the hello (with its Turnstile token) is got while the socket opens, not after
+    const hello = this.hello();
+    hello.catch(() => { /* a socket that never opens never sends it */ });
     ws.onopen = () => {
       if (this.ws !== ws) return;
       this.state = 'open';
-      this.hello().then(
+      hello.then(
         (h) => {
           if (this.ws !== ws || this.state !== 'open') return;
           ws.send(JSON.stringify(h));
