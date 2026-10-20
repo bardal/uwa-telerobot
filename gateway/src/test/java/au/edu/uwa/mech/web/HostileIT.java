@@ -64,6 +64,8 @@ class HostileIT {
     static final String CLIENT = "webclient";
     static final AtomicInteger IPS = new AtomicInteger();
 
+    /** The gateway's clock and timers: rate limits, the handshake cap and leases move only with it. */
+    static final ManualTime TIME = new ManualTime();
     static LabFixture lab;
     static RSAKey key;
     static RSAKey otherKey;
@@ -83,11 +85,21 @@ class HostileIT {
         Auth auth = new Auth(cfg, (token, ip) -> true,
             Auth.processor(cfg, new ImmutableJWKSet<>(new JWKSet(key.toPublicJWK()))));
         registry = new SessionRegistry(cfg, auth, new Bans(new au.edu.uwa.mech.web.cloud.MemoryParamStore()),
-            new Idle(System::currentTimeMillis, () -> { }), System::currentTimeMillis);
-        server = new GatewayServer(cfg, registry, System::currentTimeMillis);
+            new Idle(TIME, () -> { }), TIME);
+        server = new GatewayServer(cfg, registry, TIME, GatewayServer.Timing.DEFAULT, TIME.scheduler());
         server.start();
         client = new WebSocketClient();
         client.start();
+    }
+
+    /** Every peer a test opened. They are all closed after it, pass or fail: one left holding control would
+     * keep the next test's guest from taking it for 180 s, and a left session from an empty gateway. */
+    static final List<Peer> OPEN = new CopyOnWriteArrayList<>();
+
+    @org.junit.jupiter.api.AfterEach
+    void leaveAll() {
+        OPEN.forEach(Peer::leave);
+        OPEN.clear();
     }
 
     @AfterAll
@@ -128,27 +140,38 @@ class HostileIT {
 
         void send(ObjectNode json) { send(json.toString()); }
 
-        JsonNode await(Predicate<JsonNode> p, long millis) throws InterruptedException {
-            long end = System.currentTimeMillis() + millis;
-            while (System.currentTimeMillis() < end) {
-                for (JsonNode n : texts) if (p.test(n)) return n;
-                Thread.sleep(10);
-            }
-            throw new AssertionError("no matching frame in " + millis + " ms; got " + texts);
+        JsonNode await(Predicate<JsonNode> p, long millis) {
+            JsonNode[] found = {null};
+            Await.until(() -> "no matching frame; got " + texts, () -> {
+                for (JsonNode n : texts) if (p.test(n)) return (found[0] = n) != null;
+                return false;
+            }, millis);
+            return found[0];
         }
 
-        JsonNode awaitType(String t) throws InterruptedException {
+        JsonNode awaitType(String t) {
             return await(n -> t.equals(n.path("t").asText()), 20_000);
         }
 
-        JsonNode awaitError(String code) throws InterruptedException {
+        JsonNode awaitError(String code) {
             return await(n -> "error".equals(n.path("t").asText()) && code.equals(n.path("code").asText()), 10_000);
         }
 
-        int awaitClose(long millis) throws InterruptedException {
-            long end = System.currentTimeMillis() + millis;
-            while (closeCode < 0 && System.currentTimeMillis() < end) Thread.sleep(10);
+        int awaitClose(long millis) {
+            Await.until("closed", () -> closeCode >= 0, millis);
             return closeCode;
+        }
+
+        /** The latest users list this peer was sent. */
+        List<String> users() {
+            List<String> nicks = List.of();
+            for (JsonNode n : texts) {
+                if (!"users".equals(n.path("t").asText())) continue;
+                List<String> l = new ArrayList<>();
+                n.path("nicks").forEach(x -> l.add(x.asText()));
+                nicks = l;
+            }
+            return nicks;
         }
 
         long count(String t, String code) {
@@ -176,8 +199,9 @@ class HostileIT {
     }
 
     static Peer connect(String origin, String secret) throws Exception {
-        Thread.sleep(120); // 10 handshakes a second is a global cap: stay well under it
+        TIME.advance(120); // 10 handshakes a second is a global cap: stay well under it
         Peer p = new Peer();
+        OPEN.add(p);
         ClientUpgradeRequest req = new ClientUpgradeRequest();
         if (origin != null) req.setHeader("Origin", origin);
         if (secret != null) req.setHeader(Admission.SECRET_HEADER, secret);
@@ -233,9 +257,7 @@ class HostileIT {
     static void assertClosedByServer(Peer p, String nick) throws Exception {
         int code = p.awaitClose(10_000);
         assertTrue(code == 1008 || code == 1006, "closed by the server (1008, or 1006 when the reset beat the close frame): " + code);
-        long end = System.currentTimeMillis() + 10_000;
-        while (registry.byNick(nick).isPresent() && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertTrue(registry.byNick(nick).isEmpty(), "the gateway no longer has a session for " + nick);
+        Await.until("the gateway no longer has a session for " + nick, () -> registry.byNick(nick).isEmpty());
     }
 
     // ---- 1. a thousand random text frames ----------------------------------------------------
@@ -252,16 +274,17 @@ class HostileIT {
         int before = good.binaries.size();
 
         Random rnd = new Random(20261013);
-        long lastAsk = 0;
         for (int i = 0; i < 1000 && hostile.session.isOpen(); i++) {
             byte[] raw = new byte[1 + rnd.nextInt(200)];
             rnd.nextBytes(raw);
             // any byte value, as a text frame: each byte becomes one char (valid UTF-8 on the wire)
             if (raw[0] == '{') raw[0] = '!'; // a lone "{" prefix is no more valid, but keep it plainly garbage
             hostile.send(new String(raw, java.nio.charset.StandardCharsets.ISO_8859_1));
-            // the good session keeps asking mid-flood, within its camera allowance (1 a second)
-            if (System.currentTimeMillis() - lastAsk >= 1_100) {
-                lastAsk = System.currentTimeMillis();
+            // the good session asks mid-flood too. Twice: with the one after the flood, that is within its
+            // camera allowance (a burst of 3, selectCamera used one, plus a second's refill before each ask)
+            // however late the gateway gets to them; the allowance is reckoned when it does.
+            if (i == 0 || i == 10) {
+                TIME.advance(1_100);
                 good.send(msg("newImage").put("camera", "ZCam"));
             }
         }
@@ -271,45 +294,56 @@ class HostileIT {
             "only bad-message and the final rate-limited close: " + hostile.texts);
 
         // the good session got camera frames during and after the flood, and was never closed or refused
-        long end = System.currentTimeMillis() + 20_000;
-        while (good.binaries.size() <= before && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertTrue(good.binaries.size() > before, "ZCam frames kept arriving during the flood: " + good.binaries.size()
-            + " vs " + before);
-        good.send(msg("newImage").put("camera", "ZCam"));
+        Await.until("ZCam frames kept arriving during the flood", () -> good.binaries.size() > before, 20_000);
+        TIME.advance(1_100);
         int mark = good.binaries.size();
-        end = System.currentTimeMillis() + 20_000;
-        while (good.binaries.size() <= mark && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertTrue(good.binaries.size() > mark, "and a request after the flood is still answered");
+        good.send(msg("newImage").put("camera", "ZCam"));
+        Await.until("a request after the flood is still answered", () -> good.binaries.size() > mark, 20_000);
         assertTrue(good.binaries.stream().allMatch(b -> b.length > 2 && b[0] == (byte) 0xFF && b[1] == (byte) 0xD8),
             "every binary frame is a JPEG");
         assertEquals(0, good.count("error", null), "the good session was never refused: " + good.texts);
         assertEquals(-1, good.closeCode);
-        good.leave();
     }
 
     // ---- 1b. a camera flood ------------------------------------------------------------------
 
+    /**
+     * The camera server's shutter is idle: the arm is at rest and its ShutterThread (which photographs every
+     * 500 ms while the arm moves, then once more) is back waiting for the next move.
+     */
+    static boolean shutterIdle() {
+        if (lab.world().snapshot().moving) return false;
+        for (var e : Thread.getAllStackTraces().entrySet()) {
+            StackTraceElement[] st = e.getValue();
+            for (int i = 0; i < st.length; i++) {
+                if (!st[i].getClassName().endsWith("Server$ShutterThread")) continue;
+                // waiting on moveSignal: Object.wait called straight from ShutterThread.run
+                return e.getKey().getState() == Thread.State.WAITING && i > 0
+                    && st[i - 1].getClassName().equals("java.lang.Object") && st[i - 1].getMethodName().startsWith("wait");
+            }
+        }
+        return true; // no shutter at all
+    }
+
     @Test
-    void fiftyNewImagesInASecondReachTheCameraServerAtMostFourTimes() throws Exception {
-        // the arm at rest: the camera server's shutter thread photographs only while it moves
-        long rest = System.currentTimeMillis() + 30_000;
-        while (lab.world().snapshot().moving && System.currentTimeMillis() < rest) Thread.sleep(50);
-        Thread.sleep(700); // its photo after the move, too
+    void twentyNewImagesAtOnceReachTheCameraServerOnlyThreeTimes() throws Exception {
+        // only photos asked for are counted: the shutter is idle, and stays so (nothing moves the arm)
+        Await.until("the camera server's shutter is idle", HostileIT::shutterIdle, 20_000);
         AtomicInteger photos = new AtomicInteger();
         au.edu.uwa.mech.devices.camera.Camera cam = lab.camera("YCam");
         au.edu.uwa.mech.devices.camera.ImageListener count = (source, image) -> photos.incrementAndGet();
         Peer p = guest("shutterbug");
         try {
             cam.addImageListener(count);
-            for (int i = 0; i < 50 && p.session.isOpen(); i++) {
-                p.send(msg("newImage").put("camera", "YCam"));
-                Thread.sleep(20);
-            }
-            p.awaitError("rate-limited");
-            Thread.sleep(1_500); // photos already asked for are taken
-            assertTrue(photos.get() >= 1, "the burst reached the camera server: " + photos.get());
-            assertTrue(photos.get() <= 4, "a burst of 3 and at most one refill, not 50: " + photos.get());
-            assertTrue(p.count("error", "rate-limited") >= 1, p.texts.toString());
+            // all at one instant on the gateway's clock: its burst of 3, and no refill
+            for (int i = 0; i < 20; i++) p.send(msg("newImage").put("camera", "YCam"));
+            // every request gets an answer: 17 refusals (fewer than the 20 that close a session), so exactly
+            // 3 went to the camera server, and each takes one photo
+            Await.until(() -> "refusals " + p.count("error", "rate-limited"),
+                () -> p.count("error", "rate-limited") == 17, 10_000);
+            Await.until(() -> "photos " + photos.get(), () -> photos.get() == 3, 10_000);
+            assertEquals(17, p.count("error", null), p.texts.toString());
+            assertEquals(-1, p.closeCode);
         } finally {
             cam.removeImageListener(count);
             p.leave();
@@ -368,7 +402,8 @@ class HostileIT {
             Peer text = guest("gadgettext");
             Peer binary = guest("gadgetbin");
             Peer early = connect(); // no hello yet
-            Thread.sleep(2000);
+            // (so that its leaving, below, is something the control session sees happen)
+            Await.until(() -> "users " + control.users(), () -> control.users().contains("gadgetbin"), 10_000);
             int mark = tap.all.size();
             int rejectedMark = tap.rejected.size();
 
@@ -380,11 +415,17 @@ class HostileIT {
 
             assertEquals(1003, binary.awaitClose(10_000), "binary: closed as unsupported data");
             assertEquals(1003, early.awaitClose(10_000), "binary before hello: closed as unsupported data");
-            long end = System.currentTimeMillis() + 10_000;
-            while (text.count("error", "bad-message") < 2 && System.currentTimeMillis() < end) Thread.sleep(20);
-            assertEquals(2, text.count("error", "bad-message"), text.texts.toString());
+            Await.until(() -> text.texts.toString(), () -> text.count("error", "bad-message") == 2, 10_000);
             assertEquals(-1, text.closeCode, "two refusals do not close a text session");
-            Thread.sleep(3000); // time for any (wrongly) forwarded packet to reach MOM and be logged
+            // Sync points instead of a pause. MOM reads each connection's packets in order, so anything the
+            // gateway had (wrongly) forwarded is deserialised before what follows it on the same connection:
+            // - gadgettext: a chat sent after the gadgets reaches the control session;
+            // - gadgetbin: its logout, sent when the gateway closed it, takes it off the control's user list.
+            // (early never said hello, so it never had a MOM connection to forward anything on.)
+            text.send(msg("chat").put("text", "after the gadgets"));
+            control.await(n -> "chat".equals(n.path("t").asText()) && "after the gadgets".equals(n.path("text").asText()),
+                10_000);
+            Await.until(() -> "users " + control.users(), () -> !control.users().contains("gadgetbin"), 10_000);
 
             List<String> window = new ArrayList<>(tap.all.subList(mark, tap.all.size()));
             assertEquals(rejectedMark, tap.rejected.size(), "nothing was rejected by the serial filter");
@@ -443,29 +484,22 @@ class HostileIT {
     void a100ChatMessagesInASecondAreRateLimitedAndTheSessionIsClosed() throws Exception {
         Peer p = guest("chatty");
         Peer listener = guest("listener");
+        Await.until(() -> "users " + listener.users(), () -> listener.users().contains("chatty"), 10_000);
         // positive control: one ordinary chat from the same peer is delivered
         p.send(msg("chat").put("text", "hello before the flood"));
         listener.await(n -> "chat".equals(n.path("t").asText())
             && "hello before the flood".equals(n.path("text").asText()), 10_000);
 
+        // all at one instant on the gateway's clock: what is left of the burst of 5, and no refill
         for (int i = 0; i < 100 && p.session.isOpen(); i++) p.send(msg("chat").put("text", "spam " + i));
         assertClosedByServer(p, "chatty");
         p.awaitError("rate-limited");
         assertTrue(p.count("error", "rate-limited") >= 20, p.texts.toString());
-        // deliveries settle: no new chat for a full second
-        long last = -1;
-        long stableSince = System.currentTimeMillis();
-        long deadline = System.currentTimeMillis() + 15_000;
-        while (System.currentTimeMillis() < deadline && System.currentTimeMillis() - stableSince < 1000) {
-            long now = listener.count("chat", null);
-            if (now != last) {
-                last = now;
-                stableSince = System.currentTimeMillis();
-            }
-            Thread.sleep(20);
-        }
-        assertTrue(last <= 6, "burst of 5 (the control used one) and at most one refill got through, not 100: " + last);
-        assertTrue(last >= 2, "some of the burst was delivered, so the flood really reached the chat path: " + last);
+        // chatty's logout follows its chats on its MOM connection, so once the listener sees it leave,
+        // every chat of its that MOM will ever pass on has been passed on
+        Await.until(() -> "users " + listener.users(), () -> !listener.users().contains("chatty"), 10_000);
+        assertEquals(5, listener.count("chat", null),
+            "the control and the 4 left of the burst of 5, not 100: " + listener.texts);
         listener.leave();
     }
 
@@ -516,8 +550,7 @@ class HostileIT {
         Peer victim = controller("bystander");
         victim.send(msg("command").put("script", "x300,y250,z120"));
         victim.await(n -> "commandStatus".equals(n.path("t").asText()) && "done".equals(n.path("state").asText()), 60_000);
-        long settle = System.currentTimeMillis() + 15_000;
-        while (lab.world().snapshot().moving && System.currentTimeMillis() < settle) Thread.sleep(50);
+        Await.until("the arm is at rest", () -> !lab.world().snapshot().moving, 15_000);
         String world = worldKey();
         assertTrue(world.startsWith("pose 300.0,250.0,120.0"), "the robot is away from its start: " + world);
 
@@ -526,9 +559,8 @@ class HostileIT {
         assertEquals("admins only", p.awaitError("unauthorised").get("message").asText());
         p.send(msg("admin").put("action", "ban").put("nick", "bystander"));
         p.send(msg("admin").put("action", "reset"));
-        long end = System.currentTimeMillis() + 10_000;
-        while (p.count("error", "unauthorised") < 3 && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertEquals(3, p.count("error", "unauthorised"), "each of the three attempts was refused: " + p.texts);
+        Await.until(() -> "each of the three attempts was refused: " + p.texts, () -> p.count("error", "unauthorised") == 3,
+            10_000);
         assertEquals(-1, victim.closeCode, "the victim was not kicked");
         assertEquals(-1, p.closeCode, "three refusals are not 20");
         assertEquals(world, worldKey(), "the lab was not reset");
@@ -543,9 +575,7 @@ class HostileIT {
         assertEquals("registered", reg.awaitType("welcome").get("level").asText());
         reg.send(msg("admin").put("action", "kick").put("nick", "bystander"));
         reg.send(msg("admin").put("action", "reset"));
-        end = System.currentTimeMillis() + 10_000;
-        while (reg.count("error", "unauthorised") < 2 && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertEquals(2, reg.count("error", "unauthorised"), reg.texts.toString());
+        Await.until(() -> reg.texts.toString(), () -> reg.count("error", "unauthorised") == 2, 10_000);
         assertEquals(-1, victim.closeCode);
         assertEquals(world, worldKey());
         reg.leave();
@@ -601,9 +631,7 @@ class HostileIT {
 
     @Test
     void the61stSessionIsRefusedAsTooMany() throws Exception {
-        long drain = System.currentTimeMillis() + 15_000;
-        while (server.sessions() != 0 && System.currentTimeMillis() < drain) Thread.sleep(50);
-        assertEquals(0, server.sessions(), "start from an empty gateway");
+        Await.until(() -> "start from an empty gateway: " + server.sessions(), () -> server.sessions() == 0, 15_000);
         List<Peer> peers = new ArrayList<>();
         try {
             for (int i = 0; i < Admission.MAX_VIEWERS; i++) {
@@ -612,7 +640,7 @@ class HostileIT {
                 p.send(hello("crowd " + i));
             }
             assertEquals(Admission.MAX_VIEWERS, server.sessions());
-            Thread.sleep(1200); // the handshake-rate window is clear
+            TIME.advance(1200); // the handshake-rate window is clear
             String response = rawUpgrade();
             assertTrue(response.startsWith("HTTP/1.1 429"), response);
             assertTrue(response.contains("<title>Error 429 too many</title>") && response.contains("<td>too many</td>"),
@@ -625,9 +653,7 @@ class HostileIT {
         } finally {
             peers.forEach(Peer::leave);
         }
-        long end = System.currentTimeMillis() + 15_000;
-        while (server.sessions() != 0 && System.currentTimeMillis() < end) Thread.sleep(50);
-        assertEquals(0, server.sessions(), "every slot is given back");
+        Await.until(() -> "every slot is given back: " + server.sessions(), () -> server.sessions() == 0, 15_000);
     }
 
     // ---- 11. nicks -----------------------------------------------------------------------------

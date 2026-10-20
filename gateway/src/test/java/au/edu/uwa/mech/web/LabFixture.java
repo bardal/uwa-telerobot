@@ -1,17 +1,21 @@
 package au.edu.uwa.mech.web;
 
 import au.edu.uwa.mech.sim.Block;
+import au.edu.uwa.mech.sim.SteppedTime;
 import au.edu.uwa.mech.sim.World;
 import au.edu.uwa.mech.web.dev.InProcessLab;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * The whole lab in this JVM on free ports, with the fast arm: {@link InProcessLab}. One per JVM,
- * shared by every test (and by {@code Main --dev --lab-in-process} run inside the test JVM).
+ * The whole lab in this JVM on free ports: {@link InProcessLab}. One per JVM, shared by every test
+ * (and by {@code Main --dev --lab-in-process} run inside the test JVM). The arm moves in stepped time:
+ * a move takes no wall-clock time, and {@link #motion()} can hold it mid-move.
  */
 public final class LabFixture {
     private static LabFixture shared;
+
+    private static final SteppedTime MOTION = new SteppedTime();
 
     private final InProcessLab lab;
 
@@ -21,7 +25,7 @@ public final class LabFixture {
 
     /** The lab for this JVM, started on first use. */
     public static synchronized LabFixture shared() throws Exception {
-        if (shared == null) shared = new LabFixture(InProcessLab.shared(InProcessLab.Ports.free(), true));
+        if (shared == null) shared = new LabFixture(InProcessLab.shared(InProcessLab.Ports.free(), true, MOTION));
         return shared;
     }
 
@@ -32,6 +36,9 @@ public final class LabFixture {
     public InProcessLab.Ports ports() { return lab.ports(); }
 
     public World world() { return lab.world(); }
+
+    /** The arm's clock: hold it to stop a move where it is, release it to let the move finish. */
+    public SteppedTime motion() { return MOTION; }
 
     /** One of the simulated cameras, as the camera server sees it: every photo it takes reaches its image listeners. */
     public au.edu.uwa.mech.devices.camera.Camera camera(String name) throws Exception {

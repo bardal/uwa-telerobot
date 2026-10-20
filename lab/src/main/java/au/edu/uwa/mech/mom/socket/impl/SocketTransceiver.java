@@ -73,8 +73,15 @@ public class SocketTransceiver
     try{
       if (connected) {
         sender.stop();
-        receiver.stop();
-        s.close();
+        // 2026: the socket is closed before waiting for the receiver. It is blocked reading, which an
+        // interrupt does not end, so stop() used to wait out its full second first (on each of a
+        // connection's two sockets). Closing ends the read as it did before, just without the wait.
+        receiver.stayActive=false;
+        try {
+          s.close();
+        } finally {
+          receiver.stop();
+        }
       }
     } catch (IOException e){
       TheLog.logException(e);
@@ -107,8 +114,13 @@ public class SocketTransceiver
       translator.writeObject(arg, memoryOut);
       //could block here, but that shouldn't matter to anyone
       memoryOut.writeTo(socketOut);
-      
+
       //bo.flush(); - done by flusher now
+      // 2026: and flushed here as well. Left to the flusher, every message waited up to its 250 ms
+      // sendWait, a quarter of a second on each hop (a join took 1.5 s, a command 0.5 s).
+      synchronized(socketOut){
+        socketOut.flush();
+      }
     } catch (java.net.SocketException e){
       throw new MOMConnectionLostException("MOMConnectionImpl::send Lost SOCKET connection");
     } catch (IOException e){

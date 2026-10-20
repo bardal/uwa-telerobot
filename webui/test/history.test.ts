@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { DELETED, HistoryPage, imageUrl, NOTHING } from '../src/archive/history';
 import type { In } from '../src/net/protocol';
 
@@ -138,6 +138,8 @@ describe('History page', () => {
   });
 
   it('admin Delete sends the admin message, then reloads the day after a delay', async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => { vi.useRealTimers(); });
     const { page, sent, urls } = make({ [DAYS]: () => json({ days: ['2026-10-13'] }), [DAY]: () => json(day) }, { canDelete: true });
     await page.load();
     const del = (cls: string) => page.list.querySelector(`.${cls} .history-delete`) as HTMLButtonElement;
@@ -151,7 +153,9 @@ describe('History page', () => {
     ]);
     expect(page.status.textContent).toBe(DELETED);
     expect(page.list.children).toHaveLength(0);
-    await new Promise((r) => setTimeout(r, 30));
+    await vi.advanceTimersByTimeAsync(4);
+    expect(urls.filter((u) => u === DAY)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1); // the 5 ms reloadDelayMs
     expect(urls.filter((u) => u === DAY)).toHaveLength(2);
     expect(page.status.textContent).toBe(DELETED);
   });

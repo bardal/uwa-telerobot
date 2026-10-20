@@ -341,7 +341,7 @@ class ArchiveTest {
             try {
                 for (int i = 0; i < 40; i++) {
                     archive.flush();
-                    Thread.sleep(1);
+                    Thread.yield(); // let the writers in between flushes
                 }
             } catch (Throwable e) {
                 errors.add(e);
@@ -356,24 +356,18 @@ class ArchiveTest {
         assertEquals(threads * per * 2, readJson("public/index/2026-10-13.json").get("entries").size());
     }
 
-    /** A store that can be slowed down or made to fail. */
+    /** A store that can be made to fail, or to give way to other threads in every call (widening races). */
     static final class FlakyStore implements ArchiveStore {
         final ArchiveStore inner;
         volatile boolean failGets, failPuts;
-        volatile long delayMs;
+        volatile int yields;
 
         FlakyStore(ArchiveStore inner) {
             this.inner = inner;
         }
 
         void pause() {
-            if (delayMs > 0) {
-                try {
-                    Thread.sleep(delayMs);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
+            for (int i = 0; i < yields; i++) Thread.yield();
         }
 
         public void put(String key, byte[] body, String contentType) {
@@ -400,7 +394,7 @@ class ArchiveTest {
     @Test
     void concurrentFlushersWriteEveryEntryAndAuditLineExactlyOnceInOrder() throws Exception {
         FlakyStore slow = new FlakyStore(store);
-        slow.delayMs = 2;
+        slow.yields = 20;
         Archive a = new Archive(slow, () -> now, 5_000_000_000L, new Random(5));
         List<String> ids = new ArrayList<>();
         var errors = new java.util.concurrent.ConcurrentLinkedQueue<Throwable>();
@@ -509,6 +503,18 @@ class ArchiveTest {
     void fileStoreRejectsKeyThatIsTheRoot() {
         assertThrows(IllegalArgumentException.class, () -> store.put(".", new byte[1], "x"));
         assertThrows(IllegalArgumentException.class, () -> store.put("a/..", new byte[1], "x"));
+    }
+
+    @Test
+    void fileStoreKeepsCountOfItsBytesAsAFreshWalkWould() {
+        store.put("public/a.jpg", new byte[100], "image/jpeg");
+        assertEquals(100, store.bytesUsed(), "the first call walks the directory");
+        store.put("public/b.jpg", new byte[30], "image/jpeg");
+        store.put("public/a.jpg", new byte[70], "image/jpeg"); // an overwrite counts its new size only
+        store.delete("public/b.jpg");
+        store.delete("public/missing.jpg");
+        assertEquals(70, store.bytesUsed());
+        assertEquals(70, new FileArchiveStore(dir).bytesUsed(), "the same as walking it afresh");
     }
 
     @Test

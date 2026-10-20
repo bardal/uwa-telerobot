@@ -78,12 +78,12 @@ class GatewayCloseTest {
         assertEquals(0, conn.get().queuedMessages());
 
         for (int i = 0; i < 50; i++) r.session.sendText("{\"t\":\"activity\"}", Callback.NOOP);
-        r.closed.get(5, TimeUnit.SECONDS);
-        Thread.sleep(200);
+        // Wait for the server to finish with the socket, not for the client to see the close: the client is
+        // still writing, and its view of the close is a race with the TCP reset (it once missed it under
+        // load). Once onClose has run the connection is over, so nothing more can reach the handler.
+        Await.until(() -> "closes " + closes.get(), () -> closes.get() == 1, 10_000);
         assertEquals(1, messages.get(), "nothing after our close reaches the handler");
         assertTrue(!conn.get().isOpen());
-        long end = System.currentTimeMillis() + 5_000;
-        while (closes.get() == 0 && System.currentTimeMillis() < end) Thread.sleep(20);
-        assertEquals(1, closes.get());
+        assertEquals(1, closes.get(), "onClose once");
     }
 }

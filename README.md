@@ -127,6 +127,20 @@ java -cp lab/target/telerobot.jar au.edu.uwa.mech.sim.VirtualLab --preview previ
 The tests also write `webui/test/fixtures/camera.json`, the camera geometry
 reference values for the browser port.
 
+Tests don't run on wall-clock time. A test never sleeps, whether to let
+something happen or to show that it didn't:
+
+* The simulated arm takes a `MotionTime`. Tests use `SteppedTime`, where a
+  move takes no time and the arm can be held mid-move.
+* The gateway's clocks and timers take a `ManualTime` in tests, which the test
+  moves on.
+* Waiting on another thread goes through `Await.until`, whose deadline is only
+  a ceiling. To show that nothing happened, a test waits on a sync point: a
+  later message on the same connection, or a pong.
+
+`NoSleepInTestsTest` fails the build on any other `Thread.sleep` in either
+module's tests.
+
 `lab/src/test/java/au/edu/uwa/mech/it` has two checks to run against a stack
 started with `NO_APPLET=1 ./start.sh` or `.\start.ps1 -NoApplet`:
 
