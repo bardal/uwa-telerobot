@@ -48,12 +48,20 @@ const expectCommit = process.env.SMOKE_COMMIT || null;
 const wakeTimeoutMs = Number(process.env.SMOKE_WAKE_TIMEOUT_S ?? 900) * 1000;
 
 const results = [];
+// each check's line says how long it took (since the previous one), so a slow deploy shows where
+let lastAt = performance.now();
+function took() {
+  const now = performance.now();
+  const s = ((now - lastAt) / 1000).toFixed(1);
+  lastAt = now;
+  return `${s} s`;
+}
 function pass(name, detail = "") {
   results.push(name);
-  console.log(`PASS ${name}${detail ? `: ${detail}` : ""}`);
+  console.log(`PASS ${name} (${took()})${detail ? `: ${detail}` : ""}`);
 }
 function fail(name, detail) {
-  console.log(`FAIL ${name}: ${detail}`);
+  console.log(`FAIL ${name} (${took()}): ${detail}`);
   console.log(`\n${results.length} check(s) passed before the failure.`);
   process.exit(1);
 }
