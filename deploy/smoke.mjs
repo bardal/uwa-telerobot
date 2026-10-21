@@ -312,8 +312,9 @@ const archivedMove = await new Promise((resolve) => {
 
 // ---- 5. the public archive index lists the move ----
 {
-  // The gateway flushes its indexes (and the audit log) every 60 s, and the
-  // indexes are cached for 30 s (CloudFront caches a miss for 10 s).
+  // The gateway writes the day's index before it announces a move as archived,
+  // so the first look should find it. The polling is for an older gateway (it
+  // wrote every 60 s) and the 30 s the indexes are cached for (10 s for a miss).
   const { id, day } = archivedMove;
   let last = "";
   let ok = false;

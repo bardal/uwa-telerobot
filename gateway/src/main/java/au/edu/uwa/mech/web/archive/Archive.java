@@ -134,6 +134,7 @@ public final class Archive {
             e.set("poseAfter", pose(after));
             touched.add(Keys.day(time));
         }
+        flush(); // in the index before anyone is told it was archived (CloudFront would cache an index without it)
     }
 
     /** Writes the images for one phase and records them in {@code frames} (camera -> {phase, calibration}). */
@@ -189,6 +190,7 @@ public final class Archive {
             addEntry(day, e);
             audit(time, "snapshot", snapId, nick, id, null, null);
         }
+        flush(); // as finishMove: in the index before it is announced
         return Optional.of(snapId);
     }
 

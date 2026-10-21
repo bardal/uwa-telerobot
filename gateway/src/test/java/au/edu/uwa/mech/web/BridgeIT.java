@@ -123,9 +123,9 @@ class BridgeIT {
         assertEquals("hi", chat.text());
         assertTrue(chat.time() > 0 && !chat.id().isEmpty());
 
-        // 6b. the archive: after the pick-and-place and a flush, the move with 6 JPEGs, and chat "hi"
+        // 6b. the archive: once the pick-and-place is announced as archived, its index entry with 6 JPEGs is
+        //     already written (no flush; a browser following the link must find it); then chat "hi"
         Out.Archived moved = a.await(Out.Archived.class, x -> x.kind().equals("move"), 15_000);
-        archive.flush();
         String moveId = moved.id();
         List<Path> moveImages = files("public/moves").stream()
             .filter(p -> p.getFileName().toString().startsWith(moveId + "-")).toList();
@@ -146,19 +146,19 @@ class BridgeIT {
             assertTrue(f.get("before").asText().endsWith("-before.jpg") && f.get("after").asText().endsWith("-after.jpg"));
             assertEquals(12, f.get("calibration").size());
         }
+        assertTrue(Files.readString(archiveDir.resolve(Keys.DAYS)).contains(Keys.day(Keys.idTime(moveId))));
+        archive.flush(); // chat waits for the periodic flush
         boolean hi = false;
-        for (JsonNode e : day.get("entries")) {
+        for (JsonNode e : dayIndex(moveId).get("entries")) {
             hi |= e.get("kind").asText().equals("chat") && e.get("text").asText().equals("hi")
                 && e.get("nick").asText().equals("ann~2");
         }
-        assertTrue(hi, "chat hi in " + day);
-        assertTrue(Files.readString(archiveDir.resolve(Keys.DAYS)).contains(Keys.day(Keys.idTime(moveId))));
+        assertTrue(hi, "chat hi in " + dayIndex(moveId));
 
         // 6c. Archive Images: a snapshot of 3 images, announced with archived
         b.in(new In.ArchiveImages());
         Out.Archived snap = b.await(Out.Archived.class, x -> x.kind().equals("snapshot"), 10_000);
         assertTrue(snap.url().startsWith("/archive/public/"), snap.url());
-        archive.flush();
         assertEquals(3, files("public/snapshots").stream()
             .filter(p -> p.getFileName().toString().startsWith(snap.id() + "-")).count());
         assertNotNull(entry(dayIndex(snap.id()), "snapshot", snap.id()));
