@@ -64,9 +64,24 @@ $Deploy = $PSScriptRoot
 $Started = Get-Date
 $Summary = [ordered]@{}
 
+# Each step's time is printed when it ends and listed again at the end, so a slow deploy shows where.
+$Timings = [System.Collections.Generic.List[object]]::new()
+$CurrentStep = $null
+$StepStarted = $null
+function End-Step {
+  if ($script:CurrentStep) {
+    $secs = ((Get-Date) - $script:StepStarted).TotalSeconds
+    $script:Timings.Add([pscustomobject]@{ Step = $script:CurrentStep; Seconds = $secs })
+    Write-Host ("    ({0:n0} s)" -f $secs) -ForegroundColor DarkGray
+  }
+  $script:CurrentStep = $null
+}
 function Step([string]$Text) {
+  End-Step
   Write-Host ''
   Write-Host "==> $Text" -ForegroundColor Cyan
+  $script:CurrentStep = $Text
+  $script:StepStarted = Get-Date
 }
 function Note([string]$Text) { Write-Host "    $Text" }
 function Warn([string]$Text) { Write-Host "    WARNING: $Text" -ForegroundColor Yellow }
@@ -75,9 +90,11 @@ function Abort([string]$Text) { throw "deploy.ps1: $Text" }
 # Runs a native command in a directory and throws if it fails.
 function Exec([string]$What, [string]$Dir, [scriptblock]$Block) {
   Push-Location $Dir
+  $began = Get-Date
   try {
     & $Block
     if ($LASTEXITCODE -ne 0) { Abort "$What failed (exit $LASTEXITCODE)" }
+    Note ("{0}: {1:n0} s" -f $What, ((Get-Date) - $began).TotalSeconds)
   } finally {
     Pop-Location
   }
@@ -568,6 +585,13 @@ try {
   Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
   $exitCode = 1
 } finally {
+  End-Step
+  if ($Timings.Count) {
+    Write-Host ''
+    Write-Host '  Step timings' -ForegroundColor Cyan
+    foreach ($t in $Timings) { Note ("{0,5:n0} s  {1}" -f $t.Seconds, $t.Step) }
+    Note ("{0,5:n0} s  total" -f ((Get-Date) - $Started).TotalSeconds)
+  }
   Remove-Item -LiteralPath $Private -Recurse -Force -ErrorAction SilentlyContinue
   if ($BuildDir -and (Test-Path -LiteralPath $BuildDir)) {
     try { Remove-Item -LiteralPath $BuildDir -Recurse -Force } catch { Warn "could not remove $BuildDir`: $($_.Exception.Message)" }
