@@ -102,6 +102,21 @@ class ArchiveTest {
     }
 
     @Test
+    void aFinishedMoveAndASnapshotAreInTheIndexWithoutWaitingForAFlush() throws IOException {
+        String id = archive.startMove("ann", Level.GUEST, ann, "move 1 2 3", three(10), new RobotState());
+        assertTrue(store.get("public/index/2026-10-13.json").isEmpty(), "not while the move runs");
+        archive.finishMove(id, "done", new RobotState(), three(11));
+        JsonNode e = readJson("public/index/2026-10-13.json").get("entries").get(0);
+        assertEquals(id, e.get("id").asText());
+        assertEquals("done", e.get("result").asText());
+        assertTrue(readJson("public/index/days.json").get("days").toString().contains("2026-10-13"));
+
+        now += 1000;
+        String snap = archive.snapshot("ann", ann, three(10), new RobotState()).orElseThrow();
+        assertTrue(readJson("public/index/2026-10-13.json").toString().contains(snap));
+    }
+
+    @Test
     void snapshotWritesThreeImagesAndEleventhInAnHourIsRefused() throws IOException {
         var first = archive.snapshot("ann", ann, three(10), new RobotState());
         assertTrue(first.isPresent());
