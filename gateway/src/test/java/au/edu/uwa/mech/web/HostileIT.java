@@ -718,58 +718,50 @@ class HostileIT {
 
         // Two controls decide which addresses can say anything. On a usable address (a) a socket bound to
         // 0.0.0.0 IS reachable, and (b) a port nobody listens on is actively REFUSED (a firewall that drops
-        // silently would make every probe time out, which proves nothing).
+        // silently would make every probe time out, which proves nothing). Every probe, the controls and the
+        // lab ports on every address, runs at once: Windows takes about 2 s to report a refusal (it retries
+        // the SYN), so the timeout is well above that, and one at a time they took 11 s on 11 addresses.
         int closedPort;
         try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
             closedPort = probe.getLocalPort();
         }
-        List<InetAddress> reachable = new ArrayList<>();
-        try (java.net.ServerSocket anyBound = new java.net.ServerSocket(0, 50, InetAddress.getByName("0.0.0.0"))) {
+        List<String> labReachable = new ArrayList<>();
+        int usable = 0;
+        try (java.net.ServerSocket anyBound = new java.net.ServerSocket(0, 50, InetAddress.getByName("0.0.0.0"));
+             var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            record Probes(InetAddress a, java.util.concurrent.Future<String> listening,
+                          java.util.concurrent.Future<String> closed, List<java.util.concurrent.Future<String>> lab) { }
+            List<Probes> all = new ArrayList<>();
             for (InetAddress a : others) {
-                boolean listensReachable;
-                try (Socket s = new Socket()) {
-                    s.connect(new InetSocketAddress(a, anyBound.getLocalPort()), 1000);
-                    listensReachable = true;
-                } catch (IOException cannotReachEvenThat) {
-                    listensReachable = false;
+                List<java.util.concurrent.Future<String>> lab = new ArrayList<>();
+                for (int port : ports) lab.add(pool.submit(() -> probe(a, port)));
+                all.add(new Probes(a, pool.submit(() -> probe(a, anyBound.getLocalPort())),
+                    pool.submit(() -> probe(a, closedPort)), lab));
+            }
+            for (Probes p : all) {
+                if (!p.listening().get(30, TimeUnit.SECONDS).equals("connected")
+                    || !p.closed().get(30, TimeUnit.SECONDS).equals("refused")) continue;
+                usable++;
+                for (int i = 0; i < ports.length; i++) {
+                    String r = p.lab().get(i).get(30, TimeUnit.SECONDS);
+                    if (!r.equals("refused")) labReachable.add(p.a() + ":" + ports[i] + " " + r);
                 }
-                boolean refusesClosed;
-                try (Socket s = new Socket()) {
-                    s.connect(new InetSocketAddress(a, closedPort), 1000);
-                    refusesClosed = false;
-                } catch (java.net.ConnectException refused) {
-                    refusesClosed = true;
-                } catch (IOException timedOut) {
-                    refusesClosed = false;
-                }
-                if (listensReachable && refusesClosed) reachable.add(a);
             }
         }
-        assumeFalse(reachable.isEmpty(), "no non-loopback address of this host both accepts a socket bound to "
+        assumeFalse(usable == 0, "no non-loopback address of this host both accepts a socket bound to "
             + "0.0.0.0 and visibly refuses a closed port, so a refusal on the lab ports would prove nothing");
+        assertEquals(List.of(), labReachable, "lab ports on a non-loopback address (anything but a refusal)");
+    }
 
-        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(16);
-        try {
-            List<java.util.concurrent.Future<String>> probes = new ArrayList<>();
-            for (InetAddress a : reachable) {
-                for (int port : ports) {
-                    probes.add(pool.submit(() -> {
-                        try (Socket s = new Socket()) {
-                            s.connect(new InetSocketAddress(a, port), 2000);
-                            return a + ":" + port + " is reachable";
-                        } catch (java.net.ConnectException refused) {
-                            return null; // actively refused: nothing listens on that address
-                        } catch (IOException other) {
-                            return a + ":" + port + " gave " + other + " (not a refusal)";
-                        }
-                    }));
-                }
-            }
-            for (java.util.concurrent.Future<String> f : probes) {
-                assertEquals(null, f.get(30, TimeUnit.SECONDS), "lab port on a non-loopback address");
-            }
-        } finally {
-            pool.shutdownNow();
+    /** "connected", "refused", or what else happened, connecting to {@code a:port} within 5 s. */
+    private static String probe(InetAddress a, int port) {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress(a, port), 5000);
+            return "connected";
+        } catch (java.net.ConnectException refused) {
+            return "refused";
+        } catch (IOException other) {
+            return "gave " + other;
         }
     }
 

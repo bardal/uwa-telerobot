@@ -100,6 +100,45 @@ function Exec([string]$What, [string]$Dir, [scriptblock]$Block) {
   }
 }
 
+# npm ci in a fresh clone wrote 330 MB for deploy/ (27-36 s) and webui/ (10 s) on every deploy. Installed
+# trees are kept per package-lock.json (and Node version) and the clone's node_modules is a junction to one;
+# a changed lock file installs afresh. The junctions are removed before the clone is deleted, so the
+# delete can never reach into the cache.
+$NodeCache = Join-Path $env:LOCALAPPDATA 'telerobot-deploy\node_modules'
+$NodeLinks = [System.Collections.Generic.List[string]]::new()
+function Install-NodeModules([string]$What, [string]$Dir) {
+  $lock = Join-Path $Dir 'package-lock.json'
+  $key = (Get-FileHash -Algorithm SHA256 -LiteralPath $lock).Hash + (node --version)
+  $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($key))).Substring(0, 16)
+  $entry = Join-Path $NodeCache "$(Split-Path $Dir -Leaf)-$hash"
+  $modules = Join-Path $entry 'node_modules'
+  $done = Join-Path $entry 'complete'
+  $link = Join-Path $Dir 'node_modules'
+  if (Test-Path -LiteralPath $done) {
+    Note "${What}: node_modules from the cache ($hash)"
+  } else {
+    if (Test-Path -LiteralPath $entry) { Remove-Item -LiteralPath $entry -Recurse -Force } # an unfinished one
+    Exec "$What npm ci" $Dir { npm ci --no-audit --no-fund }
+    New-Item -ItemType Directory -Force -Path $entry | Out-Null
+    Move-Item -LiteralPath $link -Destination $modules
+    Set-Content -LiteralPath $done -Value $Sha
+    # keep the two newest trees for this directory
+    Get-ChildItem -LiteralPath $NodeCache -Directory -Filter "$(Split-Path $Dir -Leaf)-*" |
+      Sort-Object LastWriteTime -Descending | Select-Object -Skip 2 |
+      ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+  }
+  (Get-Item -LiteralPath $entry).LastWriteTime = Get-Date
+  New-Item -ItemType Junction -Path $link -Target $modules | Out-Null
+  $script:NodeLinks.Add($link)
+}
+# Removes a junction itself, never what it points at.
+function Remove-NodeLinks {
+  foreach ($l in $script:NodeLinks) {
+    if (Test-Path -LiteralPath $l) { [System.IO.Directory]::Delete($l, $false) }
+  }
+  $script:NodeLinks.Clear()
+}
+
 # Runs the AWS CLI; returns {Ok, Out, Err}. Throws unless -AllowFail.
 function Invoke-Aws {
   param(
@@ -271,7 +310,7 @@ try {
     Exec 'mvn verify' $BuildDir { & $Mvn @mvnArgs }
 
     $webui = Join-Path $BuildDir 'webui'
-    Exec 'webui npm ci' $webui { npm ci --no-audit --no-fund }
+    Install-NodeModules 'webui' $webui
     if ($SkipTests) { Warn 'web UI tests skipped (-SkipTests)' } else { Exec 'webui npm test' $webui { npm test } }
     Exec 'webui npm run lint' $webui { npm run lint }
     Exec 'webui npm run build' $webui { npm run build }
@@ -287,7 +326,7 @@ try {
 
   # ------------------------------------------------- 4. the CDK app itself
   Step 'Checking the CDK app (in the clone)'
-  Exec 'deploy npm ci' $CdkDir { npm ci --no-audit --no-fund }
+  Install-NodeModules 'deploy' $CdkDir
   if ($SkipTests) { Warn 'deploy/ tests skipped (-SkipTests)' } else { Exec 'deploy npm test' $CdkDir { npm test } }
   Exec 'deploy tsc' $CdkDir { npx tsc --noEmit }
 
@@ -593,6 +632,10 @@ try {
     Note ("{0,5:n0} s  total" -f ((Get-Date) - $Started).TotalSeconds)
   }
   Remove-Item -LiteralPath $Private -Recurse -Force -ErrorAction SilentlyContinue
+  if ($BuildDir -and (Test-Path -LiteralPath $BuildDir)) {
+    # the node_modules junctions first: the recursive delete must not reach the shared cache
+    try { Remove-NodeLinks } catch { Warn "could not remove the node_modules links: $($_.Exception.Message)"; $BuildDir = $null }
+  }
   if ($BuildDir -and (Test-Path -LiteralPath $BuildDir)) {
     try { Remove-Item -LiteralPath $BuildDir -Recurse -Force } catch { Warn "could not remove $BuildDir`: $($_.Exception.Message)" }
   }
