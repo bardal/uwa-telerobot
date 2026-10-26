@@ -38,6 +38,7 @@ public class VirtualRobotServer
   private InetAddress bound;
   /** Set by {@link #resetWorld()} to make a move in progress stop where it is. */
   private volatile boolean abort;
+  private volatile Runnable blocksChanged;
 
   private static final class MoveAborted extends RuntimeException
   {
@@ -108,6 +109,37 @@ public class VirtualRobotServer
     System.out.println("VirtualRobot: admin port " + port);
   }
 
+  /** Run after every block command that changed the table (VirtualLab re-shoots the cameras). */
+  public void onBlocksChanged(Runnable r)
+  {
+    blocksChanged = r;
+  }
+
+  /**
+   * An admin {@code blocks add|randomise|reset}: {@code ok <what happened>} or {@code error <why not>}.
+   * Not under the motion lock: a move in progress would hold it for its whole script, and the
+   * world refuses block changes while the arm moves anyway.
+   */
+  String blocks(String action)
+  {
+    World.Change c;
+    if (action.equals("add"))
+      c = world.addRandom();
+    else if (action.equals("randomise"))
+      c = world.randomise();
+    else if (action.equals("reset"))
+      c = world.resetBlocks();
+    else
+      return "error unknown command";
+    System.out.println("VirtualRobot: blocks " + action + ": " + c.text());
+    if (!c.ok())
+      return "error " + c.text();
+    Runnable r = blocksChanged;
+    if (r != null)
+      r.run();
+    return "ok " + c.text();
+  }
+
   private void serveAdminClient(Socket s)
   {
     try (Socket sock = s;
@@ -120,6 +152,8 @@ public class VirtualRobotServer
           resetWorld();
           System.out.println("VirtualRobot: world reset");
           out.write("ok\n".getBytes(StandardCharsets.ISO_8859_1));
+        } else if (line.startsWith("blocks ")) {
+          out.write((blocks(line.substring(7).trim()) + "\n").getBytes(StandardCharsets.ISO_8859_1));
         } else if (!line.isEmpty()) {
           out.write("error unknown command\n".getBytes(StandardCharsets.ISO_8859_1));
         }

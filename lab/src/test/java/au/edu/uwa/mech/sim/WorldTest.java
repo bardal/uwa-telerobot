@@ -165,4 +165,37 @@ public class WorldTest
     }
     assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
   }
+
+  @Test
+  public void adminPortChangesBlocks() throws Exception
+  {
+    World w = World.withDefaultBlocks();
+    VirtualRobotServer robot = new VirtualRobotServer(w);
+    int[] photos = {0};
+    robot.onBlocksChanged(() -> photos[0]++);
+    int admin = freePort();
+    robot.serveAdmin(admin);
+    int before = w.snapshot().blocks.size();
+    try (Socket s = new Socket(InetAddress.getByName("127.0.0.1"), admin)) {
+      BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), "ISO-8859-1"));
+      s.getOutputStream().write("blocks add\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertTrue(in.readLine().startsWith("ok added a "));
+      assertEquals(before + 1, w.snapshot().blocks.size());
+      assertEquals(1, photos[0]);
+      s.getOutputStream().write("blocks nonsense\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertEquals("error unknown command", in.readLine());
+      s.getOutputStream().write("blocks reset\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertEquals("ok reset the blocks", in.readLine());
+      assertEquals(before, w.snapshot().blocks.size());
+      assertEquals(2, photos[0]);
+      w.setPose(new RobotPose(250, 250, 100, -90, 0, true), true);
+      s.getOutputStream().write("blocks randomise\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertEquals("error wait for the arm to stop", in.readLine());
+      assertEquals("a refusal takes no photos", 2, photos[0]);
+    }
+  }
 }
