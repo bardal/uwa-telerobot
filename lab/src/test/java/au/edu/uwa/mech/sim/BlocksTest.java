@@ -192,6 +192,63 @@ public class BlocksTest
     assertEquals("a refusal tells nobody", 4, told.get());
   }
 
+  // ---- drawing -----------------------------------------------------------------------------
+
+  private static List<Scene.Tri> drawn(Block b)
+  {
+    World w = empty();
+    w.addBlock(b);
+    int arm = Scene.of(empty().snapshot()).tris.size();
+    List<Scene.Tri> all = Scene.of(w.snapshot()).tris;
+    return all.subList(0, all.size() - arm);   // the blocks come first, then the arm
+  }
+
+  @Test
+  public void everyShapeIsDrawn()
+  {
+    for (Shape s : Shape.values()) {
+      List<Scene.Tri> t = drawn(new Block("one", s, 250, 250, 0, 0, s == Shape.CUBE || s == Shape.CYLINDER ? 30 : 60, 30,
+                                          s == Shape.COLUMN ? 60 : 30, GREY));
+      assertTrue(s + " drew " + t.size(), t.size() >= 8);   // a triangular prism is the fewest: 2 ends + 3 faces
+    }
+  }
+
+  @Test
+  public void roofRisesToARidge()
+  {
+    List<Scene.Tri> t = drawn(new Block("roof", Shape.ROOF, 250, 250, 0, 0, 60, 30, 30, GREY));
+    double top = -1, bottom = 99;
+    for (Scene.Tri tri : t)
+      for (double[] p : new double[][] {tri.a, tri.b, tri.c}) {
+        top = Math.max(top, p[2]);
+        bottom = Math.min(bottom, p[2]);
+        if (p[2] > 29.999)
+          assertEquals("the ridge runs down the middle", 250, p[0], 1e-6);
+      }
+    assertEquals(30, top, 1e-6);
+    assertEquals(0, bottom, 1e-6);
+  }
+
+  @Test
+  public void archHasAnOpeningUnderneath()
+  {
+    double r = Scene.ARCH_RADIUS;
+    List<Scene.Tri> t = drawn(new Block("arch", Shape.ARCH, 250, 250, 0, 0, 90, 30, 30, GREY));
+    boolean apex = false;
+    for (Scene.Tri tri : t) {
+      for (double[] p : new double[][] {tri.a, tri.b, tri.c}) {
+        double dx = p[0] - 250;
+        assertFalse("vertex inside the opening at " + dx + "," + p[2],
+                    Math.abs(dx) < r - 1e-6 && p[2] < Math.sqrt(r * r - dx * dx) - 1e-6);
+        apex |= Math.abs(dx) < 1e-6 && Math.abs(p[2] - r) < 1e-6;
+      }
+      boolean flat = tri.a[2] == 0 && tri.b[2] == 0 && tri.c[2] == 0;
+      double cx = (tri.a[0] + tri.b[0] + tri.c[0]) / 3 - 250;
+      assertFalse("floor drawn under the opening", flat && Math.abs(cx) < r);
+    }
+    assertTrue("the top of the opening is drawn", apex);
+  }
+
   // ---- footprint overlap by separating axes ------------------------------------------------
 
   static void assertNoOverlaps(List<Block> blocks)

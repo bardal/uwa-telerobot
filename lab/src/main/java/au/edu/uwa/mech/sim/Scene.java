@@ -31,6 +31,8 @@ public final class Scene
   static final double UPPER_ARM = 460, FOREARM = 560;
   /** Tool point to wrist centre along the tool axis. */
   static final double TOOL_LENGTH = 150;
+  /** Radius of the half-round opening under an arch, mm. */
+  static final double ARCH_RADIUS = 18;
 
   static final Color ABB_ORANGE = new Color(232, 116, 28);
   static final Color DARK = new Color(70, 70, 75);
@@ -53,9 +55,83 @@ public final class Scene
   private void addBlock(Block b)
   {
     double c = Math.cos(b.yaw), s = Math.sin(b.yaw);
-    box(new double[] {b.x, b.y, b.z + b.sz / 2},
-        new double[] {c, s, 0}, new double[] {-s, c, 0}, new double[] {0, 0, 1},
-        b.sx / 2, b.sy / 2, b.sz / 2, b.colour, true);
+    double[] u = {c, s, 0}, v = {-s, c, 0}, up = {0, 0, 1};
+    double hx = b.sx / 2, h = b.sz;
+    switch (b.shape) {
+      case CYLINDER:
+        cylinder(new double[] {b.x, b.y, b.z}, new double[] {b.x, b.y, b.z + h}, Math.min(b.sx, b.sy) / 2, b.colour, true);
+        break;
+      case ROOF:
+        prism(b, u, v, new double[][] {{-hx, 0}, {hx, 0}, {0, h}}, new int[][] {{0, 1, 2}});
+        break;
+      case ARCH:
+        arch(b, u, v, hx, h);
+        break;
+      default:
+        box(new double[] {b.x, b.y, b.z + h / 2}, u, v, up, hx, b.sy / 2, h / 2, b.colour, true);
+    }
+  }
+
+  /**
+   * An arch: a block with a half-round opening of {@link #ARCH_RADIUS} under its middle. The end
+   * faces are a pillar quad either side and a strip above each segment of the curve.
+   */
+  private void arch(Block b, double[] u, double[] v, double hx, double h)
+  {
+    int n = 10;
+    double r = ARCH_RADIUS;
+    // outline: up the left end, across the top, down the right end, along the floor to the opening, round the curve
+    double[][] outline = new double[4 + n + 1][];
+    outline[0] = new double[] {-hx, 0};
+    outline[1] = new double[] {-hx, h};
+    outline[2] = new double[] {hx, h};
+    outline[3] = new double[] {hx, 0};
+    for (int i = 0; i <= n; i++) {
+      double a = Math.PI * i / n;   // from the right foot of the opening over the top to the left foot
+      outline[4 + i] = new double[] {r * Math.cos(a), r * Math.sin(a)};
+    }
+    // each end face: a quad for either pillar, and a strip above each segment of the curve
+    List<double[][]> quads = new ArrayList<double[][]>();
+    quads.add(new double[][] {{-hx, 0}, {-hx, h}, {-r, h}, {-r, 0}});
+    quads.add(new double[][] {{r, 0}, {r, h}, {hx, h}, {hx, 0}});
+    for (int i = 0; i < n; i++) {
+      double[] a = outline[4 + i], c = outline[4 + i + 1];
+      quads.add(new double[][] {a, {a[0], h}, {c[0], h}, c});
+    }
+    for (double d : new double[] {-b.sy / 2, b.sy / 2})
+      for (double[][] q : quads)
+        quad(at(b, u, v, q[0], d), at(b, u, v, q[1], d), at(b, u, v, q[2], d), at(b, u, v, q[3], d), b.colour, true);
+    sides(b, u, v, outline);
+  }
+
+  /** A shape with a constant cross-section (profile in (along x, height) coordinates) through the block's depth. */
+  private void prism(Block b, double[] u, double[] v, double[][] profile, int[][] capTris)
+  {
+    prismCaps(b, u, v, profile, capTris);
+    sides(b, u, v, profile);
+  }
+
+  private void prismCaps(Block b, double[] u, double[] v, double[][] pts, int[][] capTris)
+  {
+    for (double d : new double[] {-b.sy / 2, b.sy / 2})
+      for (int[] t : capTris)
+        tris.add(new Tri(at(b, u, v, pts[t[0]], d), at(b, u, v, pts[t[1]], d), at(b, u, v, pts[t[2]], d), b.colour, true));
+  }
+
+  /** The faces swept by each edge of a closed outline through the block's depth. */
+  private void sides(Block b, double[] u, double[] v, double[][] outline)
+  {
+    double d = b.sy / 2;
+    for (int i = 0; i < outline.length; i++) {
+      double[] p = outline[i], q = outline[(i + 1) % outline.length];
+      quad(at(b, u, v, p, -d), at(b, u, v, q, -d), at(b, u, v, q, d), at(b, u, v, p, d), b.colour, true);
+    }
+  }
+
+  /** The world point of profile point p (along u, height) at depth d along v. */
+  private static double[] at(Block b, double[] u, double[] v, double[] p, double d)
+  {
+    return new double[] {b.x + u[0] * p[0] + v[0] * d, b.y + u[1] * p[0] + v[1] * d, b.z + p[1]};
   }
 
   private void addArm(RobotPose p, double gap)
