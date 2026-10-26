@@ -169,7 +169,7 @@ describe('menus', () => {
     expect(menuLabels(p.el, 'Help')[0]).toBe('Brief Help');
   });
 
-  it('the Robot menu has the 5 items in order', () => {
+  it('the Robot menu has the 5 items in order, then the block items', () => {
     const { p } = page();
     expect(menuLabels(p.el, 'Robot')).toEqual([
       'Generate Random Move',
@@ -177,7 +177,37 @@ describe('menus', () => {
       'Command from selected point',
       'Close gripper',
       'Open gripper',
+      'Add Block',
+      'Randomise Blocks',
+      'Reset Blocks',
     ]);
+  });
+
+  it('the block items work only while in control, or for an admin', () => {
+    const blockItems = ['Add Block', 'Randomise Blocks', 'Reset Blocks'];
+    const enabled = (p: ControlPage) => blockItems.map((l) => menuItem(p.el, 'Robot', l).getAttribute('aria-disabled') === 'false');
+    const { p, sent } = page();
+    p.handle(welcome);
+    expect(enabled(p)).toEqual([false, false, false]);
+    menuItem(p.el, 'Robot', 'Randomise Blocks').click();
+    expect(sent.filter((m) => m.t === 'blocks')).toEqual([]);
+    p.handle({ t: 'controller', nick: 'ann~2' });
+    expect(enabled(p)).toEqual([true, true, true]);
+    menuItem(p.el, 'Robot', 'Add Block').click();
+    menuItem(p.el, 'Robot', 'Randomise Blocks').click();
+    menuItem(p.el, 'Robot', 'Reset Blocks').click();
+    expect(sent.filter((m) => m.t === 'blocks')).toEqual([
+      { t: 'blocks', action: 'add' },
+      { t: 'blocks', action: 'randomise' },
+      { t: 'blocks', action: 'reset' },
+    ]);
+    p.handle({ t: 'controller', nick: 'bob' });
+    expect(enabled(p)).toEqual([false, false, false]);
+
+    const admin = page();
+    admin.p.handle({ ...welcome, level: 'admin' } as Out);
+    admin.p.handle({ t: 'controller', nick: 'bob' });
+    expect(enabled(admin.p)).toEqual([true, true, true]);
   });
 
   it('Robot menu items append to the command editor', () => {
