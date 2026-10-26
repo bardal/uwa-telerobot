@@ -77,7 +77,7 @@ public class WorldTest
     assertEquals(120, red.getX(), 0);
     assertEquals(150, red.getY(), 0);
     assertEquals(0, red.getZ(), 0);
-    assertEquals(5, w.snapshot().blocks.size());
+    assertEquals(15, w.snapshot().blocks.size());   // the standard table
     assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
     assertTrue(w.getPose().open);
     assertEquals(World.OPEN_GAP, w.snapshot().fingerGap, 0);
