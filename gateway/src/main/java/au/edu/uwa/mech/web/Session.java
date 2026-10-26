@@ -284,6 +284,7 @@ public final class Session implements MomBridge.Listener {
             case In.WorkspaceDelete w -> workspaceDelete(b, w);
             case In.ArchiveImages a -> archiveImages(b);
             case In.Activity a -> allow("activity");
+            case In.Blocks k -> blocks(b, k);
             case In.Admin a -> admin(a);
             case In.Hello h -> reject("bad-message", "second hello");
         };
@@ -394,6 +395,15 @@ public final class Session implements MomBridge.Listener {
             return reject("unauthorised", "that point is not yours");
         }
         return run(() -> b.workspaceDelete(w.id()));
+    }
+
+    /** Only whoever is driving may change the table (so a watcher can't wreck a build); admins always may. */
+    private boolean blocks(MomBridge b, In.Blocks k) {
+        if (!allow("blocks")) return false;
+        if (identity.level() != Identity.Level.ADMIN && !nick.equals(b.controllerNick())) {
+            return reject("not-in-control", "take control of the robot first");
+        }
+        return run(() -> registry.blocks(this, k.action()));
     }
 
     private boolean admin(In.Admin a) {

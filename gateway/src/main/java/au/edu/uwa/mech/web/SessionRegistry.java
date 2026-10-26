@@ -205,20 +205,41 @@ public final class SessionRegistry implements SessionHandler {
         }
     }
 
+    /**
+     * A block command from the controller or an admin (the session has checked). The lab answers
+     * {@code ok <what happened>}, told to everyone, or {@code error <why not>}, told to the asker.
+     */
+    void blocks(Session from, String action) {
+        String reply = labAdmin("blocks " + action);
+        if (reply == null) {
+            from.send(new Out.Error("lab-unavailable", "the lab did not answer"));
+        } else if (reply.startsWith("ok ")) {
+            LOG.info("{} blocks {}: {}", from.nick(), action, reply);
+            broadcast(new Out.Console(from.nick() + " " + reply.substring(3)));
+        } else {
+            from.console(reply.startsWith("error ") ? reply.substring(6) : reply);
+        }
+    }
+
     /** VirtualLab's admin port: {@code reset} is answered {@code ok}. */
     boolean resetLab() {
+        return "ok".equals(labAdmin("reset"));
+    }
+
+    /** One line to VirtualLab's admin port and its one-line answer, trimmed; null if the lab could not be reached. */
+    String labAdmin(String line) {
         try (Socket s = new Socket()) {
             s.connect(new InetSocketAddress(config.momUrlHost(), config.labAdminPort()), ADMIN_PORT_TIMEOUT_MILLIS);
             s.setSoTimeout(ADMIN_PORT_TIMEOUT_MILLIS);
             OutputStream out = s.getOutputStream();
-            out.write("reset\n".getBytes(StandardCharsets.US_ASCII));
+            out.write((line + "\n").getBytes(StandardCharsets.US_ASCII));
             out.flush();
             String reply = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII))
                 .readLine();
-            return "ok".equals(reply == null ? null : reply.trim());
+            return reply == null ? null : reply.trim();
         } catch (IOException e) {
-            LOG.warn("lab reset failed: {}", e.getMessage());
-            return false;
+            LOG.warn("lab admin '{}' failed: {}", line, e.getMessage());
+            return null;
         }
     }
 

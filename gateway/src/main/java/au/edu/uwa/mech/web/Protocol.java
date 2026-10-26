@@ -54,6 +54,7 @@ public final class Protocol {
         Map.entry("workspaceAdd", In.WorkspaceAdd.class),
         Map.entry("workspaceDelete", In.WorkspaceDelete.class),
         Map.entry("archiveImages", In.ArchiveImages.class),
+        Map.entry("blocks", In.Blocks.class),
         Map.entry("activity", In.Activity.class),
         Map.entry("admin", In.Admin.class));
 
