@@ -25,12 +25,19 @@ public final class Scene
     }
   }
 
-  /** Where the arm stands, and its dimensions (mm). */
+  /** Where the arm stands (axis 1 at the base's underside). */
   public static double[] BASE = {250, -280, 0};
-  static final double SHOULDER_HEIGHT = 470, SHOULDER_OFFSET = 70;
-  static final double UPPER_ARM = 460, FOREARM = 560;
-  /** Tool point to wrist centre along the tool axis. */
-  static final double TOOL_LENGTH = 150;
+  // the ABB IRB 1400's dimensions in mm, from its product specification (3HAC 9376-1, figure 3)
+  /** Axis 2 above the base and out from axis 1. */
+  static final double SHOULDER_HEIGHT = 475, SHOULDER_OFFSET = 150;
+  /** Axis 2 to axis 3. */
+  static final double LOWER_ARM = 600;
+  /** The forearm axis runs FOREARM_RISE above axis 3, FOREARM forward to the wrist centre and FOREARM_BACK behind. */
+  static final double FOREARM = 720, FOREARM_RISE = 120, FOREARM_BACK = 170;
+  /** Wrist centre (axis 5) to the mounting flange. */
+  static final double FLANGE = 85;
+  /** Tool point to the flange: the gripper. */
+  static final double GRIPPER = 88;
   /** Radius of the half-round opening under an arch, mm. */
   static final double ARCH_RADIUS = 18;
 
@@ -134,55 +141,113 @@ public final class Scene
     return new double[] {b.x + u[0] * p[0] + v[0] * d, b.y + u[1] * p[0] + v[1] * d, b.z + p[1]};
   }
 
+  /** Where the arm's joints are for a pose. Directions are unit vectors. */
+  static final class Joints
+  {
+    /** The tool frame: a = tool axis (tip towards wrist), f = finger direction, g = a x f. */
+    double[] a, f, g, tip;
+    /** The wrist centre the tool needs, and the one the arm gets to (short of it when out of reach). */
+    double[] wrist, wristReached;
+    /** Axis 2 and axis 3. */
+    double[] shoulder, elbow;
+    /** The arm's vertical plane: out from axis 1, and across it. */
+    double[] radial, side;
+    /** Along the forearm axis, and square to it in the arm's plane (up when the forearm is level). */
+    double[] forearm, normal;
+  }
+
+  /** Inverse kinematics for the wrist centre: axis 1 turns to face it, then axes 2 and 3 reach it elbow up. */
+  static Joints joints(RobotPose p)
+  {
+    Joints j = new Joints();
+    double s = p.spinRadians(), t = p.tiltRadians();
+    j.a = new double[] {Math.sin(t) * Math.cos(s), Math.sin(t) * Math.sin(s), Math.cos(t)};
+    j.f = new double[] {Math.cos(t) * Math.cos(s), Math.cos(t) * Math.sin(s), -Math.sin(t)};
+    j.g = VirtualCamera.cross(j.a, j.f);
+    j.tip = new double[] {p.x, p.y, p.z};
+    j.wrist = along(j.tip, j.a, GRIPPER + FLANGE, j.f, 0);
+
+    double yaw = Math.atan2(j.wrist[1] - BASE[1], j.wrist[0] - BASE[0]);
+    j.radial = new double[] {Math.cos(yaw), Math.sin(yaw), 0};
+    j.side = new double[] {-j.radial[1], j.radial[0], 0};
+    j.shoulder = new double[] {BASE[0] + j.radial[0] * SHOULDER_OFFSET, BASE[1] + j.radial[1] * SHOULDER_OFFSET,
+                               BASE[2] + SHOULDER_HEIGHT};
+    // in the arm's plane: out from axis 2 (negative when the wrist is behind it) and up
+    double rr = Math.hypot(j.wrist[0] - BASE[0], j.wrist[1] - BASE[1]) - SHOULDER_OFFSET;
+    double hh = j.wrist[2] - j.shoulder[2];
+    double reach = Math.hypot(FOREARM, FOREARM_RISE);
+    double d = Math.min(Math.hypot(rr, hh), LOWER_ARM + reach - 1);
+    double elev = Math.atan2(hh, rr);
+    double cosB = (LOWER_ARM * LOWER_ARM + d * d - reach * reach) / (2 * LOWER_ARM * d);
+    double q2 = elev + Math.acos(Math.max(-1, Math.min(1, cosB)));
+    j.elbow = inPlane(j, j.shoulder, LOWER_ARM * Math.cos(q2), LOWER_ARM * Math.sin(q2));
+    j.wristReached = inPlane(j, j.shoulder, d * Math.cos(elev), d * Math.sin(elev));
+    // the forearm axis is the elbow-to-wrist line turned down by the angle its rise makes
+    double q3 = Math.atan2(j.wristReached[2] - j.elbow[2],
+                           (j.wristReached[0] - j.elbow[0]) * j.radial[0] + (j.wristReached[1] - j.elbow[1]) * j.radial[1])
+                - Math.atan2(FOREARM_RISE, FOREARM);
+    j.forearm = inPlane(j, new double[3], Math.cos(q3), Math.sin(q3));
+    j.normal = inPlane(j, new double[3], -Math.sin(q3), Math.cos(q3));
+    return j;
+  }
+
+  /** p moved out along the arm's radial direction and up. */
+  private static double[] inPlane(Joints j, double[] p, double out, double up)
+  {
+    return new double[] {p[0] + j.radial[0] * out, p[1] + j.radial[1] * out, p[2] + up};
+  }
+
+  /** The IRB 1400: a fixed base on a pedestal, the turning frame with axis 2's round gearbox, the lower arm with the
+   *  parallel bar behind it, the upper arm's motor housing and slim forearm, the wrist, then the gripper. */
   private void addArm(RobotPose p, double gap)
   {
-    double s = p.spinRadians(), t = p.tiltRadians();
-    // gripper frame: a = tool axis (tip towards wrist), f = finger direction, g = a x f
-    double[] a = {Math.sin(t) * Math.cos(s), Math.sin(t) * Math.sin(s), Math.cos(t)};
-    double[] f = {Math.cos(t) * Math.cos(s), Math.cos(t) * Math.sin(s), -Math.sin(t)};
-    double[] g = VirtualCamera.cross(a, f);
-    double[] tip = {p.x, p.y, p.z};
+    Joints j = joints(p);
+    double[] a = j.a, f = j.f, g = j.g, tip = j.tip, radial = j.radial, side = j.side;
+    double[] x = {1, 0, 0}, y = {0, 1, 0}, up = {0, 0, 1};
 
-    // fingers and palm
-    for (int side = -1; side <= 1; side += 2)
-      box(along(tip, a, 32, f, side * (gap / 2 + 5)), f, g, a, 5, 13, 32, STEEL, true);
+    // fingers and palm, up to the flange; the wrist's tilting part above it
+    for (int s = -1; s <= 1; s += 2)
+      box(along(tip, a, 32, f, s * (gap / 2 + 5)), f, g, a, 5, 13, 32, STEEL, true);
     box(along(tip, a, 76, f, 0), f, g, a, gap / 2 + 14, 17, 12, DARK, true);
-    double[] flangeBottom = along(tip, a, 88, f, 0);
-    double[] wrist = along(tip, a, TOOL_LENGTH, f, 0);
-    cylinder(flangeBottom, wrist, 26, DARK, true);
+    double[] flange = along(tip, a, GRIPPER, f, 0), flangeTop = along(flange, a, 12, f, 0);
+    cylinder(flange, flangeTop, 34, DARK, true);
+    cylinder(flangeTop, j.wrist, 28, ABB_ORANGE, true);
 
-    // inverse kinematics for the wrist centre: base yaw, then a 2-link arm in that vertical plane
-    double yaw = Math.atan2(wrist[1] - BASE[1], wrist[0] - BASE[0]);
-    double[] radial = {Math.cos(yaw), Math.sin(yaw), 0};
-    double[] shoulder = {BASE[0] + radial[0] * SHOULDER_OFFSET, BASE[1] + radial[1] * SHOULDER_OFFSET,
-                         BASE[2] + SHOULDER_HEIGHT};
-    double rr = Math.hypot(wrist[0] - shoulder[0], wrist[1] - shoulder[1]);
-    double hh = wrist[2] - shoulder[2];
-    double d = Math.min(Math.hypot(rr, hh), UPPER_ARM + FOREARM - 1);
-    double elev = Math.atan2(hh, rr);
-    double cosB = (UPPER_ARM * UPPER_ARM + d * d - FOREARM * FOREARM) / (2 * UPPER_ARM * d);
-    double q1 = elev + Math.acos(Math.max(-1, Math.min(1, cosB))); // elbow up
-    double[] elbow = {shoulder[0] + radial[0] * UPPER_ARM * Math.cos(q1),
-                      shoulder[1] + radial[1] * UPPER_ARM * Math.cos(q1),
-                      shoulder[2] + UPPER_ARM * Math.sin(q1)};
-    double[] wristReached = {shoulder[0] + radial[0] * d * Math.cos(elev), shoulder[1] + radial[1] * d * Math.cos(elev),
-                             shoulder[2] + d * Math.sin(elev)};
-    double[] side = {-radial[1], radial[0], 0};
+    // pedestal to the floor, then the fixed base plate (620 x 450)
+    box(new double[] {BASE[0], BASE[1] - 40, Renderer.FLOOR_Z / 2}, x, y, up, 270, 200, -Renderer.FLOOR_Z / 2, PEDESTAL, false);
+    box(new double[] {BASE[0], BASE[1] - 40, BASE[2] + 25}, x, y, up, 310, 225, 25, ABB_ORANGE, true);
+    // the frame turning on axis 1, its motor at the back, and the support for axis 2's round gearbox
+    cylinder(new double[] {BASE[0], BASE[1], BASE[2] + 50}, new double[] {BASE[0], BASE[1], BASE[2] + 150}, 200, ABB_ORANGE, true);
+    double[] frame = along(BASE, radial, -30, side, 0);
+    box(new double[] {frame[0], frame[1], BASE[2] + 265}, radial, side, up, 110, 95, 115, ABB_ORANGE, true);
+    double[] motor = along(BASE, radial, -80, side, -45);
+    cylinder(new double[] {motor[0], motor[1], BASE[2] + 380}, new double[] {motor[0], motor[1], BASE[2] + 520}, 50, DARK, true);
+    double[] support = along(BASE, radial, 75, side, 120);
+    box(new double[] {support[0], support[1], BASE[2] + 312}, radial, side, up, 75, 50, 162, ABB_ORANGE, true);
+    cylinder(along(j.shoulder, side, 70, radial, 0), along(j.shoulder, side, 175, radial, 0), 115, ABB_ORANGE, true);
+    cylinder(along(j.shoulder, side, 175, radial, 0), along(j.shoulder, side, 200, radial, 0), 70, DARK, true);
 
-    // pedestal to the floor, base, turret
-    cylinder(new double[] {BASE[0], BASE[1], -760}, new double[] {BASE[0], BASE[1], 0}, 150, PEDESTAL, false);
-    cylinder(new double[] {BASE[0], BASE[1], 0}, new double[] {BASE[0], BASE[1], 140}, 130, DARK, true);
-    box(new double[] {BASE[0] + radial[0] * 40, BASE[1] + radial[1] * 40, 280},
-        radial, side, new double[] {0, 0, 1}, 120, 95, 140, ABB_ORANGE, true);
-    cylinder(along(shoulder, side, 85, radial, 0), along(shoulder, side, -85, radial, 0), 70, DARK, true);
-    // upper arm, elbow, forearm, wrist housing
-    link(shoulder, elbow, side, 55, 45, ABB_ORANGE);
-    cylinder(along(elbow, side, 60, radial, 0), along(elbow, side, -60, radial, 0), 55, DARK, true);
-    link(elbow, wristReached, side, 42, 38, ABB_ORANGE);
-    cylinder(along(wristReached, side, 40, radial, 0), along(wristReached, side, -40, radial, 0), 34, ABB_ORANGE, true);
+    // lower arm, and the parallel bar behind it that turns the upper arm
+    link(j.shoulder, j.elbow, side, 55, 50, ABB_ORANGE);
+    double[] back = {-j.forearm[0], -j.forearm[1], -j.forearm[2]};
+    double[] crankLow = along(j.shoulder, side, -95, back, 0), crankHigh = along(j.elbow, side, -95, back, 0);
+    double[] rodLow = along(crankLow, back, 150, side, 0), rodHigh = along(crankHigh, back, 150, side, 0);
+    link(crankLow, rodLow, side, 18, 28, ABB_ORANGE);
+    link(crankHigh, rodHigh, side, 18, 28, ABB_ORANGE);
+    cylinder(rodLow, rodHigh, 17, ABB_ORANGE, true);
+    cylinder(along(j.shoulder, side, -70, radial, 0), along(j.shoulder, side, -115, radial, 0), 45, DARK, true);
+
+    // upper arm: the motor housing round axis 3, the forearm tube, the wrist
+    double[] forearm = j.forearm, normal = j.normal;
+    box(along(j.elbow, forearm, (150 - FOREARM_BACK) / 2, normal, 50), forearm, side, normal,
+        (FOREARM_BACK + 150) / 2, 85, 95, ABB_ORANGE, true);
+    double[] axis = along(j.elbow, normal, FOREARM_RISE, forearm, 0);
+    cylinder(along(axis, forearm, 150, side, 0), along(axis, forearm, 600, side, 0), 50, ABB_ORANGE, true);
+    cylinder(along(axis, forearm, 600, side, 0), along(axis, forearm, FOREARM - 40, side, 0), 38, ABB_ORANGE, true);
+    cylinder(along(j.wristReached, side, 42, radial, 0), along(j.wristReached, side, -42, radial, 0), 40, ABB_ORANGE, true);
     // if the target is out of reach the wrist stops short; join it to the tool anyway
-    if (Math.hypot(Math.hypot(wristReached[0] - wrist[0], wristReached[1] - wrist[1]), wristReached[2] - wrist[2]) > 1)
-      cylinder(wristReached, wrist, 20, DARK, true);
+    if (Math.hypot(Math.hypot(j.wristReached[0] - j.wrist[0], j.wristReached[1] - j.wrist[1]), j.wristReached[2] - j.wrist[2]) > 1)
+      cylinder(j.wristReached, j.wrist, 20, DARK, true);
   }
 
   /** point + u*du + v*dv */
