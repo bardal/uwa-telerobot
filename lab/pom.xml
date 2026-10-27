@@ -68,6 +68,10 @@
             <include>**/GeometryFixtures.java</include>
             <include>**/PathscriptFixtures.java</include>
           </includes>
+          <!-- no windows during a build (MOMServer's status window) -->
+          <systemPropertyVariables>
+            <java.awt.headless>true</java.awt.headless>
+          </systemPropertyVariables>
         </configuration>
       </plugin>
       <plugin>
