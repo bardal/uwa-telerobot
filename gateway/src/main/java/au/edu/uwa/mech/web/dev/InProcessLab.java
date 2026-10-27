@@ -65,7 +65,7 @@ public final class InProcessLab {
     private final Map<String, String> pins;
     private World world;
     private SimCameraManager cameras;
-    private Object cameraServer; // kept reachable
+    private au.edu.uwa.mech.devices.camera.Server cameraServer; // kept reachable
 
     /**
      * The lab for this JVM, started on first use. {@code fast} speeds the arm up (1500 mm/s), so a
@@ -160,6 +160,7 @@ public final class InProcessLab {
                 Thread.sleep(250);
             }
         }
+        robot.onBlocksChanged(cameraServer::takePhotos);
 
         au.edu.uwa.mech.devices.robot.Server.main(new String[] {proxyProps.toString()});
         awaitReady();

@@ -77,7 +77,7 @@ public class WorldTest
     assertEquals(120, red.getX(), 0);
     assertEquals(150, red.getY(), 0);
     assertEquals(0, red.getZ(), 0);
-    assertEquals(5, w.snapshot().blocks.size());
+    assertEquals(15, w.snapshot().blocks.size());   // the standard table
     assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
     assertTrue(w.getPose().open);
     assertEquals(World.OPEN_GAP, w.snapshot().fingerGap, 0);
@@ -164,5 +164,55 @@ public class WorldTest
       assertEquals("ok", in.readLine());
     }
     assertTrue(w.getPose().toPositionLine(false).startsWith("250 250 100"));
+  }
+
+  @Test
+  public void adminPortChangesBlocks() throws Exception
+  {
+    World w = World.withDefaultBlocks();
+    VirtualRobotServer robot = new VirtualRobotServer(w);
+    int[] photos = {0};
+    robot.onBlocksChanged(() -> photos[0]++);
+    int admin = freePort();
+    robot.serveAdmin(admin);
+    int before = w.snapshot().blocks.size();
+    try (Socket s = new Socket(InetAddress.getByName("127.0.0.1"), admin)) {
+      BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), "ISO-8859-1"));
+      s.getOutputStream().write("blocks add\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertTrue(in.readLine().startsWith("ok added a "));
+      assertEquals(before + 1, w.snapshot().blocks.size());
+      s.getOutputStream().write("blocks nonsense\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertEquals("error unknown command", in.readLine());
+      // the photos are taken after the reply, on the same connection's thread: done by the next reply
+      assertEquals(1, photos[0]);
+      s.getOutputStream().write("blocks reset\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertEquals("ok reset the blocks", in.readLine());
+      assertEquals(before, w.snapshot().blocks.size());
+      w.setPose(new RobotPose(250, 250, 100, -90, 0, true), true);
+      s.getOutputStream().write("blocks randomise\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertEquals("error wait for the arm to stop", in.readLine());
+      assertEquals("one photo per change; a refusal takes none", 2, photos[0]);
+    }
+  }
+
+  @Test
+  public void aFailingPhotoDoesNotLoseTheReply() throws Exception
+  {
+    World w = World.withDefaultBlocks(new java.util.Random(8));
+    VirtualRobotServer robot = new VirtualRobotServer(w);
+    robot.onBlocksChanged(() -> { throw new IllegalStateException("camera broke"); });
+    int admin = freePort();
+    robot.serveAdmin(admin);
+    try (Socket s = new Socket(InetAddress.getByName("127.0.0.1"), admin)) {
+      BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), "ISO-8859-1"));
+      s.getOutputStream().write("blocks add\nblocks reset\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertTrue(in.readLine().startsWith("ok added a "));
+      assertEquals("the connection survives the failed photo", "ok reset the blocks", in.readLine());
+    }
   }
 }

@@ -39,6 +39,7 @@ public final class Limits {
         "activity", new Spec(2, 2 / 1000.0),             // 2 a second
         "snapshot", new Spec(10, 10 / 3_600_000.0),      // 10 an hour
         "camera", new Spec(3, 1 / 1000.0),               // newImage, cameraSettings, selectCamera: 1 a second, burst of 3
+        "blocks", new Spec(3, 1 / 1000.0),               // add, randomise, reset: 1 a second, burst of 3
         "any", new Spec(60, 30 / 1000.0));               // backstop for every message
 
     private static final class Bucket {

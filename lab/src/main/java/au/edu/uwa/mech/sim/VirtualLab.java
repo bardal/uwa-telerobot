@@ -71,6 +71,8 @@ public class VirtualLab
         Thread.sleep(3000);
       }
     }
+    // a block command changes the table without a move: photograph it for everyone
+    robot.onBlocksChanged(server::takePhotos);
     System.out.println("VirtualLab: cameras " + defaultCameras().size() + " publishing via " + au.edu.uwa.mech.util.MomUrls.masked(momURL));
     server.runUntilShutdown();
   }

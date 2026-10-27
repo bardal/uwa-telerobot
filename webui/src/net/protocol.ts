@@ -12,6 +12,7 @@ export type In =
  | {t:"workspaceAdd", x:number, y:number, z:number, label:string}
  | {t:"workspaceDelete", id:string}
  | {t:"archiveImages"}
+ | {t:"blocks", action:"add"|"randomise"|"reset"}
  | {t:"activity"}
  | {t:"admin", action:"kick"|"ban"|"reset"|"deleteMove"|"deleteSnapshot"|"deleteChat", nick?:string, id?:string}
 

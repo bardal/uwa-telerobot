@@ -11,6 +11,7 @@ import java.util.Set;
 public sealed interface In {
 
     Set<String> ADMIN_ACTIONS = Set.of("kick", "ban", "reset", "deleteMove", "deleteSnapshot", "deleteChat");
+    Set<String> BLOCK_ACTIONS = Set.of("add", "randomise", "reset");
 
     record Dev(String sub, List<String> groups) {
         public Dev {
@@ -88,6 +89,14 @@ public sealed interface In {
     record ArchiveImages() implements In {}
 
     record Activity() implements In {}
+
+    /** Add a random piece, scatter them all, or put back the standard table (controller or admin only). */
+    record Blocks(String action) implements In {
+        public Blocks {
+            req(action, "action");
+            if (!BLOCK_ACTIONS.contains(action)) throw new IllegalArgumentException("unknown blocks action");
+        }
+    }
 
     record Admin(String action, String nick, String id) implements In {
         public Admin {

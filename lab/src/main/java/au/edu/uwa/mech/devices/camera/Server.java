@@ -103,7 +103,7 @@ public class Server implements StateListener//, LoginEventListener
     shutter.start();
   }
 
-  void takePhotos()
+  public void takePhotos()
   {
     Enumeration cameras = cameraManager.cameras();
     while (cameras.hasMoreElements())

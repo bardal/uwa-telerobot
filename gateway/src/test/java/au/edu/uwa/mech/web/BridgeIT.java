@@ -218,6 +218,24 @@ class BridgeIT {
         d.in(new In.Admin("deleteMove", null, "1760000000000-zzzz"));
         d.awaitFrom(beforeMissing, Out.Error.class, x -> true, 5_000);
 
+        // 9c. blocks: only the controller (ann) or an admin; everyone is told, and everyone gets fresh images
+        int beforeRefused = b.size();
+        b.in(new In.Blocks("randomise"));
+        assertEquals("not-in-control", b.awaitFrom(beforeRefused, Out.Error.class, x -> true, 5_000).code());
+        int beforeRandomA = a.size(), beforeRandomB = b.size(), beforeRandomD = d.size();
+        a.in(new In.Blocks("randomise"));
+        for (FakeConnection f : List.of(a, b, d))
+            f.awaitFrom(f == a ? beforeRandomA : f == b ? beforeRandomB : beforeRandomD, Out.Console.class,
+                x -> x.text().equals("ann randomised the table"), 10_000);
+        a.awaitFrom(beforeRandomA, Out.Image.class, x -> true, 10_000);   // ann watches Colour (step 2)
+        Block redRandom = lab.block("red").orElseThrow();
+        assertFalse(Math.abs(redRandom.getX() - 120) < 1 && Math.abs(redRandom.getY() - 150) < 1, "red was scattered");
+        int beforeAdminReset = a.size();
+        d.in(new In.Blocks("reset"));
+        a.awaitFrom(beforeAdminReset, Out.Console.class, x -> x.text().equals("D reset the blocks"), 10_000);
+        Block redBack = lab.block("red").orElseThrow();
+        assertTrue(Math.abs(redBack.getX() - 120) < 1 && Math.abs(redBack.getY() - 150) < 1, "red is back");
+
         // 10. the robot's own error text comes back in commandStatus
         int beforeBad = a.size();
         a.in(new In.Command("x700,y200,z100"));

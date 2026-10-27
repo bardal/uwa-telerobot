@@ -65,6 +65,7 @@ export class ControlPage {
   private showingCursor = true;
   private ourNick: string | null = null;
   private controllerNick: string | null = null;
+  private level: string | null = null;
   private lastState: RobotStateMsg | null = null;
   private pointIds = new Map<string, string>();
   private lastActivity = -Infinity;
@@ -156,6 +157,7 @@ export class ControlPage {
         const us = m.nick !== null && m.nick === this.ourNick;
         this.robot.setController(m.nick, us);
         this.setPopupInControl(us);
+        this.updateBlockItems();
         break;
       }
       case 'commandStatus':
@@ -221,9 +223,17 @@ export class ControlPage {
     this.popup.dispose();
   }
 
+  /** Add, Randomise and Reset Blocks: usable by whoever is in control, and by an admin at any time. */
+  private updateBlockItems(): void {
+    const ok = this.level === 'admin' || (this.ourNick !== null && this.controllerNick === this.ourNick);
+    for (const label of ['Add Block', 'Randomise Blocks', 'Reset Blocks']) this.menuBar.item('Robot', label).setEnabled(ok);
+  }
+
   private welcome(m: Extract<Out, { t: 'welcome' }>): void {
     this.ourNick = m.nick;
+    this.level = m.level;
     this.menuBar.setVisible('Admin', m.level === 'admin');
+    this.updateBlockItems();
     this.cameras.resetSequence();
     this.robot.resetCommands();
     this.cameras.setCameras(m.cameras, this.stickPose, this.showingCursor);
@@ -295,6 +305,11 @@ export class ControlPage {
           }),
           item('Close gripper', () => this.robot.appendTextCommand('gclose')),
           item('Open gripper', () => this.robot.appendTextCommand('gopen')),
+          separator,
+          // change the shared table: only while in control (or as an admin); the gateway checks again
+          item('Add Block', () => this.deps.send({ t: 'blocks', action: 'add' }), false),
+          item('Randomise Blocks', () => this.deps.send({ t: 'blocks', action: 'randomise' }), false),
+          item('Reset Blocks', () => this.deps.send({ t: 'blocks', action: 'reset' }), false),
         ],
       },
       {

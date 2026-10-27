@@ -31,6 +31,8 @@ class ProtocolTest {
         assertEquals(new In.Admin("kick", "bob", null), Protocol.parse("{\"t\":\"admin\",\"action\":\"kick\",\"nick\":\"bob\"}"));
         assertEquals(new In.Admin("deleteChat", null, "c1"),
             Protocol.parse("{\"t\":\"admin\",\"action\":\"deleteChat\",\"id\":\"c1\"}"));
+        for (String a : List.of("add", "randomise", "reset"))
+            assertEquals(new In.Blocks(a), Protocol.parse("{\"t\":\"blocks\",\"action\":\"" + a + "\"}"));
     }
 
     @Test
@@ -38,6 +40,8 @@ class ProtocolTest {
         assertBad("{\"t\":\"nope\"}");
         assertBad("{\"nick\":\"bob\"}");
         assertBad("{\"t\":5}");
+        assertBad("{\"t\":\"blocks\"}");
+        assertBad("{\"t\":\"blocks\",\"action\":\"topple\"}");
         assertBad("{\"t\":\"command\",\"script\":\"x\",\"extra\":1}");
         assertBad("{\"t\":\"takeControl\",\"extra\":1}");
         assertBad("{\"t\":\"command\",\"script\":5}");
