@@ -61,7 +61,13 @@ public final class Main {
 
     private Main() {}
 
+    /** No windows: the 2000 servers (MOMServer's status window) stay hidden unless java.awt.headless says otherwise. */
+    static void headlessByDefault(java.util.Properties props) {
+        if (props.getProperty("java.awt.headless") == null) props.setProperty("java.awt.headless", "true");
+    }
+
     public static void main(String[] args) {
+        headlessByDefault(System.getProperties());
         Running running;
         try {
             running = start(args, System.getenv());
