@@ -273,7 +273,7 @@ public final class Session implements MomBridge.Listener {
         MomBridge b = bridge;
         boolean accepted = switch (m) {
             case In.Command c -> command(b, c);
-            case In.TakeControl t -> run(b::takeControl);
+            case In.TakeControl t -> takeControl(b);
             case In.Release r -> run(b::release);
             case In.Chat c -> chat(b, c);
             // each of these makes the camera server work (a photo, new settings, a settings fetch)
@@ -289,6 +289,15 @@ public final class Session implements MomBridge.Listener {
             case In.Hello h -> reject("bad-message", "second hello");
         };
         if (accepted) registry.idle().touch(id);
+    }
+
+    /** The lab would refuse a take-over too soon without telling anyone; say why and for how long instead. */
+    private boolean takeControl(MomBridge b) {
+        Optional<String> no = registry.controlTurns().refusal(nick, identity.level(),
+            driver -> registry.byNick(driver).map(other -> other.identity().level()));
+        if (no.isEmpty()) return run(b::takeControl);
+        outbox.sendNow(new Out.Error("not-in-control", no.get()));   // not a misuse: no rejection is counted
+        return true;
     }
 
     private boolean command(MomBridge b, In.Command c) {
@@ -461,6 +470,7 @@ public final class Session implements MomBridge.Listener {
 
     @Override
     public void controller(String nick) {
+        registry.controlTurns().changed(nick);
         outbox.emit(new Out.Controller(nick));
     }
 

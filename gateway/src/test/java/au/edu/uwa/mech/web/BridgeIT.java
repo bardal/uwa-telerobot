@@ -163,6 +163,13 @@ class BridgeIT {
             .filter(p -> p.getFileName().toString().startsWith(snap.id() + "-")).count());
         assertNotNull(entry(dayIndex(snap.id()), "snapshot", snap.id()));
 
+        // 6b. guest ann~2 can't take over from guest ann yet, and is told for how long
+        int beforeTooSoon = b.size();
+        b.in(new In.TakeControl());
+        Out.Error tooSoon = b.awaitFrom(beforeTooSoon, Out.Error.class, x -> true, 5_000);
+        assertEquals("not-in-control", tooSoon.code());
+        assertTrue(tooSoon.message().startsWith("Sorry, ann is using the robot. You can take over in "), tooSoon.message());
+
         // 7. registered C takes control from guest ann at once
         FakeConnection c = connect(new In.Hello("C", null, null, new In.Dev("c-sub", List.of())));
         assertEquals("registered", c.await(Out.Welcome.class, w -> true, 20_000).level());

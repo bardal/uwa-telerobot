@@ -44,6 +44,7 @@ public final class SessionRegistry implements SessionHandler {
         Thread.ofVirtual().name("session-", 0).inheritInheritableThreadLocals(false).factory());
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final AtomicLong ids = new AtomicLong();
+    private final ControlTurns controlTurns;
 
     public SessionRegistry(GatewayConfig config, Auth auth, Bans bans, Idle idle, LongSupplier clock) {
         this(config, auth, bans, idle, clock, null);
@@ -57,6 +58,7 @@ public final class SessionRegistry implements SessionHandler {
         this.bans = bans;
         this.idle = idle;
         this.clock = clock;
+        this.controlTurns = new ControlTurns(clock);
     }
 
     // ---- SessionHandler ------------------------------------------------------------------------
@@ -261,6 +263,7 @@ public final class SessionRegistry implements SessionHandler {
     /** Null when nothing is archived. */
     Archive archive() { return archive; }
     LongSupplier clock() { return clock; }
+    ControlTurns controlTurns() { return controlTurns; }
     Nicks nicks() { return nicks; }
     Semaphore logins() { return logins; }
     ExecutorService executor() { return executor; }
