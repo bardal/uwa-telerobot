@@ -1,25 +1,167 @@
 <!DOCTYPE html>
-<html>
-<head><title>UWA Telerobot help</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UWA Telerobot help</title>
+<style>
+  :root { --ink: #1c1c1c; --muted: #555; --line: #d8cfc6; --bg: #fffaf6; --accent: #000080; --code: #f1ebe4; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px 16px 48px; }
+  h1 { color: var(--accent); font-size: 1.6em; margin: 0.4em 0 0.2em; }
+  h2 { color: var(--accent); font-size: 1.2em; margin: 1.6em 0 0.4em; padding-top: 0.6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1em; margin: 1.2em 0 0.3em; }
+  p, li { margin: 0.35em 0; }
+  ul, ol { padding-left: 1.4em; }
+  nav { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; margin: 12px 0; }
+  nav ol { margin: 0; columns: 2; }
+  @media (max-width: 520px) { nav ol { columns: 1; } }
+  a { color: var(--accent); }
+  code, kbd, pre { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; background: var(--code); border-radius: 3px; }
+  code, kbd { padding: 1px 4px; }
+  pre { padding: 8px 10px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
+  th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #fff; }
+  .menu { font-weight: 600; }
+  .note { color: var(--muted); }
+</style>
+</head>
 <body>
-<h1>Driving the robot</h1>
-<p>Commands are GBH path scripts. A script is a list of waypoints separated by <code>;</code>;
-each waypoint sets one or more axes separated by <code>,</code>:</p>
-<table border="1" cellpadding="3">
-<tr><td><code>x</code> <code>y</code> <code>z</code></td><td>gripper position in mm (table corner is the origin, z up; z must be at least 5)</td></tr>
-<tr><td><code>s</code></td><td>spin in degrees (-90 points the gripper along +x)</td></tr>
-<tr><td><code>t</code></td><td>tilt in degrees, or <code>tf</code> / <code>tv</code> / <code>tb</code> for -45 / 0 / 45</td></tr>
-<tr><td><code>g0</code> / <code>g1</code></td><td>open / close the gripper (also <code>o</code> / <code>c</code>)</td></tr>
-<tr><td><code>r</code></td><td>before an axis: relative to the current position, e.g. <code>rz-20</code></td></tr>
+<main>
+<h1>UWA Telerobot help</h1>
+<p>A six-axis ABB IRB 1400 arm stands behind a table of wooden blocks, watched by three cameras.
+Anyone can watch; one person at a time drives it. Everything here works in the browser.</p>
+
+<nav aria-label="Contents">
+<ol>
+  <li><a href="#quick">Quick start</a></li>
+  <li><a href="#control">Taking control</a></li>
+  <li><a href="#cursor">Moving with the cursor</a></li>
+  <li><a href="#commands">Typing commands</a></li>
+  <li><a href="#gripper">Picking up blocks</a></li>
+  <li><a href="#cameras">The cameras</a></li>
+  <li><a href="#menus">The menus</a></li>
+  <li><a href="#points">Points and measuring</a></li>
+  <li><a href="#others">Chat, history and limits</a></li>
+</ol>
+</nav>
+
+<h2 id="quick">Quick start</h2>
+<ol>
+  <li>Press <span class="menu">Control Robot</span> (Robot panel, top left). The Controller line shows your nickname.</li>
+  <li>Drag the yellow cursor in a camera picture to where you want the gripper.</li>
+  <li>Right-click the picture and choose <span class="menu">move robot to cursor</span>.</li>
+  <li>Watch the robot move; the pictures update when it stops.</li>
+  <li>Press <span class="menu">Release Robot</span> when you've finished, so someone else can have a go.</li>
+</ol>
+
+<h2 id="control">Taking control</h2>
+<ul>
+  <li>If nobody is driving, <span class="menu">Control Robot</span> gives you the robot straight away, guest or not.</li>
+  <li>If someone else is driving, you can take over once they have had it for 3 minutes.
+    A registered user can take over from a guest at any time.</li>
+  <li>When you lose control the button changes back to <span class="menu">Control Robot</span>
+    and the console says who has it now.</li>
+  <li>Closing the page gives the robot back. So does leaving it: you are disconnected after
+    10 minutes without doing anything, and after 2 hours in any case.</li>
+</ul>
+
+<h2 id="cursor">Moving with the cursor</h2>
+<p>The yellow stick drawn over each picture is a 3D cursor: it is the same point in all three
+cameras, so you can line it up in one view and check it in another.</p>
+<ul>
+  <li>Drag the <b>bottom marker</b> or the <b>plumb line</b> to slide it across the table.</li>
+  <li>Drag the <b>top marker</b> to raise or lower it. The plumb line runs down to the table so you can see the height.</li>
+  <li>Drag the <b>spin needle</b> (the one with the square tip) to turn the gripper, and the <b>tilt needle</b> to tilt it.</li>
+  <li>The part under the mouse turns red. The cursor's position is shown in red at the top left of the picture.</li>
+</ul>
+<p>Right-click a picture (or Ctrl-click on a Mac) for the cursor menu:</p>
+<table>
+  <tr><th>Item</th><th>What it does</th></tr>
+  <tr><td>align cursor with robot</td><td>Moves the cursor to where the gripper is now.</td></tr>
+  <tr><td>set cursor to home</td><td>Moves the cursor to the home position.</td></tr>
+  <tr><td>set cursor to point</td><td>Moves the cursor to the selected workspace point (see <a href="#points">Points</a>).</td></tr>
+  <tr><td>move robot to cursor</td><td>Sends the robot to the cursor. Only while you're in control.</td></tr>
+  <tr><td>move robot to point</td><td>Sends the robot to the selected point.</td></tr>
+  <tr><td>open / close gripper</td><td>Opens or closes the gripper where it is.</td></tr>
 </table>
-<p>Example: pick up the red block and stack it on the blue one:</p>
+
+<h2 id="commands">Typing commands</h2>
+<p>The Command editor takes a path: a list of waypoints separated by <code>;</code>, each setting
+one or more axes separated by <code>,</code>. Press <span class="menu">Send command</span> to run it.
+Axes you leave out stay as they are.</p>
+<table>
+  <tr><th>Axis</th><th>Meaning</th></tr>
+  <tr><td><code>x</code> <code>y</code> <code>z</code></td><td>Gripper position in mm. The origin is the grid corner where the red and blue edges meet; the grid runs 0 to 600 in x and y; z is height above the table, 5 to 450.</td></tr>
+  <tr><td><code>s</code></td><td>Spin in degrees, -270 to 90; the robot starts at <code>s-90</code>. Easiest to set with the cursor's spin needle.</td></tr>
+  <tr><td><code>t</code></td><td>Tilt in degrees, -60 to 60, or <code>tf</code> / <code>tv</code> / <code>tb</code> for forward (-45), vertical (0) and back (45).</td></tr>
+  <tr><td><code>g0</code> / <code>g1</code></td><td>Open / close the gripper (also <code>gopen</code> / <code>gclose</code>).</td></tr>
+  <tr><td><code>r</code></td><td>Before an axis: relative to where the robot is, e.g. <code>rz-20</code> moves down 20 mm.</td></tr>
+</table>
+<p>Example: pick up the red cube and put it on the blue one.</p>
 <pre>x120,y150,z60,s-90,t0,g0;z15;g1;z80;x330,y120;z45;g0;z90</pre>
-<p>The first waypoint opens the gripper, which must be open to grip. The
-gripper only grips with the tilt within &plusmn;20&deg;. Blocks stay where they are
-left until the lab is restarted.</p>
-<p>The camera images carry their calibration, so the 3D stick cursor drawn over
-them can be dragged to choose a position: drag the top marker to change height,
-the bottom marker or the plumb line to move across the table, and the needles to
-change spin and tilt.</p>
+<p>The Robot menu can write commands for you: <span class="menu">Command from cursor</span>,
+<span class="menu">Command from selected point</span>, <span class="menu">Open/Close gripper</span>
+and <span class="menu">Generate Random Move</span> add a line to the editor for you to check and send.
+<span class="menu">Clear</span> empties the editor. A move outside the limits above is refused and the
+Command Status line says why.</p>
+
+<h2 id="gripper">Picking up blocks</h2>
+<ul>
+  <li>Open the gripper, lower it around a block, then close it. The fingers close until they touch.</li>
+  <li>It only grips with the tilt within &plusmn;20&deg;, and with the block between the fingers along their spin.
+    A block 30 mm wide fits easily; one wider than about 65 mm won't.</li>
+  <li>Opening the gripper drops the block onto whatever is below it. A bar can bridge two columns; nothing stacks on a roof.</li>
+  <li>The table has cubes, bars, columns, roofs, arches and cylinders. While you're in control,
+    the Robot menu can <span class="menu">Add Block</span> (up to 20),
+    <span class="menu">Randomise Blocks</span> (lay them all out at random) or
+    <span class="menu">Reset Blocks</span> (back to the standard table).
+    Put down anything you're holding first.</li>
+</ul>
+
+<h2 id="cameras">The cameras</h2>
+<ul>
+  <li>Choose <span class="menu">Colour</span>, <span class="menu">YCam</span> or <span class="menu">ZCam</span> above the picture.
+    Colour looks from the front, YCam from the side and ZCam from high above.</li>
+  <li><span class="menu">New Image</span> takes a fresh picture now. Pictures are also taken after every move.</li>
+  <li>Change <b>width</b>, <b>height</b> (up to 768 &times; 576) or <b>quality</b> (1 to 50; higher is sharper but slower to load),
+    then press <span class="menu">Change Settings</span>. The settings are shared: everyone sees the change.</li>
+  <li><b>zoom</b> and <b>fixed</b> are kept from the 2000 cameras; they don't change the pictures.</li>
+  <li>The blue line over the pictures is the path the gripper has travelled. Clear it with
+    <span class="menu">Images &rarr; Clear Path</span>.</li>
+</ul>
+
+<h2 id="menus">The menus</h2>
+<table>
+  <tr><th>Menu</th><th>Items</th></tr>
+  <tr><td class="menu">Connection</td><td>Logout.</td></tr>
+  <tr><td class="menu">Robot</td><td>Commands for the editor (see <a href="#commands">Typing commands</a>), and Add, Randomise and Reset Blocks.</td></tr>
+  <tr><td class="menu">Images</td><td>Archive Images saves the current pictures to the public archive (up to 10 an hour).
+    Clear Path removes the blue line. Show Cursor, Show Axes and Show Points turn those drawings on and off.</td></tr>
+  <tr><td class="menu">Workspace</td><td>Add Point, Delete Point, Measure point and Measure line (see <a href="#points">Points and measuring</a>).</td></tr>
+  <tr><td class="menu">Help</td><td>This page, the History of the telerobot, the 1996 forms interface, and About.</td></tr>
+</table>
+
+<h2 id="points">Points and measuring</h2>
+<ul>
+  <li><b>Workspace points</b> are named crosses that everyone can see. Add one with
+    <span class="menu">Workspace &rarr; Add Point</span> (name and x, y, z). Click a cross to select it (it turns red);
+    the selected point can then be used by the cursor menu and the Robot menu.</li>
+  <li><b>Measure point</b>: click the same spot in two different camera pictures. The second click
+    works out its 3D position; after the first click the other camera shows a green line the spot must lie on.</li>
+  <li><b>Measure line</b>: measure two points that way and it gives the distance between them.</li>
+</ul>
+
+<h2 id="others">Chat, history and limits</h2>
+<ul>
+  <li>Type in <b>Message</b> at the bottom to chat with everyone connected; <b>Users</b> lists who's here.
+    The Console shows what the robot and the system tell you.</li>
+  <li>Chat, moves and pictures are public and kept in the archive; see <a href="/#/history">History</a>.</li>
+  <li>The lab sleeps when nobody has used it for 15 minutes. The first visitor after that waits about a minute while it starts.</li>
+</ul>
+<p class="note">The interface is a copy of the Java applet the University of Western Australia's telerobot used in 2000.
+The robot today is simulated, drawn to the IRB 1400's real dimensions.</p>
+</main>
 </body>
 </html>
