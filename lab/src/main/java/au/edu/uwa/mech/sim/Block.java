@@ -92,6 +92,8 @@ public final class Block
   /** Width of the block measured along a horizontal direction (for closing the fingers on it). */
   double widthAlong(double angle)
   {
+    if (shape == Shape.CYLINDER)
+      return Math.min(sx, sy);   // round: its diameter whichever way the fingers close
     double a = angle - yaw;
     return Math.abs(Math.cos(a)) * sx + Math.abs(Math.sin(a)) * sy;
   }

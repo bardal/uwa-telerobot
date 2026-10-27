@@ -182,20 +182,37 @@ public class WorldTest
       s.getOutputStream().flush();
       assertTrue(in.readLine().startsWith("ok added a "));
       assertEquals(before + 1, w.snapshot().blocks.size());
-      assertEquals(1, photos[0]);
       s.getOutputStream().write("blocks nonsense\n".getBytes("ISO-8859-1"));
       s.getOutputStream().flush();
       assertEquals("error unknown command", in.readLine());
+      // the photos are taken after the reply, on the same connection's thread: done by the next reply
+      assertEquals(1, photos[0]);
       s.getOutputStream().write("blocks reset\n".getBytes("ISO-8859-1"));
       s.getOutputStream().flush();
       assertEquals("ok reset the blocks", in.readLine());
       assertEquals(before, w.snapshot().blocks.size());
-      assertEquals(2, photos[0]);
       w.setPose(new RobotPose(250, 250, 100, -90, 0, true), true);
       s.getOutputStream().write("blocks randomise\n".getBytes("ISO-8859-1"));
       s.getOutputStream().flush();
       assertEquals("error wait for the arm to stop", in.readLine());
-      assertEquals("a refusal takes no photos", 2, photos[0]);
+      assertEquals("one photo per change; a refusal takes none", 2, photos[0]);
+    }
+  }
+
+  @Test
+  public void aFailingPhotoDoesNotLoseTheReply() throws Exception
+  {
+    World w = World.withDefaultBlocks(new java.util.Random(8));
+    VirtualRobotServer robot = new VirtualRobotServer(w);
+    robot.onBlocksChanged(() -> { throw new IllegalStateException("camera broke"); });
+    int admin = freePort();
+    robot.serveAdmin(admin);
+    try (Socket s = new Socket(InetAddress.getByName("127.0.0.1"), admin)) {
+      BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), "ISO-8859-1"));
+      s.getOutputStream().write("blocks add\nblocks reset\n".getBytes("ISO-8859-1"));
+      s.getOutputStream().flush();
+      assertTrue(in.readLine().startsWith("ok added a "));
+      assertEquals("the connection survives the failed photo", "ok reset the blocks", in.readLine());
     }
   }
 }

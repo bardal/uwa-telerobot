@@ -109,7 +109,7 @@ public class VirtualRobotServer
     System.out.println("VirtualRobot: admin port " + port);
   }
 
-  /** Run after every block command that changed the table (VirtualLab re-shoots the cameras). */
+  /** Run after every block command that changed the table, once its reply is sent (VirtualLab re-shoots the cameras). */
   public void onBlocksChanged(Runnable r)
   {
     blocksChanged = r;
@@ -132,12 +132,20 @@ public class VirtualRobotServer
     else
       return "error unknown command";
     System.out.println("VirtualRobot: blocks " + action + ": " + c.text());
-    if (!c.ok())
-      return "error " + c.text();
+    return (c.ok() ? "ok " : "error ") + c.text();
+  }
+
+  /** Runs the {@link #onBlocksChanged} callback; a failure is logged, never thrown at the admin client. */
+  private void photographChange()
+  {
     Runnable r = blocksChanged;
-    if (r != null)
+    if (r == null)
+      return;
+    try {
       r.run();
-    return "ok " + c.text();
+    } catch (RuntimeException e) {
+      System.err.println("VirtualRobot: photos after a block change failed: " + e);
+    }
   }
 
   private void serveAdminClient(Socket s)
@@ -153,7 +161,12 @@ public class VirtualRobotServer
           System.out.println("VirtualRobot: world reset");
           out.write("ok\n".getBytes(StandardCharsets.ISO_8859_1));
         } else if (line.startsWith("blocks ")) {
-          out.write((blocks(line.substring(7).trim()) + "\n").getBytes(StandardCharsets.ISO_8859_1));
+          String reply = blocks(line.substring(7).trim());
+          out.write((reply + "\n").getBytes(StandardCharsets.ISO_8859_1));
+          out.flush();
+          // answer first: photographing three cameras can be slow, and the gateway waits only so long
+          if (reply.startsWith("ok "))
+            photographChange();
         } else if (!line.isEmpty()) {
           out.write("error unknown command\n".getBytes(StandardCharsets.ISO_8859_1));
         }

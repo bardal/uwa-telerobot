@@ -192,6 +192,14 @@ public class BlocksTest
     assertEquals("a refusal tells nobody", 4, told.get());
   }
 
+  @Test
+  public void aCylinderIsAsWideAsItsDiameterAtAnyAngle()
+  {
+    Block c = new Block("c", Shape.CYLINDER, 250, 250, 0, 0, 30, 30, 30, GREY);
+    for (int deg = 0; deg < 180; deg += 15)
+      assertEquals("at " + deg, 30, c.widthAlong(Math.toRadians(deg)), 1e-9);
+  }
+
   // ---- drawing -----------------------------------------------------------------------------
 
   private static List<Scene.Tri> drawn(Block b)
