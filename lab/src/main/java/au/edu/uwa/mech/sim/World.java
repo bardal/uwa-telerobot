@@ -17,8 +17,9 @@ public class World
   public static final double OPEN_GAP = 70;
   /** The most pieces the table holds. */
   public static final int MAX_BLOCKS = 20;
-  /** Where random pieces are put: inside the arm's reach and all three cameras' views. */
-  public static final double AREA_MIN_X = 80, AREA_MAX_X = 440, AREA_MIN_Y = 80, AREA_MAX_Y = 400;
+  /** Where random pieces are put: the whole grid less a margin (all three cameras see it, the arm reaches it). */
+  public static final double AREA_MIN_X = 20, AREA_MAX_X = Renderer.GRID_MAX - 20,
+      AREA_MIN_Y = 20, AREA_MAX_Y = Renderer.GRID_MAX - 20;
   /** Space kept clear around a randomly placed piece, in mm. */
   static final double CLEARANCE = 5;
   private static final int TRIES = 200;
