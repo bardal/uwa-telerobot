@@ -109,3 +109,5 @@ export function drawCrossHairs(ctx: CanvasRenderingContext2D, p: Pt, size = 5): 
 
 export const YELLOW = '#ffff00'; // Color.yellow, OverlaidComponent colorNoFocus
 export const RED = '#ff0000'; // Color.red, colorFocus
+/** The dark edge drawn under the cursor so it shows on the pale table. */
+export const OUTLINE = '#000000';

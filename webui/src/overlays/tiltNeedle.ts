@@ -2,7 +2,7 @@
 // axis, vertical at zero tilt and leaning towards the spin direction.
 
 import type { Camera } from '../geometry/camera';
-import { projectSeg, RED, spinRad, tiltRad, YELLOW, type Pose, type Pt, type Seg } from './types';
+import { OUTLINE, projectSeg, RED, spinRad, tiltRad, YELLOW, type Pose, type Pt, type Seg } from './types';
 
 export const TILT_LENGTH = 50; // mm
 
@@ -23,11 +23,11 @@ export class TiltNeedle {
     );
   }
 
-  draw(ctx: CanvasRenderingContext2D, cam: Camera, pose: Pose): void {
+  draw(ctx: CanvasRenderingContext2D, cam: Camera, pose: Pose, outline = false): void {
     if (!this.visible) return;
     const tilter = this.project(cam, pose);
     if (!tilter) return;
-    tilter.draw(ctx, this.focus ? this.colourFocus : this.colourNoFocus);
+    tilter.draw(ctx, outline ? OUTLINE : this.focus ? this.colourFocus : this.colourNoFocus);
     ctx.beginPath();
     ctx.arc(tilter.end.x, tilter.end.y, 3, 0, Math.PI * 2);
     ctx.stroke();

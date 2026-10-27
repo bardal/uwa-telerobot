@@ -2,7 +2,7 @@
 // pointing along the spin angle.
 
 import type { Camera } from '../geometry/camera';
-import { projectSeg, RED, spinRad, YELLOW, type Pose, type Pt, type Seg } from './types';
+import { OUTLINE, projectSeg, RED, spinRad, YELLOW, type Pose, type Pt, type Seg } from './types';
 
 export const SPIN_LENGTH = 50; // mm
 
@@ -21,14 +21,16 @@ export class SpinNeedle {
     );
   }
 
-  draw(ctx: CanvasRenderingContext2D, cam: Camera, pose: Pose): void {
+  /** With outline, the dark edge under the needle: the same lines and a tip one pixel bigger all round. */
+  draw(ctx: CanvasRenderingContext2D, cam: Camera, pose: Pose, outline = false): void {
     if (!this.visible) return;
     const needle = this.project(cam, pose);
     if (!needle) return;
-    const colour = this.focus ? this.colourFocus : this.colourNoFocus;
+    const colour = outline ? OUTLINE : this.focus ? this.colourFocus : this.colourNoFocus;
     needle.draw(ctx, colour);
     ctx.fillStyle = colour;
-    ctx.fillRect(needle.end.x - 2, needle.end.y - 2, 5, 5);
+    const r = outline ? 3 : 2;
+    ctx.fillRect(needle.end.x - r, needle.end.y - r, 2 * r + 1, 2 * r + 1);
   }
 
   /** Grabbing is by the outer part of the needle, so the peak marker stays reachable. */

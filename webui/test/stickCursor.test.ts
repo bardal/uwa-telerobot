@@ -186,3 +186,50 @@ describe('measuring overlays', () => {
     new Path().clear(); // empty: no throw
   });
 });
+
+describe('cursor drawing', () => {
+  type Op = { kind: 'stroke'; style: string; width: number; cap: string } | { kind: 'fill'; style: string; rect: number[] };
+  /** Just enough of a 2D context to record what was stroked and filled, and how. */
+  function recorder(): { ctx: CanvasRenderingContext2D; ops: Op[] } {
+    const ops: Op[] = [];
+    const saved: object[] = [];
+    const ctx = {
+      strokeStyle: '#000000', fillStyle: '#000000', lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
+      save() { saved.push({ ...this }); },
+      restore() { Object.assign(this, saved.pop()); },
+      beginPath() {}, moveTo() {}, lineTo() {}, arc() {},
+      stroke() { ops.push({ kind: 'stroke', style: this.strokeStyle, width: this.lineWidth, cap: this.lineCap }); },
+      fillRect(x: number, y: number, w: number, h: number) { ops.push({ kind: 'fill', style: this.fillStyle, rect: [x, y, w, h] }); },
+    };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, ops };
+  }
+
+  it('draws a 2px yellow cursor over a dark outline that wraps the line ends and the needle tip', () => {
+    const sc = new StickCursor();
+    sc.visible = true;
+    sc.setPose({ x: 250, y: 250, z: 100, spin: 30, tilt: 20 });
+    const { ctx, ops } = recorder();
+    sc.draw(ctx, new Camera(colourP));
+    const yellow = ops.filter((o) => o.style === '#ffff00');
+    const dark = ops.filter((o) => o.style === '#000000');
+    expect(yellow.length).toBeGreaterThan(5);
+    // every outline goes down before any yellow, so no outline covers another part's yellow where they cross
+    expect(ops.indexOf(yellow[0]!)).toBe(dark.length);
+    expect(dark.map((o) => o.kind)).toEqual(yellow.map((o) => o.kind));
+    for (const o of yellow.filter((o) => o.kind === 'stroke')) expect(o).toMatchObject({ width: 2, cap: 'butt' });
+    // a round cap carries the outline past each end of the yellow line
+    for (const o of dark.filter((o) => o.kind === 'stroke')) expect(o).toMatchObject({ width: 4, cap: 'round' });
+    const [tipDark, tipYellow] = [dark, yellow].map((l) => l.find((o) => o.kind === 'fill')!) as [Op & { rect: number[] }, Op & { rect: number[] }];
+    const [yx, yy, yw, yh] = tipYellow.rect as [number, number, number, number];
+    expect(tipDark.rect).toEqual([yx - 1, yy - 1, yw + 2, yh + 2]);
+  });
+
+  it('leaves the context as it found it', () => {
+    const sc = new StickCursor();
+    sc.visible = true;
+    sc.setPose({ x: 250, y: 250, z: 100, spin: 0, tilt: 0 });
+    const { ctx } = recorder();
+    sc.draw(ctx, new Camera(colourP));
+    expect([ctx.lineWidth, ctx.lineCap, ctx.lineJoin]).toEqual([1, 'butt', 'miter']);
+  });
+});
