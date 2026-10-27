@@ -73,7 +73,7 @@ public class SimCameraManager implements CameraManager
     private final Vector<CameraListener> cameraListeners = new Vector<CameraListener>();
     private final Vector<ImageListener> imageListeners = new Vector<ImageListener>();
     private ImageData last;
-    private int quality = 20;  // 1..50, as the framegrabber cameras
+    private int quality = 40;  // 1..50, as the framegrabber cameras (40 = JPEG 0.83)
     private float zoom = 1;
     private boolean fixed = true;
     private int count;

@@ -100,7 +100,8 @@ export class Camera {
    * calibration is normalised so points in front have w > 0, as the lab's are.
    */
   inFront(w: Vec3): boolean {
-    return this.depth(w) > 0;
+    // the camera's own centre has depth 0 give or take round-off (2e-16), and is not in front
+    return this.depth(w) > 1e-9;
   }
 
   /** Java's `new Point((int) Math.round(..))`: round half up, like Math.round. */

@@ -26,13 +26,13 @@ import au.edu.uwa.mech.util.XMLConfigFile;
  */
 public class VirtualLab
 {
-  /** The three cameras, named after the originals; image size 400x300. */
+  /** The three cameras, named after the originals; image size 640x480. */
   public static List<VirtualCamera> defaultCameras()
   {
     List<VirtualCamera> cams = new ArrayList<VirtualCamera>();
-    cams.add(new VirtualCamera("Colour", new double[] {300, 1180, 780}, new double[] {250, 200, 30}, 46, 400, 300));
-    cams.add(new VirtualCamera("YCam", new double[] {1230, 330, 430}, new double[] {250, 210, 70}, 44, 400, 300));
-    cams.add(new VirtualCamera("ZCam", new double[] {820, 760, 1350}, new double[] {240, 230, 0}, 40, 400, 300));
+    cams.add(new VirtualCamera("Colour", new double[] {300, 1180, 780}, new double[] {250, 200, 30}, 46, 640, 480));
+    cams.add(new VirtualCamera("YCam", new double[] {1230, 330, 430}, new double[] {250, 210, 70}, 44, 640, 480));
+    cams.add(new VirtualCamera("ZCam", new double[] {820, 760, 1350}, new double[] {240, 230, 0}, 40, 640, 480));
     return cams;
   }
 
