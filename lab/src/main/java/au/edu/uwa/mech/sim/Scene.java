@@ -26,7 +26,7 @@ public final class Scene
   }
 
   /** Where the arm stands (axis 1 at the base's underside). */
-  public static double[] BASE = {250, -280, 0};
+  public static double[] BASE = {250, -420, 0};
   // the ABB IRB 1400's dimensions in mm, from its product specification (3HAC 9376-1, figure 3)
   /** Axis 2 above the base and out from axis 1. */
   static final double SHOULDER_HEIGHT = 475, SHOULDER_OFFSET = 150;
@@ -38,6 +38,8 @@ public final class Scene
   static final double FLANGE = 85;
   /** Tool point to the flange: the gripper. */
   static final double GRIPPER = 88;
+  /** The fixed base plate (620 x 450), its centre this far along y from axis 1. */
+  static final double PLATE_WIDTH = 620, PLATE_DEPTH = 450, PLATE_SHIFT = -40;
   /** Radius of the half-round opening under an arch, mm. */
   static final double ARCH_RADIUS = 18;
 
@@ -214,8 +216,9 @@ public final class Scene
     cylinder(flangeTop, j.wrist, 28, ABB_ORANGE, true);
 
     // pedestal to the floor, then the fixed base plate (620 x 450)
-    box(new double[] {BASE[0], BASE[1] - 40, Renderer.FLOOR_Z / 2}, x, y, up, 270, 200, -Renderer.FLOOR_Z / 2, PEDESTAL, false);
-    box(new double[] {BASE[0], BASE[1] - 40, BASE[2] + 25}, x, y, up, 310, 225, 25, ABB_ORANGE, true);
+    box(new double[] {BASE[0], BASE[1] + PLATE_SHIFT, Renderer.FLOOR_Z / 2}, x, y, up, PLATE_WIDTH / 2 - 40, PLATE_DEPTH / 2 - 25,
+        -Renderer.FLOOR_Z / 2, PEDESTAL, false);
+    box(new double[] {BASE[0], BASE[1] + PLATE_SHIFT, BASE[2] + 25}, x, y, up, PLATE_WIDTH / 2, PLATE_DEPTH / 2, 25, ABB_ORANGE, true);
     // the frame turning on axis 1, its motor at the back, and the support for axis 2's round gearbox
     cylinder(new double[] {BASE[0], BASE[1], BASE[2] + 50}, new double[] {BASE[0], BASE[1], BASE[2] + 150}, 200, ABB_ORANGE, true);
     double[] frame = along(BASE, radial, -30, side, 0);

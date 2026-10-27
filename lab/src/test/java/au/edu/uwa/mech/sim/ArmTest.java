@@ -1,6 +1,7 @@
 package au.edu.uwa.mech.sim;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -32,6 +33,13 @@ public class ArmTest
     assertPoint("wrist centre on the forearm axis", j.wristReached, alongAxis);
     // the wrist centre is the flange's 85 mm plus the gripper's 88 mm above the tool point
     assertPoint("wrist centre", new double[] {250, 250, 100 + 85 + 88}, j.wrist);
+  }
+
+  @Test
+  public void theBasePlateStandsClearOfTheTable()
+  {
+    double front = Scene.BASE[1] + Scene.PLATE_SHIFT + Scene.PLATE_DEPTH / 2;
+    assertTrue("plate front " + front + " vs table back " + Renderer.TABLE_Y0, front <= Renderer.TABLE_Y0 - 50);
   }
 
   @Test
