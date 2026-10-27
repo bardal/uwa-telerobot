@@ -132,6 +132,18 @@ public class BlocksTest
   }
 
   @Test
+  public void randomPiecesUseTheWholeGrid()
+  {
+    // the grid is 0..600 each way (Renderer.GRID_MAX); all three cameras see it and the arm reaches it
+    assertEquals(20, World.AREA_MIN_X, 0);
+    assertEquals(Renderer.GRID_MAX - 20, World.AREA_MAX_X, 0);
+    assertEquals(20, World.AREA_MIN_Y, 0);
+    assertEquals(Renderer.GRID_MAX - 20, World.AREA_MAX_Y, 0);
+    for (double[] lim : new double[][] {VirtualRobotServer.LIMITS[0], VirtualRobotServer.LIMITS[1]})
+      assertTrue(lim[0] <= World.AREA_MIN_X && lim[1] >= World.AREA_MAX_X);
+  }
+
+  @Test
   public void resetBlocksKeepsTheArm()
   {
     World w = World.withDefaultBlocks(new Random(4));
