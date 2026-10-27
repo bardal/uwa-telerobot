@@ -3,7 +3,7 @@
 // work surface, and two base lines through the base parallel to x and y.
 
 import type { Camera } from '../geometry/camera';
-import { project, projectSeg, RED, Seg, YELLOW, type Pose, type Pt } from './types';
+import { OUTLINE, project, projectSeg, RED, Seg, YELLOW, type Pose, type Pt } from './types';
 
 export type PlumblinePart = 'none' | 'peak' | 'base' | 'height' | 'xLine' | 'yLine';
 
@@ -43,16 +43,17 @@ export class Plumbline {
     return this.focusPart === p ? this.colourFocus : this.colourNoFocus;
   }
 
-  draw(ctx: CanvasRenderingContext2D, cam: Camera, pose: Pose): void {
+  draw(ctx: CanvasRenderingContext2D, cam: Camera, pose: Pose, outline = false): void {
     if (!this.visible) return;
     const g = this.project(cam, pose);
+    const colour = (p: PlumblinePart): string => (outline ? OUTLINE : this.colourFor(p));
     if (this.baselinesVisible) {
-      g.xLine?.draw(ctx, this.colourFor('xLine'));
-      g.yLine?.draw(ctx, this.colourFor('yLine'));
+      g.xLine?.draw(ctx, colour('xLine'));
+      g.yLine?.draw(ctx, colour('yLine'));
     }
-    g.height?.draw(ctx, this.colourFor('height'));
-    if (g.base) marker(ctx, g.base, this.colourFor('base'));
-    if (g.peak) marker(ctx, g.peak, this.colourFor('peak'));
+    g.height?.draw(ctx, colour('height'));
+    if (g.base) marker(ctx, g.base, colour('base'));
+    if (g.peak) marker(ctx, g.peak, colour('peak'));
   }
 
   /** Which part, if any, display point m is on. Markers win over lines. */

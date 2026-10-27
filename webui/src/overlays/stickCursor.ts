@@ -76,10 +76,24 @@ export class StickCursor implements Interactive {
 
   draw(ctx: CanvasRenderingContext2D, cam: Camera): void {
     if (!this._visible) return;
-    ctx.lineWidth = 1;
-    this.pc.draw(ctx, cam, this.pose);
-    this.sc.draw(ctx, cam, this.pose);
-    this.tc.draw(ctx, cam, this.pose);
+    ctx.save();
+    // every part's dark outline first, so none covers another part's colour where they cross;
+    // the outline's round caps reach past the ends of the 2px lines drawn over it
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    this.drawParts(ctx, cam, true);
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
+    this.drawParts(ctx, cam, false);
+    ctx.restore();
+  }
+
+  private drawParts(ctx: CanvasRenderingContext2D, cam: Camera, outline: boolean): void {
+    this.pc.draw(ctx, cam, this.pose, outline);
+    this.sc.draw(ctx, cam, this.pose, outline);
+    this.tc.draw(ctx, cam, this.pose, outline);
   }
 
   contains(uv: UV, cam: Camera): boolean {
