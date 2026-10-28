@@ -453,7 +453,7 @@ textarea[readonly] {
 
 /* ---- login, waking and history pages ---- */
 
-/* The login page: a 2026 card on the applet's salmon page. Wide fields, a
+/* The login page: a 2026 card in the site's look (public/site.css). Wide fields, a
    guest / registered-user switch and 16px text, so phones don't zoom in. */
 .login-page {
   display: flex;
@@ -467,35 +467,24 @@ textarea[readonly] {
   box-sizing: border-box;
   width: min(480px, 100%);
   padding: 20px 24px;
-  background: #fff8f2;
-  border: 1px solid #a0522d;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  font: 16px/1.4 Arial, Helvetica, sans-serif;
-  color: #1a1a1a;
+  background: #ffffcc;
+  border: 1px solid #c0c0a0;
+  font-size: 16px;
 }
 
-.login-title {
+.site-page .login-title {
   margin: 0 0 6px;
   font-size: 1.5em;
-  color: #000080;
 }
 
 .login-way {
   margin: 0 0 16px;
 }
 
-.login-way a,
-.login-card a.history-link,
-.login-card a.home-link {
-  color: #000080;
-}
-
 .login-modes {
   display: flex;
   margin: 0 0 16px;
-  border: 1px solid #a0522d;
-  border-radius: 6px;
+  border: 1px solid #c0c0a0;
   overflow: hidden;
 }
 
@@ -521,11 +510,11 @@ textarea[readonly] {
 }
 
 .login-mode + .login-mode span {
-  border-left: 1px solid #a0522d;
+  border-left: 1px solid #c0c0a0;
 }
 
 .login-mode-input:checked + span {
-  background: #000080;
+  background: #ff9900;
   color: #ffffff;
   font-weight: bold;
 }
@@ -551,9 +540,8 @@ textarea[readonly] {
   width: 100%;
   margin-top: 4px;
   padding: 10px 12px;
-  font: 16px Arial, Helvetica, sans-serif;
+  font-size: 16px;
   border: 1px solid #808080;
-  border-radius: 4px;
   background: #ffffff;
 }
 
@@ -578,8 +566,8 @@ textarea[readonly] {
 .login-card .login-go {
   flex: 1 1 auto;
   padding: 10px 16px;
-  font: bold 16px Arial, Helvetica, sans-serif;
-  border-radius: 4px;
+  font-size: 16px;
+  font-weight: bold;
 }
 
 .archive-notice {
@@ -619,6 +607,8 @@ a.back-link {
 
 .waking-box,
 .history-box {
+  background: #ffffcc;
+  border: 1px solid #c0c0a0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -627,8 +617,14 @@ a.back-link {
   padding: 16px;
 }
 
+.waking-box > legend,
+.history-box > legend {
+  color: #ff9900;
+  font-weight: bold;
+}
+
 .waking-heading {
-  font-size: 15px;
+  font-size: 1.1em;
   font-weight: bold;
   text-align: center;
 }
@@ -723,8 +719,8 @@ a.back-link {
 
 .waking-did-you-know {
   align-self: stretch;
-  background: var(--field);
-  border: 1px solid var(--awt-shadow);
+  background: #ffffff;
+  border: 1px solid #c0c0a0;
   padding: 6px 8px;
   min-height: 5.2em;
 }
@@ -735,10 +731,6 @@ a.back-link {
 
 .waking-fact {
   margin: 2px 0 0;
-}
-
-.waking-did-you-know a {
-  color: #000080;
 }
 
 .waking-source {
@@ -890,7 +882,7 @@ a.back-link {
 .history-page { align-items: flex-start; }
 .history-box { align-items: stretch; width: min(960px, 100%); }
 .history-bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
-.history-entry { border-top: 1px solid #808080; padding: 6px 0; }
+.history-entry { border-top: 1px dotted #c0c0a0; padding: 6px 0; }
 .history-head { display: flex; gap: 8px; align-items: center; }
 .history-nick { font-weight: bold; }
 .history-text { overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -1012,31 +1004,13 @@ a.back-link {
   }
 }
 
-/* ---- the landing page: the original site's last home page (February 2000):
-   Verdana, grey and navy text, orange headings and links, pale-yellow blocks ---- */
+/* ---- the landing page: the original site's last home page (February 2000).
+   Its base look (font, colours, links, headings) is public/site.css's .site-page. ---- */
 
 .landing-page {
   height: auto;
   min-height: 100%;
-  background: #ffffff;
-  color: #202066;
-  font: 15px/1.45 Verdana, Arial, Helvetica, sans-serif;
-  overflow-wrap: anywhere;
   padding: 0 max(16px, calc((100% - 820px) / 2)) 24px;
-}
-
-.landing-page a:link,
-.landing-page a:visited {
-  color: #ff9900;
-  text-decoration: none;
-}
-
-.landing-page a:visited {
-  color: #804000;
-}
-
-.landing-page a:hover {
-  text-decoration: underline;
 }
 
 .old-banner {
@@ -1095,19 +1069,10 @@ a.back-link {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 1.6em 0 0.4em;
-  color: #ff9900;
-  font-size: 1.25em;
 }
 
 .landing-sec img {
   flex: 0 0 auto;
-}
-
-.landing-page h3 {
-  margin: 0.3em 0;
-  color: #ff9900;
-  font-size: 1.05em;
 }
 
 .landing-drive {

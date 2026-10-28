@@ -206,7 +206,7 @@ export class WakingPage {
     this.back.hidden = true;
     this.el = h(
       'div',
-      { class: 'page waking-page' },
+      { class: 'page site-page waking-page' },
       h(
         'fieldset',
         { class: 'border-panel waking-box' },

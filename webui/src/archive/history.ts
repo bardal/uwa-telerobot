@@ -54,7 +54,7 @@ export class HistoryPage {
     this.viewer.addEventListener('click', () => this.closeViewer());
     this.el = h(
       'div',
-      { class: 'page history-page' },
+      { class: 'page site-page history-page' },
       h(
         'fieldset',
         { class: 'border-panel history-box' },

@@ -107,7 +107,7 @@ export class LoginPage {
       h('a', { href: '#/', class: 'home-link', text: 'Home' }),
     );
     card.append(this.turnstileContainer, this.console.el, notice);
-    this.el = h('div', { class: 'page login-page' }, card);
+    this.el = h('div', { class: 'page site-page login-page' }, card);
     this.setMode(this.mode, false);
     this.setWay(false);
   }

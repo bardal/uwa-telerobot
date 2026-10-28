@@ -1,0 +1,11 @@
+/* help.html's own layout, on top of site.css */
+.help-top { margin: 12px 0 0; font-size: 0.9em; }
+nav.site-block { padding: 6px 14px; margin: 12px 0; }
+nav.site-block ol { margin: 0; padding-left: 1.4em; columns: 2; }
+nav.site-block li { margin: 0.2em 0; break-inside: avoid; }
+nav.site-block li:first-child { margin-top: 0; }
+@media (max-width: 520px) { nav.site-block ol { columns: 1; } }
+.site-page p, .site-page li { margin: 0.35em 0; }
+.site-page h2 { padding-top: 0.6em; border-top: 1px dotted #c0c0a0; }
+.menu { font-weight: bold; }
+.note { color: #808080; font-style: italic; margin-top: 2em; }
