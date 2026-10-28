@@ -18,7 +18,21 @@ describe('site pages', () => {
       expect(html).not.toMatch(/<style[\s>]/i);
       expect(html).not.toMatch(/\sstyle="/i);
     });
+
+    it(`${page} has the favicon`, () => {
+      const html = read(page);
+      expect(html).toMatch(/<link rel="icon" href="\/favicon\.ico"/);
+      expect(html).toMatch(/<link rel="apple-touch-icon" href="\/apple-touch-icon\.png"/);
+    });
   }
+
+  it('the icons exist: the arm from the original site\'s logo', () => {
+    const ico = readFileSync(join(root, 'public/favicon.ico'));
+    expect([...ico.subarray(0, 4)]).toEqual([0, 0, 1, 0]); // an ICO file
+    expect(ico.readUInt16LE(4)).toBe(3); // 16, 32 and 48 px
+    const png = readFileSync(join(root, 'public/apple-touch-icon.png'));
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+  });
 
   it('help.html uses the site look', () => {
     expect(read('public/help.html')).toMatch(/<body class="site-page">/);
