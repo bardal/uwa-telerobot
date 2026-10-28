@@ -514,9 +514,11 @@ try {
       '--exclude', 'config.json', '--exclude', 'csp.json', '--exclude', 'index.html') | Out-Null
     Invoke-Aws -Arguments @('s3', 'cp', '--only-show-errors', (Join-Path $Dist 'index.html'), "s3://$UiBucket/index.html",
       '--cache-control', 'no-cache', '--content-type', 'text/html; charset=utf-8') | Out-Null
+    # Everything: public/ files (help.html, site.css, favicon.ico...) keep their
+    # names, so CloudFront would serve a cached copy for up to a day. /* is one path.
     $inv = Get-AwsJson -Arguments @('cloudfront', 'create-invalidation', '--distribution-id', $DistributionId,
-      '--paths', '/', '/index.html', '/config.json')
-    Note "invalidation $($inv.Invalidation.Id) for /, /index.html and /config.json"
+      '--paths', '/*')
+    Note "invalidation $($inv.Invalidation.Id) for /*"
   }
 
   # -------------------------------------------------- 9. flat-rate Free plan
