@@ -95,7 +95,7 @@ export class LandingPage {
 
     this.el = h(
       'div',
-      { class: 'page landing-page' },
+      { class: 'page site-page landing-page' },
       h('div', { class: 'old-banner landing-styling', text: STYLING_NOTE }),
       h('h1', { class: 'landing-title' },
         h('img', { src: SITE + 'onhead_animated.gif', alt: '', width: 500, height: 80, class: 'landing-title-img' }),

@@ -1,0 +1,96 @@
+/* The site's base look, from the original site's last home page (February 2000):
+   Verdana, navy text, orange headings and links, pale-yellow blocks. Shared by
+   help.html and the app's own pages (front, login, waking, history). The applet
+   and forms pages keep their 2000 and 1996 looks, and /old/ pages are as they were.
+   A file, not inline: the CSP is style-src 'self'. */
+
+.site-page {
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #202066;
+  font: 15px/1.45 Verdana, Arial, Helvetica, sans-serif;
+  overflow-wrap: anywhere;
+}
+
+body.site-page {
+  margin: 0;
+  padding: 0 max(16px, calc((100% - 820px) / 2)) 24px;
+}
+
+.site-page a:link,
+.site-page a:visited {
+  color: #ff9900;
+  text-decoration: none;
+}
+
+.site-page a:visited {
+  color: #804000;
+}
+
+.site-page a:hover {
+  text-decoration: underline;
+}
+
+.site-page h1,
+.site-page h2,
+.site-page h3 {
+  color: #ff9900;
+}
+
+.site-page h1 {
+  font-size: 1.6em;
+  margin: 0.6em 0 0.3em;
+}
+
+.site-page h2 {
+  font-size: 1.25em;
+  margin: 1.6em 0 0.4em;
+}
+
+.site-page h3 {
+  font-size: 1.05em;
+  margin: 0.3em 0;
+}
+
+/* a pale-yellow block, like the front page's "Drive the robot" */
+.site-block {
+  background: #ffffcc;
+  border: 1px solid #c0c0a0;
+}
+
+.site-page table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+.site-page th,
+.site-page td {
+  padding: 3px 12px 3px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px dotted #c0c0a0;
+  overflow-wrap: normal;
+}
+
+.site-page th {
+  color: #ff9900;
+  background: #ffffcc;
+}
+
+.site-page code,
+.site-page kbd,
+.site-page pre {
+  font-family: 'Courier New', Courier, monospace;
+  color: #000000;
+}
+
+.site-page pre {
+  padding: 6px 10px;
+  overflow-x: auto;
+  background: #ffffcc;
+}
+
+.site-muted {
+  color: #808080;
+}
