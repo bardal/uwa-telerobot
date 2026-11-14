@@ -20,6 +20,7 @@ import { WakingPage } from './ui/wakingPage';
 const NICK_KEY = 'telerobot.nick';
 /** Guest or registered user, as last chosen on the login page. */
 const MODE_KEY = 'telerobot.loginMode';
+const CAMERAS_KEY = 'telerobot.cameras';
 /** The way in (#/login or #/classic) chosen before a sign-in redirect. */
 const AFTER_SIGN_IN = 'telerobot.afterSignIn';
 const OUT_TYPES: Out['t'][] = [
@@ -59,6 +60,15 @@ export const MAX_QUICK_DROPS = 3;
 export const KEEPS_DROPPING = 'The connection to the robot keeps dropping';
 /** Turnstile tokens last 300 s; one fetched ahead is used only while younger than this. */
 export const EARLY_TOKEN_MS = 240_000;
+
+/** For a preference that should still be there on the next visit (the tab's own storage is forgotten when it closes). */
+function lasting(deps: AppDeps): Storage | null {
+  try {
+    return deps.storage ? deps.storage() : localStorage;
+  } catch {
+    return null;
+  }
+}
 
 function storage(deps: AppDeps): Storage | null {
   try {
@@ -209,8 +219,8 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
       else {
         classic?.hide();
         // the forms page selected each camera in turn: give the applet page its own back
-        const cam = control?.selectedCamera();
-        if (cam && welcomed) gateway?.send({ t: 'selectCamera', camera: cam });
+        const cameras = control?.shownCameras() ?? [];
+        if (cameras.length > 0 && welcomed) gateway?.send({ t: 'watchCameras', cameras });
       }
     }
     const el =
@@ -315,6 +325,13 @@ export function startApp(root: HTMLElement, deps: AppDeps = {}): App {
         openHelp: () => (deps.openWindow ?? ((u, n) => void globalThis.open(u, n)))('/help.html', 'help'),
         openHistory: () => { globalThis.location.hash = '#/history'; },
         openClassic: () => { globalThis.location.hash = '#/classic'; },
+        cameraChoice: {
+          load: () => {
+            const saved: unknown = JSON.parse(lasting(deps)?.getItem(CAMERAS_KEY) ?? 'null');
+            return Array.isArray(saved) ? saved.filter((n): n is string => typeof n === 'string') : null;
+          },
+          save: (cameras) => lasting(deps)?.setItem(CAMERAS_KEY, JSON.stringify(cameras)),
+        },
       });
     control = page;
     classic ??= new ClassicPage({

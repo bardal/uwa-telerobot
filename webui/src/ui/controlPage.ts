@@ -12,7 +12,7 @@ import { TapeMeasure } from '../overlays/tapeMeasure';
 import type { Overlay3D, Pose } from '../overlays/types';
 import { WorkspacePoints, type WorkspacePoint } from '../overlays/workspacePoints';
 import { pointAsGBHString, poseAsGBHString, randomState, stateAsGBHString } from '../pathscript';
-import { CamerasPanel } from './camerasPanel';
+import { CamerasPanel, type CameraChoice } from './camerasPanel';
 import { ChatPanel } from './chatPanel';
 import { ConsolePanel } from './consolePanel';
 import { addPointDialog, confirmDialog, deletePointDialog, nickDialog } from './dialogs';
@@ -29,6 +29,8 @@ export const HOME: Pose = { x: 250, y: 250, z: 100, spin: -90, tilt: 0 };
 /** A fresh RobotState: everything 0, so spin is -90 degrees. */
 const NO_STATE: Pose = { x: 0, y: 0, z: 0, spin: -90, tilt: 0 };
 export const ACTIVITY_MS = 500; // activity at most 2 a second
+/** The controls column and the panel borders beside the camera pictures (see styles.css), in px. */
+export const CONTROLS_WIDTH = 400;
 
 export interface ControlPageDeps {
   send: (m: In) => void;
@@ -41,6 +43,10 @@ export interface ControlPageDeps {
   /** Help > Forms Interface (1996): the same session through the CGI-era page. */
   openClassic?: () => void;
   now?: () => number;
+  /** The visitor's remembered choice of cameras. */
+  cameraChoice?: CameraChoice;
+  /** Width in px there is for camera pictures; defaults to the window less the controls column. */
+  cameraSpace?: () => number;
   /** Decodes a JPEG frame; defaults to createImageBitmap. */
   decode?: (b: Blob) => Promise<ImageBitmap>;
 }
@@ -84,7 +90,9 @@ export class ControlPage {
     });
     this.chat = new ChatPanel((text) => this.deps.send({ t: 'chat', text }));
     this.cameras = new CamerasPanel({
-      onSelect: (camera) => this.deps.send({ t: 'selectCamera', camera }),
+      onWatch: (cameras) => this.deps.send({ t: 'watchCameras', cameras }),
+      choice: deps.cameraChoice,
+      space: deps.cameraSpace ?? (() => Math.max(0, (globalThis.innerWidth ?? 0) - CONTROLS_WIDTH)),
       onSettings: (s) => this.deps.send(s),
       onNewImage: (camera) => this.deps.send({ t: 'newImage', camera }),
       onCursor: (pose, from) => this.cursorDragged(pose, from),
@@ -132,8 +140,9 @@ export class ControlPage {
     return { ...this.stickPose };
   }
 
-  selectedCamera(): string | null {
-    return this.cameras.selected;
+  /** The cameras on show side by side. */
+  shownCameras(): string[] {
+    return this.cameras.shown();
   }
 
   println(s: string): void {
@@ -241,9 +250,9 @@ export class ControlPage {
     this.chat.setJoined(true);
     this.chat.setMaxLength(m.limits.chat);
     this.console.println(`Logged in OK as ${m.nick}`);
-    // only the selected camera is streamed: (re)select it on every connection
-    const cam = this.cameras.selected;
-    if (cam) this.deps.send({ t: 'selectCamera', camera: cam });
+    // only the cameras on show are streamed: say which on every connection
+    const cameras = this.cameras.shown();
+    if (cameras.length > 0) this.deps.send({ t: 'watchCameras', cameras });
   }
 
   private setWorkspace(points: Extract<Out, { t: 'workspace' }>['points']): void {

@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { In, Out } from '../src/net/protocol';
 import { ChatPanel } from '../src/ui/chatPanel';
+import { fitCount } from '../src/ui/camerasPanel';
 import { ControlPage, HOME } from '../src/ui/controlPage';
 import { GUEST_HINT, LoginPage, REGISTERED_HINT } from '../src/ui/loginPage';
 import { CAPPED, DALTON_THESIS, EXPECT, FACTS, FACT_MS, SLOW, SLOW_AFTER_S, TYPICAL_WAKE_S, WAKING, WIKIPEDIA, WakingPage, progressAt, shuffled } from '../src/ui/wakingPage';
@@ -394,18 +395,88 @@ describe('review fixes (control page)', () => {
 });
 
 describe('cameras', () => {
-  it('makes a button and canvas per camera and selects on press', () => {
+  const camButton = (p: ControlPage, i: number) => p.el.querySelectorAll('.camera-buttons button')[i] as HTMLButtonElement;
+  const pressed = (p: ControlPage) => [...p.el.querySelectorAll('.camera-buttons button')].map((b) => b.getAttribute('aria-pressed'));
+  const onShow = (p: ControlPage) =>
+    [...p.el.querySelectorAll('.camera-card:not([hidden]) canvas')].map((c) => c.getAttribute('aria-label'));
+  const wide = (space: number, cameraChoice?: { load: () => string[] | null; save: (c: string[]) => void }) => {
+    const sent: In[] = [];
+    const p = new ControlPage({ send: (m) => sent.push(m), logout: vi.fn(), openHelp: vi.fn(), openHistory: vi.fn(), now: () => 0, cameraSpace: () => space, cameraChoice });
+    document.body.appendChild(p.el);
+    return { p, sent };
+  };
+
+  it('makes a button and canvas per camera; with room for one picture only the first is on show', () => {
     const { p, sent } = page();
     p.handle(welcome);
     const buttons = [...p.el.querySelectorAll('.camera-buttons button')].map((b) => b.textContent);
     expect(buttons).toEqual(['Colour', 'YCam', 'ZCam']);
     expect(p.el.querySelectorAll('canvas.camera-canvas')).toHaveLength(3);
-    expect(sent).toContainEqual({ t: 'selectCamera', camera: 'Colour' });
-    (p.el.querySelectorAll('.camera-buttons button')[1] as HTMLButtonElement).click();
-    expect(sent.at(-1)).toEqual({ t: 'selectCamera', camera: 'YCam' });
-    expect(p.selectedCamera()).toBe('YCam');
+    expect(sent).toContainEqual({ t: 'watchCameras', cameras: ['Colour'] });
+    expect(onShow(p)).toEqual(['Colour camera']);
+    expect(pressed(p)).toEqual(['true', 'false', 'false']);
     const labels = [...p.el.querySelectorAll('.camera-card:not([hidden]) .camera-controls .awt-label')].map((l) => l.textContent);
     expect(labels).toEqual(['on', 'width', 'height', 'zoom', 'quality', 'fixed']);
+  });
+
+  it('a camera button turns its camera on or off: any combination, side by side, but never none', () => {
+    const { p, sent } = page();
+    p.handle(welcome);
+    camButton(p, 2).click();
+    expect(sent.at(-1)).toEqual({ t: 'watchCameras', cameras: ['Colour', 'ZCam'] });
+    expect(p.shownCameras()).toEqual(['Colour', 'ZCam']);
+    expect(onShow(p)).toEqual(['Colour camera', 'ZCam camera']);
+    expect(pressed(p)).toEqual(['true', 'false', 'true']);
+    expect(p.el.querySelector('.camera-cards')!.classList.contains('several')).toBe(true);
+    camButton(p, 1).click();
+    expect(sent.at(-1)).toEqual({ t: 'watchCameras', cameras: ['Colour', 'YCam', 'ZCam'] });
+    camButton(p, 0).click();
+    camButton(p, 2).click();
+    expect(sent.at(-1)).toEqual({ t: 'watchCameras', cameras: ['YCam'] });
+    expect(onShow(p)).toEqual(['YCam camera']);
+    expect(p.el.querySelector('.camera-cards')!.classList.contains('several')).toBe(false);
+    const before = sent.length;
+    camButton(p, 1).click(); // the only camera on show
+    expect(p.shownCameras()).toEqual(['YCam']);
+    expect(sent).toHaveLength(before);
+  });
+
+  it('starts with as many cameras as fit side by side at full size', () => {
+    expect([0, 639, 640, 1279, 1280, 1920, 5000].map((w) => fitCount(w, 3))).toEqual([1, 1, 1, 1, 2, 3, 3]);
+    const two = wide(1300);
+    two.p.handle(welcome);
+    expect(two.p.shownCameras()).toEqual(['Colour', 'YCam']);
+    expect(two.sent).toContainEqual({ t: 'watchCameras', cameras: ['Colour', 'YCam'] });
+    const three = wide(2000);
+    three.p.handle(welcome);
+    expect(onShow(three.p)).toEqual(['Colour camera', 'YCam camera', 'ZCam camera']);
+  });
+
+  it('a remembered choice wins over the width, and every press is remembered', () => {
+    const save = vi.fn();
+    const { p } = wide(2000, { load: () => ['ZCam', 'Gone'], save });
+    p.handle(welcome);
+    expect(p.shownCameras()).toEqual(['ZCam']);
+    expect(save).not.toHaveBeenCalled();
+    camButton(p, 0).click();
+    expect(save).toHaveBeenLastCalledWith(['Colour', 'ZCam']);
+  });
+
+  it('a choice that cannot be read or kept is no obstacle', () => {
+    const { p, sent } = wide(1300, { load: () => { throw new Error('blocked'); }, save: () => { throw new Error('full'); } });
+    p.handle(welcome);
+    expect(p.shownCameras()).toEqual(['Colour', 'YCam']);
+    camButton(p, 1).click();
+    expect(sent.at(-1)).toEqual({ t: 'watchCameras', cameras: ['Colour'] });
+  });
+
+  it('a new welcome says again which cameras are on show, and keeps them', () => {
+    const { p, sent } = page();
+    p.handle(welcome);
+    camButton(p, 1).click();
+    sent.length = 0;
+    p.handle(welcome);
+    expect(sent).toEqual([{ t: 'watchCameras', cameras: ['Colour', 'YCam'] }]);
   });
 
   it('fills the settings row and sends Change Settings limited as Java', () => {
