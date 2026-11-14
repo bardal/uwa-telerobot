@@ -2,18 +2,26 @@ package au.edu.uwa.mech.web;
 
 import au.edu.uwa.mech.devices.camera.ImageData;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
  * Everything one session sends to its browser, in order, under one lock, with backpressure:
  * <ul>
- * <li>Images: at most one in flight (header and JPEG as a unit). While one is being written only
- *     the newest further frame is kept, so a slow browser gets fewer, fresher frames.</li>
+ * <li>Images: only from the cameras the browser is showing, and at most one in flight (header and
+ *     JPEG as a unit). While one is being written only the newest further frame of each camera is
+ *     kept, so a slow browser gets fewer, fresher frames.</li>
  * <li>Robot states: the same, latest wins while one is in flight.</li>
  * <li>Anything else is sent as it comes; if the socket's backlog still passes
  *     {@link #MAX_QUEUED_BYTES} or {@link #MAX_QUEUED_MESSAGES}, {@code overflow} runs once.</li>
@@ -30,11 +38,12 @@ final class Outbox {
     private final Object lock = new Object();
 
     private volatile boolean open;
-    private volatile String selected;
+    /** The cameras on show in the browser: replaced whole, never changed, so it can be read without the lock. */
+    private volatile Set<String> watching = Set.of();
 
     private boolean imageInFlight;
-    private String pendingCamera;
-    private ImageData pendingImage;
+    /** The newest frame waiting for each camera, the camera that has waited longest first. */
+    private final Map<String, ImageData> pending = new LinkedHashMap<>();
     private final Map<String, Integer> seq = new HashMap<>();
     private final Map<String, ImageData> lastSent = new HashMap<>();
 
@@ -67,8 +76,7 @@ final class Outbox {
     void close() {
         synchronized (lock) {
             open = false;
-            pendingImage = null;
-            pendingCamera = null;
+            pending.clear();
             pendingState = null;
         }
     }
@@ -115,28 +123,40 @@ final class Outbox {
         }
     }
 
-    String selected() {
-        return selected;
+    /** The cameras whose frames go out. */
+    Set<String> watching() {
+        return watching;
     }
 
-    /** A new camera choice: from now on only its frames go out, starting with {@code last}. */
+    boolean watches(String camera) {
+        return watching.contains(camera);
+    }
+
+    /** One camera only (the forms page, and pages from before several could be shown). */
     void select(String camera, Supplier<Optional<ImageData>> last) {
+        watch(List.of(camera), c -> last.get());
+    }
+
+    /**
+     * A new choice of cameras: from now on only their frames go out, each starting with its
+     * {@code last} photo unless that is the frame this browser was sent most recently.
+     */
+    void watch(Collection<String> cameras, Function<String, Optional<ImageData>> last) {
         synchronized (lock) {
-            selected = camera;
-            if (pendingCamera != null && !pendingCamera.equals(camera)) {
-                pendingCamera = null;
-                pendingImage = null;
-            }
+            watching = Collections.unmodifiableSet(new LinkedHashSet<>(cameras));
+            pending.keySet().retainAll(watching);
             // read under the lock: a live frame that already went out is the same object (skipped),
             // and one that arrives later waits for us, so an older frame never follows a newer one
-            if (open) last.get().ifPresent(d -> imageLocked(camera, d));
+            if (open) {
+                for (String camera : watching) last.apply(camera).ifPresent(d -> imageLocked(camera, d));
+            }
         }
         checkBacklog();
     }
 
     void image(String camera, ImageData d) {
         synchronized (lock) {
-            if (!open || !camera.equals(selected)) return;
+            if (!open || !watching.contains(camera)) return;
             imageLocked(camera, d);
         }
         checkBacklog();
@@ -145,8 +165,7 @@ final class Outbox {
     private void imageLocked(String camera, ImageData d) {
         if (!sendable(d) || lastSent.get(camera) == d) return;
         if (imageInFlight) {
-            pendingCamera = camera;
-            pendingImage = d;
+            pending.put(camera, d);
             return;
         }
         imageInFlight = true;
@@ -161,15 +180,15 @@ final class Outbox {
 
     private void imageWritten() {
         synchronized (lock) {
-            String camera = pendingCamera;
-            ImageData next = pendingImage;
-            pendingCamera = null;
-            pendingImage = null;
-            if (next == null || !open || !camera.equals(selected) || lastSent.get(camera) == next) {
-                imageInFlight = false;
+            Iterator<Map.Entry<String, ImageData>> waiting = pending.entrySet().iterator();
+            while (open && waiting.hasNext()) {
+                Map.Entry<String, ImageData> e = waiting.next();
+                waiting.remove();
+                if (!watching.contains(e.getKey()) || lastSent.get(e.getKey()) == e.getValue()) continue;
+                write(e.getKey(), e.getValue());
                 return;
             }
-            write(camera, next);
+            imageInFlight = false;
         }
     }
 

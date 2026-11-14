@@ -84,6 +84,12 @@ select {
   font-weight: bold;
 }
 
+/* a camera button stays pressed in while its camera is on show */
+.camera-button[aria-pressed='true'] {
+  border-color: var(--awt-dark) #ffffff #ffffff var(--awt-dark);
+  box-shadow: inset 1px 1px 0 var(--awt-shadow);
+}
+
 .awt-button:focus-visible,
 .awt-text:focus-visible,
 textarea:focus-visible,
@@ -323,17 +329,24 @@ textarea[readonly] {
   padding-bottom: 4px;
 }
 
+/* the cameras on show sit side by side and share the width equally */
 .camera-cards {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  gap: 4px;
 }
 
 .camera-card {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* beside another picture a settings row may be too wide for its own: let it wrap */
+.camera-cards.several .cam-settings {
+  flex-wrap: wrap;
 }
 
 /* the canvas is sized by CSS; CameraCanvas sizes its backing store from it */
@@ -874,6 +887,16 @@ a.back-link {
 
   .canvas-wrap {
     min-height: 220px;
+  }
+
+  /* too narrow for pictures side by side: several cameras on show go one above the other,
+     each as tall as its picture and settings (one camera alone fills the panel as before) */
+  .camera-cards.several {
+    flex-direction: column;
+  }
+
+  .camera-cards.several .camera-card {
+    flex: 0 0 auto;
   }
 }
 

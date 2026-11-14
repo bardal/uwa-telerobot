@@ -88,6 +88,21 @@ class BridgeIT {
         assertTrue(a.frames().stream().noneMatch(f -> f instanceof Out.Image i && !i.camera().equals("Colour")),
             "only the selected camera is forwarded");
 
+        // 2b. several cameras on show: each sends its picture and fills its settings row;
+        // a list with an unknown camera is refused whole
+        int beforeWatch = a.frames().size();
+        a.in(new In.WatchCameras(List.of("Colour", "YCam", "ZCam")));
+        for (String cam : List.of("YCam", "ZCam")) {
+            a.awaitFrom(beforeWatch, Out.Image.class, i -> i.camera().equals(cam), 10_000);
+            a.awaitFrom(beforeWatch, Out.CameraSettings.class, st -> st.camera().equals(cam), 10_000);
+        }
+        int beforeUnknown = a.frames().size();
+        a.in(new In.WatchCameras(List.of("Colour", "Nope")));
+        assertEquals("bad-message", a.awaitFrom(beforeUnknown, Out.Error.class, e -> true, 5_000).code());
+        int beforeOne = a.frames().size();
+        a.in(new In.SelectCamera("Colour")); // one camera again for the rest
+        a.awaitFrom(beforeOne, Out.CameraSettings.class, st -> st.camera().equals("Colour"), 10_000);
+
         // 3. take control and pick-and-place
         a.in(new In.TakeControl());
         a.await(Out.Controller.class, c -> "ann".equals(c.nick()), 10_000);

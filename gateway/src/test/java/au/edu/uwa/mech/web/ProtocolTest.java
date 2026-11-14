@@ -19,6 +19,7 @@ class ProtocolTest {
         assertInstanceOf(In.Release.class, Protocol.parse("{\"t\":\"release\"}"));
         assertEquals(new In.Chat("hi"), Protocol.parse("{\"t\":\"chat\",\"text\":\"hi\"}"));
         assertEquals(new In.SelectCamera("cam1"), Protocol.parse("{\"t\":\"selectCamera\",\"camera\":\"cam1\"}"));
+        assertEquals(new In.WatchCameras(List.of("cam1", "cam2")), Protocol.parse("{\"t\":\"watchCameras\",\"cameras\":[\"cam1\",\"cam2\"]}"));
         assertEquals(new In.CameraSettings("cam1", true, 320.0, 240.0, 1.5, 80.0, false),
             Protocol.parse("{\"t\":\"cameraSettings\",\"camera\":\"cam1\",\"on\":true,\"width\":320,"
                 + "\"height\":240,\"zoom\":1.5,\"quality\":80,\"fixed\":false}"));
@@ -40,6 +41,12 @@ class ProtocolTest {
         assertBad("{\"t\":\"nope\"}");
         assertBad("{\"nick\":\"bob\"}");
         assertBad("{\"t\":5}");
+        assertBad("{\"t\":\"watchCameras\"}");
+        assertBad("{\"t\":\"watchCameras\",\"cameras\":[]}");
+        assertBad("{\"t\":\"watchCameras\",\"cameras\":[\"a\",\"a\"]}");
+        assertBad("{\"t\":\"watchCameras\",\"cameras\":[\"a\",null]}");
+        assertBad("{\"t\":\"watchCameras\",\"cameras\":[\"a\",5]}");
+        assertBad("{\"t\":\"watchCameras\",\"cameras\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\"]}");
         assertBad("{\"t\":\"blocks\"}");
         assertBad("{\"t\":\"blocks\",\"action\":\"topple\"}");
         assertBad("{\"t\":\"command\",\"script\":\"x\",\"extra\":1}");

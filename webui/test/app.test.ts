@@ -114,7 +114,7 @@ describe('app flow', () => {
     g.emit(welcome('ann~2'));
     expect(app.view()).toBe('control');
     expect(app.control()!.nick()).toBe('ann~2');
-    expect(g.sent).toContainEqual({ t: 'selectCamera', camera: 'Colour' });
+    expect(g.sent).toContainEqual({ t: 'watchCameras', cameras: ['Colour'] });
   });
 
   it('fetches a Turnstile token while the login page shows; the next proof uses it', async () => {
@@ -158,7 +158,7 @@ describe('app flow', () => {
     expect(FakeGateway.all).toHaveLength(0);
   });
 
-  it('a lost connection shows the waking page until the next welcome, which restores the camera', async () => {
+  it('a lost connection shows the waking page until the next welcome, which restores the cameras on show', async () => {
     const { app, g } = await loggedIn();
     g.emit(welcome('ann'));
     (app.control()!.el.querySelectorAll('.camera-buttons button')[2] as HTMLButtonElement).click();
@@ -167,7 +167,20 @@ describe('app flow', () => {
     g.sent.length = 0;
     g.emit(welcome('ann'));
     expect(app.view()).toBe('control');
-    expect(g.sent).toEqual([{ t: 'selectCamera', camera: 'ZCam' }]);
+    expect(g.sent).toEqual([{ t: 'watchCameras', cameras: ['Colour', 'ZCam'] }]);
+  });
+
+  it('remembers the cameras on show for the next time the page loads', async () => {
+    const store = new Map<string, string>();
+    const storage = () => ({ getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }) as unknown as Storage;
+    const first = await loggedIn('ann', { storage });
+    first.g.emit(welcome('ann'));
+    (first.app.control()!.el.querySelectorAll('.camera-buttons button')[1] as HTMLButtonElement).click();
+    expect(store.get('telerobot.cameras')).toBe('["Colour","YCam"]');
+    const again = await loggedIn('ann', { storage });
+    again.g.emit(welcome('ann'));
+    expect(again.app.control()!.shownCameras()).toEqual(['Colour', 'YCam']);
+    expect(again.g.sent).toContainEqual({ t: 'watchCameras', cameras: ['Colour', 'YCam'] });
   });
 
   it('a closed gateway shows the waking page and re-runs ensureAwake, then reconnects', async () => {
@@ -527,11 +540,12 @@ describe('the 1996 forms interface (#/classic)', () => {
     globalThis.dispatchEvent(new HashChangeEvent('hashchange'));
   };
 
-  it('is another view of the session: it shows the forms page, and back gives the applet page its camera again', async () => {
+  it('is another view of the session: it shows the forms page, and back gives the applet page its cameras again', async () => {
     const { app, root, g } = await loggedIn('ann');
     g.emit(welcome('ann'));
     expect(app.view()).toBe('control');
-    const appletCam = app.control()!.selectedCamera();
+    (app.control()!.el.querySelectorAll('.camera-buttons button')[1] as HTMLButtonElement).click();
+    expect(app.control()!.shownCameras()).toEqual(['Colour', 'YCam']);
     go('#/classic');
     expect(app.view()).toBe('classic');
     expect(root.querySelector('.classic-page')).not.toBeNull();
@@ -542,7 +556,7 @@ describe('the 1996 forms interface (#/classic)', () => {
     go('#/');
     expect(app.view()).toBe('control');
     expect(root.querySelector('.control-page')).not.toBeNull();
-    expect(g.sent).toContainEqual({ t: 'selectCamera', camera: appletCam });
+    expect(g.sent).toContainEqual({ t: 'watchCameras', cameras: ['Colour', 'YCam'] });
   });
 
   it('messages reach the forms page too', async () => {

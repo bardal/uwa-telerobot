@@ -7,6 +7,7 @@ export type In =
  | {t:"takeControl"} | {t:"release"}
  | {t:"chat", text:string}
  | {t:"selectCamera", camera:string}
+ | {t:"watchCameras", cameras:string[]}
  | {t:"cameraSettings", camera:string, on:boolean, width:number, height:number, zoom:number, quality:number, fixed:boolean}
  | {t:"newImage", camera:string}
  | {t:"workspaceAdd", x:number, y:number, z:number, label:string}

@@ -488,21 +488,29 @@ public final class MomBridge {
         return Map.copyOf(lastFrames);
     }
 
+    private final Object settingsAsk = new Object();
+
     public Optional<Out.CameraSettings> lastSettings(String camera) {
         return Optional.ofNullable(lastSettings.get(camera));
     }
 
-    /** Asks the camera server (CameraClient.getSettings blocks until it answers). */
+    /**
+     * Asks the camera server (CameraClient.getSettings blocks until it answers). One question at a
+     * time: a browser showing several cameras asks for them all at once, and the lab was only ever
+     * asked for one.
+     */
     public Optional<Out.CameraSettings> fetchSettings(String camera) {
         return within(() -> {
-            Camera c = cameras.get(camera);
-            if (c == null || closing) return Optional.<Out.CameraSettings>empty();
-            CameraSettings s = c.getSettings();
-            if (s == null) return Optional.<Out.CameraSettings>empty();
-            Out.CameraSettings out = new Out.CameraSettings(camera, c.getOn(), s.getWidth(), s.getHeight(),
-                s.getZoom(), s.getQuality(), s.getFixed());
-            lastSettings.putIfAbsent(camera, out);
-            return Optional.of(out);
+            synchronized (settingsAsk) {
+                Camera c = cameras.get(camera);
+                if (c == null || closing) return Optional.<Out.CameraSettings>empty();
+                CameraSettings s = c.getSettings();
+                if (s == null) return Optional.<Out.CameraSettings>empty();
+                Out.CameraSettings out = new Out.CameraSettings(camera, c.getOn(), s.getWidth(), s.getHeight(),
+                    s.getZoom(), s.getQuality(), s.getFixed());
+                lastSettings.putIfAbsent(camera, out);
+                return Optional.of(out);
+            }
         });
     }
 

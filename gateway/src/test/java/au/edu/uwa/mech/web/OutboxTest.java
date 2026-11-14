@@ -133,6 +133,51 @@ class OutboxTest {
     }
 
     @Test
+    void everyWatchedCameraGetsItsOwnNewestFrameWhileOneIsInFlight() {
+        open();
+        box.watch(List.of("Colour", "YCam", "ZCam"), c -> Optional.empty());
+        ImageData c1 = frame(10), y1 = frame(10), z1 = frame(10), y2 = frame(10);
+        box.image("Colour", c1); // in flight
+        box.image("YCam", y1);
+        box.image("ZCam", z1);
+        box.image("YCam", y2); // replaces y1; ZCam's frame must survive it
+        assertEquals(2, conn.sent.size(), "one header and one JPEG in flight");
+        conn.complete();
+        assertEquals("YCam", ((Out.Image) conn.sent.get(2)).camera(), "the camera that has waited longest goes next");
+        assertSame(y2.pixels, conn.sent.get(3), "y1 was dropped for the newer y2");
+        conn.complete();
+        assertEquals("ZCam", ((Out.Image) conn.sent.get(4)).camera());
+        assertSame(z1.pixels, conn.sent.get(5));
+        conn.complete();
+        assertEquals(6, conn.sent.size(), "nothing else pending");
+        box.image("ZCam", frame(10));
+        assertEquals(8, conn.sent.size(), "idle again: the next frame goes at once");
+    }
+
+    @Test
+    void watchingStartsEachCameraWithItsLastPhotoAndStopsTheOthers() {
+        open();
+        ImageData colour = frame(10), ycam = frame(10);
+        java.util.Map<String, ImageData> last = new java.util.HashMap<>(java.util.Map.of("Colour", colour, "YCam", ycam));
+        box.watch(List.of("Colour", "YCam"), c -> Optional.ofNullable(last.get(c)));
+        conn.completeAll();
+        assertEquals(List.of("Colour", "YCam"),
+            conn.sent.stream().filter(Out.Image.class::isInstance).map(m -> ((Out.Image) m).camera()).toList());
+        assertTrue(box.watches("YCam") && !box.watches("ZCam"));
+        assertEquals(java.util.Set.of("Colour", "YCam"), box.watching());
+        conn.sent.clear();
+
+        box.image("ZCam", frame(10));
+        assertEquals(0, conn.sent.size(), "ZCam is not on show");
+        ImageData colour2 = frame(10);
+        last.put("Colour", colour2); // a camera's last photo is the frame the live path delivers
+        box.image("Colour", colour2); // in flight
+        box.image("YCam", frame(10)); // pending
+        box.watch(List.of("Colour", "ZCam"), c -> Optional.ofNullable(last.get(c)));
+        conn.completeAll();
+        assertEquals(2, conn.sent.size(), "YCam's pending frame is dropped, and Colour's last photo is not sent twice");
+    }
+    @Test
     void robotStatesCoalesceToTheLatest() {
         open();
         box.robotState(state(1));

@@ -1,6 +1,8 @@
 // Port of devices/camera/CameraManagerPanel, CameraPanel and CameraControlsPanel:
-// a button per camera above a card stack of camera panels; each panel is the
-// image canvas (Task 10's CameraCanvas) over its settings row.
+// a button per camera above the camera panels; each panel is the image canvas
+// (Task 10's CameraCanvas) over its settings row. The applet showed one panel
+// at a time (a CardLayout); here each button turns its camera on or off, and
+// the cameras that are on sit side by side.
 
 import { displayMatrix, type P34 } from '../geometry/camera';
 import { StickCursor } from '../overlays/stickCursor';
@@ -12,9 +14,27 @@ import { button, h } from './dom';
 type Settings = Extract<Out, { t: 'cameraSettings' }>;
 type SettingsIn = Extract<In, { t: 'cameraSettings' }>;
 
+/** Where the visitor's choice of cameras is kept between visits. */
+export interface CameraChoice {
+  load: () => string[] | null;
+  save: (cameras: string[]) => void;
+}
+
+/** A picture at the cameras' usual size is this wide. */
+export const FULL_WIDTH = 640;
+
+/** How many pictures fit side by side at full size in `space` px: at least one, at most all of them. */
+export function fitCount(space: number, cameras: number): number {
+  return Math.max(1, Math.min(cameras, Math.floor(space / FULL_WIDTH)));
+}
+
 export interface CamerasPanelDeps {
-  /** A camera button was pressed (the card is already shown). */
-  onSelect: (camera: string) => void;
+  /** A camera button changed which cameras are on show (their panels already are). */
+  onWatch: (cameras: string[]) => void;
+  /** The remembered choice; without it the choice lasts as long as the page. */
+  choice?: CameraChoice;
+  /** Width in px there is for pictures when the cameras first arrive. */
+  space?: () => number;
   onSettings: (s: SettingsIn) => void;
   onNewImage: (camera: string) => void;
   /** A drag moved this camera's stick cursor. */
@@ -144,7 +164,7 @@ export class CamerasPanel {
   private readonly buttons: HTMLElement;
   private readonly cards: HTMLElement;
   private readonly views = new Map<string, CameraView>();
-  private selectedName: string | null = null;
+  private readonly on = new Set<string>();
 
   constructor(private readonly deps: CamerasPanelDeps) {
     this.buttons = h('div', { class: 'camera-buttons' });
@@ -152,8 +172,9 @@ export class CamerasPanel {
     this.el = h('div', { class: 'camera-manager' }, this.buttons, this.cards);
   }
 
-  get selected(): string | null {
-    return this.selectedName;
+  /** The cameras on show, in the lab's order. */
+  shown(): string[] {
+    return [...this.views.keys()].filter((n) => this.on.has(n));
   }
 
   names(): string[] {
@@ -168,11 +189,15 @@ export class CamerasPanel {
     return [...this.views.values()];
   }
 
-  /** newCamera for each name not yet known; the first camera's card is shown (CardLayout). */
+  /**
+   * newCamera for each name not yet known. The first time, the cameras on show are the
+   * visitor's remembered choice, or else as many as fit side by side at full size.
+   */
   setCameras(names: string[], cursorPose: Pose, cursorVisible: boolean): void {
     for (const name of names) {
       if (this.views.has(name)) continue;
       const b = button(name, () => this.press(name), 'camera-button');
+      b.title = 'Show or hide this camera';
       this.buttons.appendChild(b);
       const canvasEl = h('canvas', { class: 'camera-canvas', 'aria-label': `${name} camera` });
       const wrap = h('div', { class: 'canvas-wrap' }, canvasEl);
@@ -201,24 +226,50 @@ export class CamerasPanel {
       );
       wrap.addEventListener('contextmenu', (e) => e.preventDefault());
       this.views.set(name, { name, button: b, card, canvasEl, canvas, stick, controls, calibration: null, seq: -1 });
-      if (this.selectedName === null) this.show(name);
+    }
+    if (this.on.size === 0 && this.views.size > 0) {
+      const all = [...this.views.keys()];
+      let first: string[] = [];
+      try {
+        first = (this.deps.choice?.load() ?? []).filter((n) => this.views.has(n));
+      } catch {
+        // nothing remembered
+      }
+      if (first.length === 0) first = all.slice(0, fitCount(this.deps.space?.() ?? 0, all.length));
+      this.show(first);
     }
   }
 
-  /** CardLayout.show. */
-  show(name: string): void {
-    if (!this.views.has(name)) return;
-    this.selectedName = name;
+  /** Puts exactly these cameras on show. Unknown names are ignored; with none left, nothing changes. */
+  show(names: string[]): void {
+    const known = names.filter((n) => this.views.has(n));
+    if (known.length === 0) return;
+    this.on.clear();
+    for (const n of known) this.on.add(n);
     for (const v of this.views.values()) {
-      v.card.hidden = v.name !== name;
-      v.button.classList.toggle('selected', v.name === name);
+      const on = this.on.has(v.name);
+      v.card.hidden = !on;
+      v.button.classList.toggle('selected', on);
+      v.button.setAttribute('aria-pressed', String(on));
+      if (on) v.canvas.invalidate();
     }
-    this.views.get(name)?.canvas.invalidate();
+    this.cards.classList.toggle('several', this.on.size > 1);
   }
 
+  /** A camera button: turns its camera on or off. The last camera on stays on. */
   private press(name: string): void {
-    this.show(name);
-    this.deps.onSelect(name);
+    const next = new Set(this.on);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    if (next.size === 0) return;
+    this.show([...next]);
+    const shown = this.shown();
+    try {
+      this.deps.choice?.save(shown);
+    } catch {
+      // not remembered
+    }
+    this.deps.onWatch(shown);
   }
 
   setImage(name: string, seq: number, img: ImageBitmap, width: number, height: number, calibration: P34): void {
@@ -256,7 +307,7 @@ export class CamerasPanel {
   /**
    * Redraws every camera, hidden ones included: as in the applet, each camera keeps showing
    * its last frame with the current overlays (measuring needs two views), and only the
-   * selected camera receives new frames.
+   * cameras on show receive new frames.
    */
   invalidate(): void {
     for (const v of this.views.values()) v.canvas.invalidate();

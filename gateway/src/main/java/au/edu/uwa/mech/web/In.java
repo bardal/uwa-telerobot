@@ -12,6 +12,8 @@ public sealed interface In {
 
     Set<String> ADMIN_ACTIONS = Set.of("kick", "ban", "reset", "deleteMove", "deleteSnapshot", "deleteChat");
     Set<String> BLOCK_ACTIONS = Set.of("add", "randomise", "reset");
+    /** More cameras than any lab has; a longer list is refused. */
+    int MAX_WATCHED = 8;
 
     record Dev(String sub, List<String> groups) {
         public Dev {
@@ -47,6 +49,19 @@ public sealed interface In {
     record SelectCamera(String camera) implements In {
         public SelectCamera {
             req(camera, "camera");
+        }
+    }
+
+    /** The cameras whose pictures the browser is showing: any combination, at least one. */
+    record WatchCameras(List<String> cameras) implements In {
+        public WatchCameras {
+            req(cameras, "cameras");
+            if (cameras.isEmpty() || cameras.size() > MAX_WATCHED) {
+                throw new IllegalArgumentException("cameras: 1 to " + MAX_WATCHED);
+            }
+            for (String c : cameras) req(c, "cameras[]");
+            if (Set.copyOf(cameras).size() != cameras.size()) throw new IllegalArgumentException("cameras: repeated");
+            cameras = List.copyOf(cameras);
         }
     }
 
