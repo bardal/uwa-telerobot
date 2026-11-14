@@ -49,6 +49,7 @@ public final class Protocol {
         Map.entry("release", In.Release.class),
         Map.entry("chat", In.Chat.class),
         Map.entry("selectCamera", In.SelectCamera.class),
+        Map.entry("watchCameras", In.WatchCameras.class),
         Map.entry("cameraSettings", In.CameraSettings.class),
         Map.entry("newImage", In.NewImage.class),
         Map.entry("workspaceAdd", In.WorkspaceAdd.class),

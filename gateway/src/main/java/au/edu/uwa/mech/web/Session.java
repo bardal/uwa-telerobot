@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -60,7 +61,8 @@ public final class Session implements MomBridge.Listener {
     private final AtomicBoolean shutDown = new AtomicBoolean();
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicInteger pendingPoints = new AtomicInteger();
-    private final AtomicBoolean fetchingSettings = new AtomicBoolean();
+    /** Cameras whose settings are being fetched for this session. */
+    private final Set<String> fetchingSettings = ConcurrentHashMap.newKeySet();
     /** Moves being archived, by command id: the archive move id, once startMove has run. */
     private final Map<String, CompletableFuture<String>> moves = new ConcurrentHashMap<>();
 
@@ -278,6 +280,7 @@ public final class Session implements MomBridge.Listener {
             case In.Chat c -> chat(b, c);
             // each of these makes the camera server work (a photo, new settings, a settings fetch)
             case In.SelectCamera s -> allow("camera") && selectCamera(b, s);
+            case In.WatchCameras w -> allow("watch") && watchCameras(b, w);
             case In.CameraSettings s -> allow("camera") && cameraSettings(b, s);
             case In.NewImage n -> allow("camera") && knownCamera(b, n.camera()) && run(() -> b.newImage(n.camera()));
             case In.WorkspaceAdd w -> workspaceAdd(b, w);
@@ -339,22 +342,39 @@ public final class Session implements MomBridge.Listener {
         if (!knownCamera(b, s.camera())) return false;
         String camera = s.camera();
         outbox.select(camera, () -> b.lastPhoto(camera));
+        sendSettings(b, camera);
+        return true;
+    }
+
+    /** The browser shows these cameras side by side: each one newly on show also gets its settings row. */
+    private boolean watchCameras(MomBridge b, In.WatchCameras w) {
+        for (String camera : w.cameras()) {
+            if (!knownCamera(b, camera)) return false;
+        }
+        Set<String> before = outbox.watching();
+        outbox.watch(w.cameras(), b::lastPhoto);
+        for (String camera : w.cameras()) {
+            if (!before.contains(camera)) sendSettings(b, camera);
+        }
+        return true;
+    }
+
+    private void sendSettings(MomBridge b, String camera) {
         Optional<Out.CameraSettings> known = b.lastSettings(camera);
         if (known.isPresent()) {
             outbox.emit(known.get());
-        } else if (fetchingSettings.compareAndSet(false, true)) {
+        } else if (fetchingSettings.add(camera)) {
             // CameraClient asks the camera server and waits for it: keep that off the session's queue
             registry.executor().execute(() -> {
                 try {
                     b.fetchSettings(camera).ifPresent(st -> {
-                        if (camera.equals(outbox.selected())) outbox.emit(st);
+                        if (outbox.watches(camera)) outbox.emit(st);
                     });
                 } finally {
-                    fetchingSettings.set(false);
+                    fetchingSettings.remove(camera);
                 }
             });
         }
-        return true;
     }
 
     private boolean cameraSettings(MomBridge b, In.CameraSettings s) {
@@ -508,7 +528,7 @@ public final class Session implements MomBridge.Listener {
 
     @Override
     public void cameraSettings(Out.CameraSettings settings) {
-        if (settings.camera().equals(outbox.selected())) outbox.emit(settings);
+        if (outbox.watches(settings.camera())) outbox.emit(settings);
     }
 
     @Override
