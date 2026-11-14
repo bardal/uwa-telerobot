@@ -889,12 +889,13 @@ a.back-link {
     min-height: 220px;
   }
 
-  /* too narrow for pictures side by side: the cameras on show go one above the other */
-  .camera-cards {
+  /* too narrow for pictures side by side: several cameras on show go one above the other,
+     each as tall as its picture and settings (one camera alone fills the panel as before) */
+  .camera-cards.several {
     flex-direction: column;
   }
 
-  .camera-card {
+  .camera-cards.several .camera-card {
     flex: 0 0 auto;
   }
 }
