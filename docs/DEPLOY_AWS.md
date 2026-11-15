@@ -32,7 +32,9 @@ pwsh -File deploy/deploy.ps1 -InfraOnly   # stacks and parameters only, no artif
 pwsh -File deploy/deploy.ps1 -SkipTests   # skip the test suites (retries only)
 ```
 
-`deploy.ps1` refuses to run on a dirty working tree. In full mode it:
+Deploys run off GitHub's `main`. `deploy.ps1` refuses to run on a dirty
+working tree, and unless `HEAD` is the commit that `main` is at on GitHub
+(it asks GitHub, so push first: nothing unpushed goes live). In full mode it:
 
 1. clones the committed `HEAD` into a temp directory and builds it there:
    `mvn -B clean verify -Dgit.commit=<sha>` (every test, including `it` and

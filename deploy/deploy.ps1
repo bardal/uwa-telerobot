@@ -1,11 +1,12 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-  Builds the committed HEAD from source and deploys the UWA Telerobot to AWS.
+  Builds GitHub's main from source and deploys the UWA Telerobot to AWS.
 
 .DESCRIPTION
   Full mode (the default):
-    1. refuses a dirty working tree;
+    1. refuses a dirty working tree, and a HEAD that is not the commit
+       GitHub's main is at (push first: nothing unpushed goes live);
     2. clones HEAD into a temp directory and builds it there: Maven (all tests,
        stamped with the commit) and the web UI (npm ci, test, lint, build);
     3. creates any missing SSM parameter (never overwrites one), looks up the
@@ -86,6 +87,25 @@ function Step([string]$Text) {
 function Note([string]$Text) { Write-Host "    $Text" }
 function Warn([string]$Text) { Write-Host "    WARNING: $Text" -ForegroundColor Yellow }
 function Abort([string]$Text) { throw "deploy.ps1: $Text" }
+
+# Deploys run off GitHub's main: the commit being deployed must be the one main is at on GitHub, so
+# nothing goes live that has not been pushed. GitHub itself is asked (ls-remote); the local origin/main
+# is only as fresh as the last fetch.
+function Assert-IsGitHubMain([string]$Repo, [string]$Sha) {
+  $url = git -C $Repo remote get-url origin
+  if ($LASTEXITCODE -ne 0 -or -not $url) { Abort 'this repository has no "origin" remote; deploys run off GitHub main' }
+  $url = "$url".Trim()
+  if ($url -notmatch 'github\.com[:/]') { Abort "origin is $url, not GitHub; deploys run off GitHub main" }
+  $lines = @(git -C $Repo ls-remote origin refs/heads/main)
+  if ($LASTEXITCODE -ne 0) { Abort "could not ask $url for its main (git ls-remote exit $LASTEXITCODE)" }
+  $remote = if ($lines.Count -ge 1) { ("$($lines[0])".Trim() -split '\s+')[0] } else { '' }
+  if ($remote -notmatch '^[0-9a-f]{40}$') { Abort "$url has no main branch" }
+  if ($remote -ne $Sha) {
+    Abort ("HEAD is $($Sha.Substring(0, 7)) but GitHub main is $($remote.Substring(0, 7)). Deploys run off GitHub main: " +
+      'check out main, push it (git push origin main) and rerun.')
+  }
+  Note "GitHub main ($url) is at this commit"
+}
 
 # Runs a native command in a directory and throws if it fails.
 function Exec([string]$What, [string]$Dir, [scriptblock]$Block) {
@@ -230,6 +250,7 @@ try {
   $Sha = "$Sha".Trim()
   if ($Sha -notmatch '^[0-9a-f]{40}$') { Abort "HEAD is not a commit sha: $Sha" }
   Note "HEAD $Sha"
+  Assert-IsGitHubMain $Repo $Sha
   $Summary['Commit'] = $Sha
   $Summary['Mode'] = if ($InfraOnly) { 'infra-only' } else { 'full' }
 
@@ -287,7 +308,8 @@ try {
 
   # ------------------------------------------------------------ 3. build
   # Everything that is deployed, the CDK app included, comes from a clean
-  # clone of the committed HEAD, never from the working tree.
+  # clone of the committed HEAD (checked above to be GitHub's main), never
+  # from the working tree.
   Step "Cloning $Sha"
   $BuildDir = Join-Path ([IO.Path]::GetTempPath()) ("telerobot-build-" + $Sha.Substring(0, 12) + '-' + [guid]::NewGuid().ToString().Substring(0, 8))
   Exec 'git clone' $Repo { git clone --no-hardlinks --quiet $Repo $BuildDir }
